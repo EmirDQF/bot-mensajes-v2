@@ -11,6 +11,8 @@ async function run() {
   // Import modules dynamically so they pick up LEADS_TEST_FILE
   const { hasSchedulingIntent, extractLeadData, parseFechaHora } = await import('../src/gemini.js');
   const { saveLead } = await import('../src/leads.js');
+  // Also import webhook processor to simulate Cloud API payload
+  const { processWebhookEvent } = await import('../src/whatsapp.js');
 
   const messages = [
     'hola',
@@ -61,6 +63,36 @@ async function run() {
     else console.log('FAIL: leads.test.json empty');
   } catch (e) {
     console.log('FAIL: leads.test.json not found', e.message);
+  }
+
+  // Simulate a webhook payload from Meta Cloud API to validate parser/handler
+  const fakePayload = {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: 'fake-entry',
+        changes: [
+          {
+            value: {
+              messaging_product: 'whatsapp',
+              metadata: { phone_number_id: '12345' },
+              contacts: [{ profile: { name: 'Juan Perez' }, wa_id: '51987654321' }],
+              messages: [
+                { from: '51987654321', id: 'msg1', timestamp: `${Math.floor(Date.now()/1000)}`, text: { body: 'Quiero agendar, me llamo Juan Perez, mi numero es 987654321, vivo en San Borja, puedo el jueves a las 3pm' }, type: 'text' }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  };
+
+  // Call the webhook handler using null signature/headers (processWebhookEvent will skip signature verification if WHATSAPP_APP_SECRET not set)
+  try {
+    const webhookResult = await processWebhookEvent(fakePayload, Buffer.from(JSON.stringify(fakePayload)), {});
+    console.log('Webhook simulation result:', webhookResult);
+  } catch (e) {
+    console.error('Webhook simulation failed:', e);
   }
 }
 

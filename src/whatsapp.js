@@ -1,212 +1,126 @@
-import qrcode from 'qrcode-terminal';
-import makeWASocket, {
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  useMultiFileAuthState,
-  delay,
-} from '@whiskeysockets/baileys';
+import express from 'express';
+import crypto from 'crypto';
 import { obtenerRespuestaIA } from './gemini.js';
+import { saveLead } from './leads.js';
 
-const authFolder = process.env.AUTH_INFO_DIR || './auth_info';
-const colors = {
-  reset: '\x1b[0m',
-  blue: '\x1b[34m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-};
-const contingencyMessage = 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
-const adminPhoneRaw = process.env.ADMIN_WHATSAPP_NUMBER?.trim();
+// Cloud API sender using fetch (Node 18+/global fetch)
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const WHATSAPP_APP_SECRET = process.env.WHATSAPP_APP_SECRET;
+const WHATSAPP_API_VERSION = process.env.WHATSAPP_API_VERSION || 'v17.0';
 
-// --- Rate limiting and anti-fingerprinting protections ---
-// Global outgoing messages per minute limit (configurable via env):
-const OUTGOING_MSGS_PER_MINUTE = parseInt(process.env.OUTGOING_MSGS_PER_MINUTE, 10) || 20; // default 20/min
-// Sliding window timestamps (ms) of recent outgoing messages
+// Rate limiting shared with previous design
+const OUTGOING_MSGS_PER_MINUTE = parseInt(process.env.OUTGOING_MSGS_PER_MINUTE, 10) || 20;
 const outgoingTimestamps = [];
-// Set of JIDs that initiated a conversation with us during runtime. We will not initiate conversations to unknown patient JIDs.
-const allowedIncomingJids = new Set();
+const allowedIncomingJids = new Set(); // store as '51987654321@s.whatsapp.net'
 
-function buildAdminJidInternal(rawNumber) {
-  if (!rawNumber) return null;
-  const clean = rawNumber.trim();
-  if (clean.endsWith('@s.whatsapp.net')) {
-    return clean;
-  }
-  const digits = clean.replace(/\D/g, '');
-  return digits ? `${digits}@s.whatsapp.net` : null;
-}
-
-// Helper: rate-limited sendMessage wrapper
-async function sendWithRateLimit(sock, jid, message) {
+function cleanupOldTimestamps() {
   const now = Date.now();
-  // Cleanup timestamps older than 60s
   while (outgoingTimestamps.length && outgoingTimestamps[0] <= now - 60_000) {
     outgoingTimestamps.shift();
   }
-
-  // Allow sending to admin JID regardless of whether it initiated the chat
-  const adminJid = buildAdminJidInternal(adminPhoneRaw);
-
-  if (!allowedIncomingJids.has(jid) && jid !== adminJid) {
-    console.warn(`⚠️ Prevented initiating message to ${jid} because no prior incoming message was seen. This avoids outbound-initiated contact.`);
-    return;
-  }
-
-  if (outgoingTimestamps.length >= OUTGOING_MSGS_PER_MINUTE) {
-    console.warn(`⚠️ Outgoing rate limit reached (${OUTGOING_MSGS_PER_MINUTE}/min). Dropping or delaying message to ${jid}.`);
-    return;
-  }
-
-  // Respect a human-like variable delay before sending to reduce fingerprinting risk
-  const delayMs = getRandomDelayMs();
-  await new Promise((res) => setTimeout(res, delayMs));
-
-  try {
-    const res = await sock.sendMessage(jid, message);
-    outgoingTimestamps.push(Date.now());
-    return res;
-  } catch (error) {
-    console.error(`❌ Error sending message to ${jid}:`, error);
-    throw error;
-  }
-}
-
-function buildAdminJid(rawNumber) {
-  if (!rawNumber) return null;
-  const clean = rawNumber.trim();
-  if (clean.endsWith('@s.whatsapp.net')) {
-    return clean;
-  }
-  const digits = clean.replace(/\D/g, '');
-  return digits ? `${digits}@s.whatsapp.net` : null;
-}
-
-// Notifica al administrador por WhatsApp cuando un paciente queda listo para agendar
-// (envío encapsulado en try/catch para no afectar la respuesta al paciente)
-// Notifica al administrador vía WhatsApp con un resumen del paciente agendado para que el equipo humano lo atienda.
-async function notifyAdmin(sock, lead) {
-  const adminJid = buildAdminJid(adminPhoneRaw);
-  if (!adminJid) {
-    console.warn('ADMIN_WHATSAPP_NUMBER no está configurado. No se envió la notificación al administrador.');
-    return;
-  }
-
-  const fechaDisplay = lead.fechaHoraISO ? new Date(lead.fechaHoraISO).toLocaleString('es-PE', { timeZone: 'America/Lima', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : (lead.fechaHoraTexto || 'N/A');
-  const alertMessage = `🚨 ¡NUEVO PACIENTE AGENDADO!\n👤 Nombre: ${lead.nombre || 'N/A'}\n📞 Teléfono: ${lead.telefono || lead.telefonoOriginal || 'N/A'}\n📍 Distrito: ${lead.distrito || 'N/A'}\n🗓️ Fecha/Hora: ${fechaDisplay}`;
-
-  try {
-    await sendWithRateLimit(sock, adminJid, { text: alertMessage });
-    console.log(`${colors.green}✅ Notificación enviada al administrador: ${adminJid}${colors.reset}`);
-  } catch (error) {
-    // Loguear el error sin interrumpir la interacción con el paciente
-    console.error(`${colors.red}❌ Error al enviar notificación al administrador:${colors.reset}`, error);
-  }
-}
-
-function getMessageText(message) {
-  if (!message) return null;
-  if ('conversation' in message && message.conversation) {
-    return message.conversation.trim();
-  }
-
-  if ('extendedTextMessage' in message && message.extendedTextMessage?.text) {
-    return message.extendedTextMessage.text.trim();
-  }
-
-  if ('imageMessage' in message && message.imageMessage?.caption) {
-    return message.imageMessage.caption.trim();
-  }
-
-  if ('videoMessage' in message && message.videoMessage?.caption) {
-    return message.videoMessage.caption.trim();
-  }
-
-  return null;
 }
 
 function getRandomDelayMs() {
-  // Slightly varied human-like delay to reduce fingerprinting risk.
-  // Original range was ~2000-3999ms; we add modest jitter so timing patterns are less uniform.
-  // This helps reduce automated detection based on fixed timing fingerprints.
+  // similar jitter as prior implementation
   const base = 2000;
-  const variability = Math.floor(Math.random() * 2000); // 0..1999
-  const jitter = Math.floor(Math.random() * 500); // 0..499
-  return base + variability + jitter; // ~2000..4498ms
+  const variability = Math.floor(Math.random() * 2000);
+  const jitter = Math.floor(Math.random() * 500);
+  return base + variability + jitter;
 }
 
-export default async function iniciarWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState(authFolder);
-  const versionResult = await fetchLatestBaileysVersion().catch((error) => {
-    console.warn(`${colors.yellow}No se pudo obtener la versión más reciente de Baileys:${colors.reset}`, error?.message || error);
-    return { version: [2, 3000, 1035194821] };
+async function sendWhatsAppMessage(toPhone, text) {
+  // toPhone: string like '51987654321' (international without plus)
+  cleanupOldTimestamps();
+  if (outgoingTimestamps.length >= OUTGOING_MSGS_PER_MINUTE) {
+    console.warn(`⚠️ Outgoing rate limit reached (${OUTGOING_MSGS_PER_MINUTE}/min). Dropping message to ${toPhone}.`);
+    return null;
+  }
+
+  // Delay a bit to mimic human
+  await new Promise((r) => setTimeout(r, getRandomDelayMs()));
+
+  const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const body = {
+    messaging_product: 'whatsapp',
+    to: toPhone,
+    text: { body: text },
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+    },
+    body: JSON.stringify(body),
   });
 
-  const sock = makeWASocket({
-    auth: state,
-    version: versionResult.version,
-    printQRInTerminal: false,
-    browser: ['BotMensajes', 'Chrome', '1.0.0'],
-    syncFullHistory: false,
-  });
+  outgoingTimestamps.push(Date.now());
+  if (!res.ok) {
+    const txt = await res.text();
+    console.error('❌ Error sending message via Cloud API:', res.status, txt);
+    throw new Error(`WhatsApp API error ${res.status}`);
+  }
 
-  sock.ev.on('creds.update', saveCreds);
+  return res.json();
+}
 
-  sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect, qr } = update;
+// Verify X-Hub-Signature-256 header matches HMAC-SHA256 of raw body using app secret
+function verifySignature(rawBody, signatureHeader) {
+  if (!WHATSAPP_APP_SECRET) {
+    // If no app secret set, skip verification but warn in logs
+    console.warn('WHATSAPP_APP_SECRET not set; skipping webhook signature verification');
+    return true;
+  }
+  if (!signatureHeader) return false;
+  const expected = crypto.createHmac('sha256', WHATSAPP_APP_SECRET).update(rawBody).digest('hex');
+  // header format: sha256=hex
+  const [, sig] = signatureHeader.split('=');
+  return sig === expected;
+}
 
-    if (qr) {
-      qrcode.generate(qr, { small: true });
-      console.log(`${colors.yellow}📱 Escanea el código QR para iniciar sesión.${colors.reset}`);
-    }
+// Process Cloud API webhook payload (body is parsed JSON object). This function is exported for smoke-tests.
+export async function processWebhookEvent(body, rawBodyBuf, headers) {
+  // Verify signature
+  const signatureHeader = headers['x-hub-signature-256'] || headers['X-Hub-Signature-256'];
+  const raw = rawBodyBuf ? rawBodyBuf.toString('utf8') : JSON.stringify(body);
+  if (!verifySignature(raw, signatureHeader)) {
+    console.warn('Webhook signature verification failed. Ignoring payload.');
+    return { ok: false, reason: 'signature_failed' };
+  }
 
-    if (connection) {
-      console.log(`${colors.blue}🔗 Estado de conexión: ${connection}${colors.reset}`);
-    }
+  // The Cloud API sends an 'entry' array with changes -> value -> messages
+  const entries = body.entry || [];
+  for (const entry of entries) {
+    const changes = entry.changes || [];
+    for (const change of changes) {
+      const value = change.value || {};
+      const messages = value.messages || [];
+      for (const msg of messages) {
+        // msg.from contains sender phone number (string), msg.type may be 'text'
+        const from = msg.from; // e.g., '51987654321'
+        const remoteJid = `${from}@s.whatsapp.net`;
+        // register allowed incoming
+        allowedIncomingJids.add(remoteJid);
 
-    if (connection === 'close') {
-      // Log detallado del cierre de conexión para poder distinguir entre logout, baneo o reconexiones automáticas.
-      console.error(`${colors.red}🔒 Conexión cerrada. Detalle del evento:`, JSON.stringify(update, null, 2));
-      const statusCode = lastDisconnect?.error?.output?.statusCode || lastDisconnect?.error?.statusCode;
-      if (statusCode === DisconnectReason.loggedOut) {
-        console.warn(`${colors.red}⚠️ La sesión fue desconectada permanentemente (loggedOut). Borra la carpeta auth_info y reinicia el bot para volver a escanear el QR.${colors.reset}`);
-      } else {
-        console.warn(`${colors.yellow}⚠️ Conexión cerrada. Baileys intentará reconectar automáticamente si la sesión sigue válida.${colors.reset}`);
-      }
-    }
-  });
+        let text = null;
+        if (msg.type === 'text' && msg.text && msg.text.body) text = msg.text.body.trim();
+        else if (msg.type === 'button' && msg.button && msg.button.text) text = msg.button.text.trim();
+        // you can extend to handle other types (image captions, etc.)
 
-  sock.ev.on('messages.upsert', async (upsert) => {
-    if (upsert.type !== 'notify') return;
+        if (!text) continue;
 
-    for (const message of upsert.messages) {
-      const remoteJid = message.key?.remoteJid;
-      if (!remoteJid) continue;
-      if (remoteJid.endsWith('@g.us')) continue;
-      if (remoteJid === 'status@broadcast') continue;
-      if (message.key.fromMe) continue;
+        console.log(`📩 Received message from ${from}: ${text}`);
 
-      const texto = getMessageText(message.message);
-      if (!texto) continue;
+        try {
+          const { texto: respuesta, leadResult } = await obtenerRespuestaIA(remoteJid, text);
 
-      // Registrar que este JID nos inició la conversación en esta sesión runtime.
-      // Esto evita que el bot inicie mensajes salientes a pacientes que nunca nos escribieron (mitigación anti-spam).
-      allowedIncomingJids.add(remoteJid);
+          // send response back to user
+          await sendWhatsAppMessage(from, respuesta);
 
-      console.log(`${colors.blue}📩 Mensaje de [${remoteJid}]: "${texto}"${colors.reset}`);
-
-      try {
-        await sock.presenceSubscribe(remoteJid);
-        await sock.sendPresenceUpdate('composing', remoteJid);
-        await delay(getRandomDelayMs());
-       
-        const { texto: respuesta, leadResult } = await obtenerRespuestaIA(remoteJid, texto);
-        await sendWithRateLimit(sock, remoteJid, { text: respuesta });
-        console.log(`${colors.green}🤖 Respuesta de IA enviada a [${remoteJid}]: "${respuesta}"${colors.reset}`);
-
-        // Notificar al administrador solo cuando el lead está listo para agendar (fecha, nombre y distrito completos)
-        if (leadResult?.readyToNotify && leadResult.lead) {
-          // Enviar confirmación al paciente antes de notificar al admin
-          try {
+          if (leadResult?.readyToNotify && leadResult.lead) {
+            // send confirmation message based on lead
             const lead = leadResult.lead;
             let confirmMsg = '';
             if (lead.fechaHoraConfirmada && lead.fechaHoraISO) {
@@ -218,24 +132,65 @@ export default async function iniciarWhatsApp() {
               confirmMsg = `Gracias ${lead.nombre || ''}. He registrado tu solicitud para ${fechaText} en ${lead.distrito || 'N/A'}. ¿Puedes confirmar que esa fecha y hora te viene bien?`;
             }
 
-            await sendWithRateLimit(sock, remoteJid, { text: confirmMsg });
-            console.log(`${colors.green}✅ Mensaje de confirmación enviado a [${remoteJid}]: "${confirmMsg}"${colors.reset}`);
-          } catch (err) {
-            console.warn('No se pudo enviar confirmación al paciente:', err);
-          }
+            await sendWhatsAppMessage(from, confirmMsg);
 
-          await notifyAdmin(sock, leadResult.lead);
-        }
-      } catch (error) {
-        console.error(`${colors.red}❌ Error al procesar el mensaje entrante:${colors.reset}`, error);
-        try {
-          await sendWithRateLimit(sock, remoteJid, { text: contingencyMessage });
-        } catch (sendError) {
-          console.error(`${colors.red}❌ No se pudo enviar el mensaje de contingencia:${colors.reset}`, sendError);
+            // notify admin (use ADMIN_WHATSAPP_NUMBER env var)
+            const adminPhoneRaw = process.env.ADMIN_WHATSAPP_NUMBER;
+            if (adminPhoneRaw) {
+              // normalize admin phone to digits only (no +)
+              const adminDigits = adminPhoneRaw.replace(/\D/g, '');
+              const fechaDisplay = lead.fechaHoraISO ? new Date(lead.fechaHoraISO).toLocaleString('es-PE', { timeZone: 'America/Lima', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : (lead.fechaHoraTexto || 'N/A');
+              const alertMessage = `🚨 ¡NUEVO PACIENTE AGENDADO!\n👤 Nombre: ${lead.nombre || 'N/A'}\n📞 Teléfono: ${lead.telefono || lead.telefonoOriginal || 'N/A'}\n📍 Distrito: ${lead.distrito || 'N/A'}\n🗓️ Fecha/Hora: ${fechaDisplay}`;
+              try {
+                await sendWhatsAppMessage(adminDigits, alertMessage);
+                console.log(`✅ Notificación enviada al administrador: ${adminDigits}`);
+              } catch (e) {
+                console.error('Error notificando admin via Cloud API:', e?.message || e);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error procesando mensaje entrante:', e?.message || e);
         }
       }
     }
+  }
+
+  return { ok: true };
+}
+
+// Setup Express routes on the provided app
+export default function setupWhatsAppRoutes(app) {
+  // GET /webhook for challenge verification
+  app.get('/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    const expected = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+    if (mode === 'subscribe' && token === expected) {
+      console.log('✅ Webhook verified');
+      return res.status(200).send(challenge);
+    }
+    return res.status(403).send('Forbidden');
   });
 
-  console.log(`${colors.green}✅ Bot de WhatsApp iniciado. Esperando mensajes...${colors.reset}`);
+  // POST /webhook receives raw body to verify signature
+  app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+    const rawBody = req.body; // Buffer
+    let parsed = null;
+    try {
+      parsed = JSON.parse(rawBody.toString('utf8'));
+    } catch (e) {
+      console.warn('Invalid JSON in webhook');
+      return res.sendStatus(400);
+    }
+
+    try {
+      await processWebhookEvent(parsed, rawBody, req.headers);
+      return res.sendStatus(200);
+    } catch (e) {
+      console.error('Error handling webhook:', e?.message || e);
+      return res.sendStatus(500);
+    }
+  });
 }

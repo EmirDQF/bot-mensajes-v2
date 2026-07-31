@@ -1,5 +1,5 @@
 import express from 'express';
-import iniciarWhatsApp from './src/whatsapp.js';
+import setupWhatsAppRoutes from './src/whatsapp.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -52,4 +52,6 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Promise Rejection:', reason);
 });
 
-await iniciarWhatsApp();
+// Configure Cloud API webhook routes (if WHATSAPP_TOKEN/etc are set)
+setupWhatsAppRoutes(app);
+// No longer using Baileys socket — Cloud API uses webhooks + HTTP calls.
