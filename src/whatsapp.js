@@ -7,7 +7,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import { obtenerRespuestaIA } from './gemini.js';
 
-const authFolder = './auth_info';
+const authFolder = process.env.AUTH_INFO_DIR || './auth_info';
 const colors = {
   reset: '\x1b[0m',
   blue: '\x1b[34m',

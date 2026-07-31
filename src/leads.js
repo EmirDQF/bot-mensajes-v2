@@ -2,8 +2,11 @@ import fs from 'fs/promises';
 import path from 'path';
 
 // Permite sobreescribir el archivo de leads para testing usando la variable de entorno LEADS_TEST_FILE
-const LEADS_FILE = path.resolve(process.cwd(), process.env.LEADS_TEST_FILE || 'leads.json');
-const TEMP_LEADS_FILE = path.resolve(process.cwd(), (process.env.LEADS_TEST_FILE ? process.env.LEADS_TEST_FILE + '.tmp' : 'leads.json.tmp'));
+// Support configurable leads storage directory/file. In production it's recommended to set LEADS_DIR to a persistent mount (e.g., /data) or LEADS_FILE to an absolute path.
+const defaultLeadsFileName = process.env.LEADS_TEST_FILE || 'leads.json';
+const leadsDir = process.env.LEADS_DIR ? path.resolve(process.env.LEADS_DIR) : process.cwd();
+const LEADS_FILE = process.env.LEADS_FILE ? path.resolve(process.env.LEADS_FILE) : path.resolve(leadsDir, defaultLeadsFileName);
+const TEMP_LEADS_FILE = LEADS_FILE + '.tmp';
 
 // Mutex en memoria simple: encadena operaciones para evitar race conditions en un solo proceso.
 // Nota: esto es temporal; en producción con PM2 cluster se debe migrar a Postgres/Redis.
