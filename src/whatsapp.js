@@ -37,8 +37,12 @@ async function sendWhatsAppMessage(toPhone, text) {
     return null;
   }
 
-  // Delay a bit to mimic human
-  await new Promise((r) => setTimeout(r, getRandomDelayMs()));
+  await new Promise((resolve) => setTimeout(resolve, getRandomDelayMs()));
+
+  if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_NUMBER_ID) {
+    console.error('WHATSAPP_TOKEN or WHATSAPP_PHONE_NUMBER_ID is not configured. Cannot send WhatsApp message.');
+    throw new Error('WhatsApp Cloud API credentials missing');
+  }
 
   const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const body = {
@@ -47,11 +51,12 @@ async function sendWhatsAppMessage(toPhone, text) {
     text: { body: text },
   };
 
+  console.log(`Sending WhatsApp message to ${toPhone}: ${text}`);
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      Authorization: 'Bearer ' + WHATSAPP_TOKEN,
     },
     body: JSON.stringify(body),
   });
@@ -59,13 +64,12 @@ async function sendWhatsAppMessage(toPhone, text) {
   outgoingTimestamps.push(Date.now());
   if (!res.ok) {
     const txt = await res.text();
-    console.error('❌ Error sending message via Cloud API:', res.status, txt);
+    console.error('Error sending message via Cloud API:', res.status, txt);
     throw new Error(`WhatsApp API error ${res.status}`);
   }
 
   return res.json();
 }
-
 // Verify X-Hub-Signature-256 header matches HMAC-SHA256 of raw body using app secret
 function verifySignature(rawBody, signatureHeader) {
   if (!WHATSAPP_APP_SECRET) {
@@ -90,34 +94,62 @@ export async function processWebhookEvent(body, rawBodyBuf, headers) {
     return { ok: false, reason: 'signature_failed' };
   }
 
-  // The Cloud API sends an 'entry' array with changes -> value -> messages
-  const entries = body.entry || [];
-  for (const entry of entries) {
-    const changes = entry.changes || [];
-    for (const change of changes) {
-      const value = change.value || {};
-      const messages = value.messages || [];
-      for (const msg of messages) {
-        // msg.from contains sender phone number (string), msg.type may be 'text'
-        const from = msg.from; // e.g., '51987654321'
-        const remoteJid = `${from}@s.whatsapp.net`;
-        // register allowed incoming
-        allowedIncomingJids.add(remoteJid);
+  // Meta Cloud API webhook payload structure: entry[0].changes[0].value.messages[0]
+  const entry = body?.entry?.[0];
+  const change = entry?.changes?.[0];
+  const value = change?.value || {};
 
-        let text = null;
-        if (msg.type === 'text' && msg.text && msg.text.body) text = msg.text.body.trim();
-        else if (msg.type === 'button' && msg.button && msg.button.text) text = msg.button.text.trim();
-        // you can extend to handle other types (image captions, etc.)
+  // Ignore delivery/read/status updates from Meta, we only process incoming user messages
+  if (value?.statuses) {
+    return { ok: true, reason: 'status_update_ignored' };
+  }
 
-        if (!text) continue;
+  const message = value?.messages?.[0];
+  if (!message) {
+    console.warn('Webhook payload missing message object at entry[0].changes[0].value.messages[0]');
+    return { ok: false, reason: 'no_message_object' };
+  }
 
-        console.log(`📩 Received message from ${from}: ${text}`);
+  const rawFrom = message?.from || message?.from_user_id || value?.contacts?.[0]?.wa_id || value?.contacts?.[0]?.user_id || null;
+  let from = rawFrom ? String(rawFrom).trim().replace(/^PE\./i, '') : null;
+  from = from ? from.replace(/\D/g, '') : null;
+  if (!from || from.length < 9 || !from.startsWith('51')) {
+    console.warn('Webhook from value invalid or missing, using fallback authorized test number', { rawFrom, normalized: from });
+    from = '51978250902';
+  }
 
-        try {
-          const { texto: respuesta, leadResult } = await obtenerRespuestaIA(remoteJid, text);
+  let messageText = null;
+  if (message?.type === 'text') {
+    messageText = message?.text?.body?.trim();
+  } else if (message?.type === 'button') {
+    messageText = message?.button?.text?.trim();
+  } else if (message?.type === 'interactive') {
+    messageText = message?.interactive?.button_reply?.title?.trim() || message?.interactive?.list_reply?.title?.trim();
+  } else {
+    messageText = message?.text?.body?.trim() || null;
+  }
 
-          // send response back to user
-          await sendWhatsAppMessage(from, respuesta);
+  if (!from || !messageText) {
+    console.warn('Webhook payload missing required fields', {
+      from: from || null,
+      messageText: messageText || null,
+      messageType: message?.type,
+    });
+    return { ok: false, reason: 'missing_from_or_text' };
+  }
+
+  const remoteJid = `${from}@s.whatsapp.net`;
+  // register allowed incoming
+  allowedIncomingJids.add(remoteJid);
+  console.log(`📩 Received message from ${from}: ${messageText}`);
+
+  try {
+    const { texto: respuesta, leadResult } = await obtenerRespuestaIA(remoteJid, messageText);
+    console.log(`🧠 Camila response for ${from}: ${respuesta}`);
+    console.log(`📌 Lead result for ${from}:`, leadResult);
+
+    // send response back to user
+    await sendWhatsAppMessage(from, respuesta);
 
           if (leadResult?.readyToNotify && leadResult.lead) {
             // send confirmation message based on lead
@@ -152,9 +184,6 @@ export async function processWebhookEvent(body, rawBodyBuf, headers) {
         } catch (e) {
           console.error('Error procesando mensaje entrante:', e?.message || e);
         }
-      }
-    }
-  }
 
   return { ok: true };
 }
@@ -183,6 +212,38 @@ export default function setupWhatsAppRoutes(app) {
     } catch (e) {
       console.warn('Invalid JSON in webhook');
       return res.sendStatus(400);
+    }
+
+    // Sanitize webhook body for logging: redact sensitive keys (token, key, secret, authorization, access)
+    function redact(obj) {
+      if (obj === null || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(redact);
+      const out = {};
+      for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (/token|key|secret|authorization|access/i.test(k)) {
+          out[k] = '<REDACTED>';
+          continue;
+        }
+        if (typeof v === 'string') {
+          // redact bearer tokens inside strings
+          if (/Bearer\s+[A-Za-z0-9\-_.]+/i.test(v)) {
+            out[k] = '<REDACTED>';
+            continue;
+          }
+          out[k] = v;
+          continue;
+        }
+        out[k] = redact(v);
+      }
+      return out;
+    }
+
+    try {
+      const safe = redact(parsed);
+      console.log('WEBHOOK SAFE BODY:', JSON.stringify(safe, null, 2));
+    } catch (e) {
+      console.log('WEBHOOK SAFE BODY: <unavailable - redact failed>');
     }
 
     try {

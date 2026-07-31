@@ -91,8 +91,10 @@ async function run() {
   try {
     const webhookResult = await processWebhookEvent(fakePayload, Buffer.from(JSON.stringify(fakePayload)), {});
     console.log('Webhook simulation result:', webhookResult);
+    process.exit(0);
   } catch (e) {
     console.error('Webhook simulation failed:', e);
+    process.exit(1);
   }
 }
 

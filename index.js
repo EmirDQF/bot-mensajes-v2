@@ -26,7 +26,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // Validaciones ligeras de variables de entorno para evitar que PM2 entre en crash loop silencioso
-const requiredLike = ['GEMINI_MODEL', 'ADMIN_WHATSAPP_NUMBER'];
+const requiredLike = ['GEMINI_MODEL', 'ADMIN_WHATSAPP_NUMBER', 'WHATSAPP_WEBHOOK_VERIFY_TOKEN'];
 for (const v of requiredLike) {
   if (!process.env[v]) {
     console.warn(`Advertencia: la variable de entorno ${v} no está definida. El proceso seguirá, pero algunas funciones pueden no estar disponibles.`);
@@ -34,6 +34,12 @@ for (const v of requiredLike) {
 }
 if (!process.env.GEMINI_API_KEY) {
   console.warn('Advertencia crítica: GEMINI_API_KEY no está definida. Las llamadas a Gemini fallarán hasta que se configure. Evitando crash para que PM2 no entre en loop de reintentos.');
+}
+if (!process.env.WHATSAPP_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+  console.warn('Advertencia: WHATSAPP_TOKEN o WHATSAPP_PHONE_NUMBER_ID no están definidas. El servidor arrancará, pero el envío de mensajes de WhatsApp no funcionará hasta que se configuren.');
+}
+if (!process.env.WHATSAPP_APP_SECRET) {
+  console.warn('Advertencia: WHATSAPP_APP_SECRET no está definida. El webhook aceptará solicitudes sin verificar la firma.');
 }
 
 app.get('/', (req, res) => {
