@@ -127,3 +127,59 @@ Soporte y persona de contacto:
 - Si quieres, puedo preparar una hoja con checklist para onboarding por clínica (checklist imprimible con los campos que solicitas a la clínica y los pasos a ejecutar).
 
 Fin del manual operativo.
+
+
+---
+
+Despliegue en Render (paso a paso)
+----------------------------------
+Este apartado asume que vas a subir el repositorio a GitHub y luego conectar Render al repo. NO se hace push por mí: estos son los pasos que debes ejecutar y verificar.
+
+1) Preparar el repo en GitHub
+- Crea un nuevo repositorio en GitHub (privado preferiblemente) y sube los archivos del proyecto. Ejemplo de comandos locales:
+  - git remote add origin git@github.com:TU_USUARIO/TU_REPO.git
+  - git push -u origin master
+- Asegúrate de NO subir el archivo .env (ya está en .gitignore).
+
+2) Crear el servicio en Render
+- Entra a render.com y crea una cuenta o inicia sesión.
+- Selecciona "New" → "Web Service".
+- Conecta tu cuenta de GitHub y selecciona el repositorio que subiste.
+- Branch: master (o la rama que prefieras).
+
+3) Configurar Build & Start
+- Build Command: npm install
+- Start Command: npm start
+  (La app ya tiene "start" en package.json que ejecuta node index.js)
+- Elige región cercana a tu mercado (p. ej. us-east) y selecciona el plan pago más económico (Starter / $7/mo aproximado según tu decisión). En el plan pago, Render NO duerme la app automáticamente.
+
+4) Persistencia: auth_info y leads
+- Por defecto Render recrea el archivo system desde el repo en cada deploy; las carpetas dentro del repositorio no sobreviven a un nuevo deploy. Por tanto, la carpeta ./auth_info (credenciales de Baileys) y el archivo leads.json deben vivir en un disco persistente.
+- En el panel de la Web Service en Render, activa "Persistent Disk" (opción disponible en planes pagos). Crea un disco y monta una ruta como /data.
+- En la sección Environment on Render, agrega estas variables:
+  - AUTH_INFO_DIR = /data/auth_info
+  - LEADS_DIR = /data
+  Esto hace que el bot guarde la sesión de WhatsApp en /data/auth_info y los leads en /data/leads.json, que estarán preservados a través de redeploys.
+- Nota: si no activas Persistent Disk, la carpeta auth_info se perderá en cada deploy y tendrás que volver a escanear el QR tras cada deploy.
+
+5) Variables de entorno (configurar en Render)
+- En el panel del servicio, añade las variables necesarias (ver checklist más abajo). Render expone automáticamente PORT para la app; no es necesario definirla, pero puedes hacerlo si prefieres.
+
+6) Despliegue y captura del QR
+- Haz deploy (Render detectará el push y correrá el build). Una vez el servicio esté "Live", ve a la sección "Live Logs" en el Dashboard.
+- En los logs busca la línea que contiene: "Escanea el código QR para iniciar sesión." o "📱 Escanea el código QR". Render muestra logs en tiempo real; podrás ver el QR ASCII impreso en los logs. Si el QR no se muestra en texto plano (por formato), el log mostrará el mensaje y además la carpeta auth_info se creará en el disco persistente con las credenciales una vez completes el proceso.
+- Con el teléfono de la clínica: abrir WhatsApp Business → Dispositivos vinculados → Vincular un dispositivo → escanear el QR desde la pantalla donde estés viendo los logs (o copia/pega el QR si Render muestra un link o archivo).
+
+7) Verificar 24/7 y reinicios
+- En un plan pago (Starter o superior), Render mantiene el servicio activo y no lo duerme por inactividad.
+- Si reinicias o despliegas una nueva versión, los contenidos en /data (persistent disk) sobreviven y Baileys debería reconectar automáticamente usando las credenciales guardadas en AUTH_INFO_DIR.
+- Si el servicio pierde la sesión (mensaje de Baileys: "La sesión fue desconectada permanentemente"), borra la carpeta auth_info en el disco persistente y repite el escaneo del QR.
+
+8) Logs y monitoreo
+- Usa "Live Logs" y el History/Events de Render para ver fallos, excepciones y los mensajes de reconexión de Baileys.
+- Configura alertas de uso/costos en Google Cloud (para la API de Gemini) y en Render para notificaciones de servicio.
+
+Notas de seguridad y mejores prácticas
+- Nunca pongas GEMINI_API_KEY en GitHub ni en archivos públicos. Configura la variable en el panel de Render (Environment).
+- Asegúrate de montar el persistent disk y de establecer AUTH_INFO_DIR y LEADS_DIR antes del primer deploy si quieres evitar tener que re-escanear QR después del deploy.
+
