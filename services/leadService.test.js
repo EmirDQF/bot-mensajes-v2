@@ -171,6 +171,30 @@ describe('leadService (supabase mock)', () => {
     assert.equal(byPhone.distrito, 'Barranco');
   });
 
+  it('does not re-mark readyToNotify if already notified', async () => {
+    const { saveLead, getByPhone, markAsNotified } = leadServiceModule;
+
+    // initial incomplete
+    const r1 = await saveLead({ telefono: '999222333', nombre: 'Ana' });
+    assert.equal(r1.isNew, true);
+    assert.equal(r1.readyToNotify, false);
+
+    // complete data -> should signal readyToNotify true
+    const r2 = await saveLead({ telefono: '999222333', nombre: 'Ana', distrito: 'Surco', fechaHoraTexto: 'lunes 10am' });
+    assert.equal(r2.isNew, false);
+    assert.equal(r2.readyToNotify, true);
+
+    // mark as notified
+    const marked = await markAsNotified(r2.lead.id);
+    assert.ok(marked);
+    assert.ok(marked.notified_at);
+
+    // subsequent save with same data should NOT return readyToNotify true again
+    const r3 = await saveLead({ telefono: '999222333', nombre: 'Ana', distrito: 'Surco', fechaHoraTexto: 'lunes 10am' });
+    assert.equal(r3.isNew, false);
+    assert.equal(r3.readyToNotify, false, 'Second save after notified should not signal readyToNotify');
+  });
+
   it('getByPhone and listLeads work', async () => {
     const { saveLead, getByPhone, listLeads } = leadServiceModule;
     await saveLead({ telefono: '987654321', nombre: 'Test User', distrito: 'Miraflores', fechaHoraTexto: 'mañana a las 3pm' });

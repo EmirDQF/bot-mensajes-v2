@@ -87,11 +87,15 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
 
     if (Array.isArray(existingData) && existingData.length) {
       const existing = existingData[0];
+      const wasReady = Boolean(existing.ready_to_notify);
+      const wasNotified = !!existing.notified_at;
+
       const updates = {
         nombre: nombre || existing.nombre,
         distrito: distrito || existing.distrito,
         fecha_hora_texto: fechaHoraTexto ?? existing.fecha_hora_texto,
         fecha_hora_iso: fechaHoraISO ?? existing.fecha_hora_iso,
+        // we'll set ready_to_notify in DB to real value; but return readyToNotify only if transitioning and not yet notified
         ready_to_notify: Boolean((nombre || existing.nombre) && (distrito || existing.distrito) && (fechaHoraISO || fechaHoraTexto || existing.fecha_hora_texto)),
         updated_at: now,
       };
@@ -100,7 +104,12 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       const updateErr = updateRes && updateRes.error ? updateRes.error : null;
       if (updateErr) throw updateErr;
       const lead = Array.isArray(updatedRows) && updatedRows.length ? updatedRows[0] : existing;
-      return { isNew: false, readyToNotify: lead.ready_to_notify, lead };
+
+      // Compute whether this save should signal readyToNotify to caller
+      const nowReady = Boolean(lead.ready_to_notify);
+      const shouldNotify = nowReady && !wasReady && !wasNotified;
+
+      return { isNew: false, readyToNotify: !!shouldNotify, lead };
     }
 
     // Insert new
@@ -113,15 +122,30 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       ready_to_notify: Boolean(nombre && distrito && (fechaHoraISO || fechaHoraTexto)),
       created_at: now,
       updated_at: now,
+      notified_at: null,
     };
 
     const { data: inserted, error: insertErr } = await client.from('leads').insert([newRow]).select('*').limit(1);
     if (insertErr) throw insertErr;
     const lead = Array.isArray(inserted) && inserted.length ? inserted[0] : newRow;
-    return { isNew: true, readyToNotify: lead.ready_to_notify, lead };
+
+    // For inserts, readyToNotify is true only if ready_to_notify and not notified (new rows have notified_at null)
+    return { isNew: true, readyToNotify: !!lead.ready_to_notify, lead };
   } catch (error) {
     console.error('leadService.saveLead error:', error && error.message ? error.message : error);
     throw error;
+  }
+}
+
+export async function markAsNotified(leadId) {
+  const client = getSupabaseClient();
+  try {
+    const { data, error } = await client.from('leads').update({ notified_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', leadId).select('*').limit(1);
+    if (error) throw error;
+    return Array.isArray(data) && data.length ? data[0] : null;
+  } catch (e) {
+    console.error('leadService.markAsNotified error', e && e.message ? e.message : e);
+    throw e;
   }
 }
 

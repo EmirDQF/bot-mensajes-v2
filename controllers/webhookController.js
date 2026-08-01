@@ -104,6 +104,15 @@ export default async function webhookController(req, res, next) {
               try {
                 await whatsappService.sendWhatsAppMessage(adminDigits, alertMessage, {});
                 console.log(`✅ Notificación enviada al administrador: ${adminDigits}`);
+                // Mark lead as notified to avoid duplicate admin notifications
+                try {
+                  if (leadResult && leadResult.lead && leadResult.lead.id) {
+                    await leadService.markAsNotified(leadResult.lead.id);
+                    console.log(`Marked lead ${leadResult.lead.id} as notified`);
+                  }
+                } catch (markErr) {
+                  console.error('webhookController: error marking lead as notified', markErr && markErr.message ? markErr.message : markErr);
+                }
               } catch (e) {
                 console.error('webhookController: error notifying admin', e && e.message ? e.message : e);
               }
