@@ -2,6 +2,7 @@ import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
 import leadService from '../services/leadService.js';
 import whatsappService from '../services/whatsappService.js';
+import { getGeminiClient } from '../src/geminiClient.js';
 
 // Controller delgado que orquesta: Gemini -> lead -> WhatsApp -> admin notify
 // IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
@@ -55,7 +56,8 @@ export default async function webhookController(req, res, next) {
         const jid = `${from}@s.whatsapp.net`;
 
         // Apply a 15s timeout to the Gemini call (requirement).
-        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: null });
+        const geminiClient = getGeminiClient();
+        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient });
         const timeoutMs = 15_000;
         const timeoutPromise = new Promise((_, reject) => {
           const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
