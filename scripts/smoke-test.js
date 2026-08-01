@@ -1,71 +1,95 @@
+import crypto from 'node:crypto';
 import fs from 'fs/promises';
 import path from 'path';
+import express from 'express';
+import { once } from 'node:events';
+import { Agent as HttpAgent } from 'node:http';
+
+function parseDotEnv(content) {
+  return Object.fromEntries(
+    content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'))
+      .map((line) => {
+        const idx = line.indexOf('=');
+        if (idx === -1) return [line, ''];
+        const key = line.slice(0, idx).trim();
+        let value = line.slice(idx + 1).trim();
+        if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+        if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+        return [key, value];
+      })
+  );
+}
+
+async function loadEnvFile() {
+  const envPath = path.resolve(process.cwd(), '.env');
+  try {
+    const raw = await fs.readFile(envPath, 'utf8');
+    const env = parseDotEnv(raw);
+    Object.entries(env).forEach(([key, value]) => {
+      if (!process.env[key]) process.env[key] = value;
+    });
+  } catch (err) {
+    // ignore missing .env
+  }
+}
+
+function requireEnv(key) {
+  const value = process.env[key];
+  if (!value) throw new Error(`${key} is required for the smoke test`);
+  return value;
+}
 
 async function run() {
   console.log('Running smoke test...');
-  // Override leads file for testing BEFORE loading modules
-  process.env.LEADS_TEST_FILE = 'leads.test.json';
-  const testFile = path.resolve(process.cwd(), 'leads.test.json');
-  try { await fs.rm(testFile); } catch(e) {}
+  await loadEnvFile();
 
-  // Import modules dynamically so they pick up LEADS_TEST_FILE
-  const { hasSchedulingIntent, extractLeadData, parseFechaHora } = await import('../src/gemini.js');
-  const { saveLead } = await import('../src/leads.js');
-  // Also import webhook processor to simulate Cloud API payload
-  const { processWebhookEvent } = await import('../src/whatsapp.js');
+  process.env.LEADS_TEST_FILE = process.env.LEADS_TEST_FILE || 'leads.test.json';
+  process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-key';
+  process.env.GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 
-  const messages = [
-    'hola',
-    'cuánto cuesta el inicial de brackets',
-    'quiero agendar, me llamo Juan Perez, mi numero es 987654321, vivo en San Borja, puedo el jueves a las 3pm'
+  const required = [
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'WHATSAPP_WEBHOOK_VERIFY_TOKEN',
+    'WHATSAPP_APP_SECRET',
+    'WHATSAPP_PHONE_NUMBER_ID',
+    'ADMIN_WHATSAPP_NUMBER',
   ];
-
-  const history = [];
-  let detectedIntent = false;
-  let extracted = null;
-  let leadResult = null;
-
-  for (const msg of messages) {
-    history.push({ role: 'user', parts: [{ text: msg }] });
-    if (!detectedIntent && hasSchedulingIntent(msg, history)) {
-      detectedIntent = true;
-      console.log('PASS: scheduling intent detected');
-    }
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 
-  if (!detectedIntent) console.log('FAIL: scheduling intent not detected');
+  const { default: webhookRouter } = await import('../routes/webhook.js');
+  const { default: whatsappService } = await import('../services/whatsappService.js');
+  const { default: errorHandler } = await import('../middleware/errorHandler.js');
+  const leadService = await import('../services/leadService.js');
 
-  extracted = await extractLeadData(history);
-  if (extracted && extracted.nombre && extracted.telefono && extracted.distrito && extracted.fechaHora) {
-    console.log('PASS: extracted all fields from conversation');
-  } else {
-    console.log('FAIL: extraction incomplete', extracted);
-  }
+  // Stub outbound WhatsApp calls for smoke test
+  whatsappService.sendWhatsAppMessage = async () => ({ ok: true });
 
-  // Parse fechaHora
-  const parsed = parseFechaHora(extracted?.fechaHora || '');
-  if (parsed) console.log('PASS: fechaHora parsed ->', parsed.toISOString());
-  else console.log('FAIL: fechaHora could not be parsed');
+  const app = express();
+  app.use(express.json());
+  app.use('/', webhookRouter);
+  app.use(errorHandler);
 
-  // Save lead (uses LEADS_TEST_FILE)
-  leadResult = await saveLead({ telefono: extracted.telefono, nombre: extracted.nombre, distrito: extracted.distrito, fechaHoraTexto: extracted.fechaHora, fechaHoraISO: parsed ? parsed.toISOString() : null, fechaHoraConfirmada: Boolean(parsed) });
-  if (leadResult && leadResult.lead) {
-    console.log('PASS: lead saved to test file:', leadResult.lead);
-  } else {
-    console.log('FAIL: lead not saved');
-  }
+  const sockets = new Set();
+  const server = app.listen(0);
+  server.unref && server.unref();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address !== 'object') throw new Error('Unable to determine listening port');
+  const port = address.port;
 
-  // Verify leads.test.json exists
-  try {
-    const raw = await fs.readFile(testFile, 'utf8');
-    const parsedFile = JSON.parse(raw);
-    if (Array.isArray(parsedFile) && parsedFile.length > 0) console.log('PASS: leads.test.json created with entries');
-    else console.log('FAIL: leads.test.json empty');
-  } catch (e) {
-    console.log('FAIL: leads.test.json not found', e.message);
-  }
-
-  // Simulate a webhook payload from Meta Cloud API to validate parser/handler
+  const httpAgent = new HttpAgent({ keepAlive: false });
+  const testPhone = '999888777';
   const fakePayload = {
     object: 'whatsapp_business_account',
     entry: [
@@ -75,27 +99,92 @@ async function run() {
           {
             value: {
               messaging_product: 'whatsapp',
-              metadata: { phone_number_id: '12345' },
-              contacts: [{ profile: { name: 'Juan Perez' }, wa_id: '51987654321' }],
+              metadata: { phone_number_id: process.env.WHATSAPP_PHONE_NUMBER_ID },
+              contacts: [{ profile: { name: 'Lead Test' }, wa_id: '51' + testPhone }],
               messages: [
-                { from: '51987654321', id: 'msg1', timestamp: `${Math.floor(Date.now()/1000)}`, text: { body: 'Quiero agendar, me llamo Juan Perez, mi numero es 987654321, vivo en San Borja, puedo el jueves a las 3pm' }, type: 'text' }
-              ]
-            }
-          }
-        ]
-      }
-    ]
+                {
+                  from: '51' + testPhone,
+                  id: 'msg1',
+                  timestamp: `${Math.floor(Date.now() / 1000)}`,
+                  text: { body: `Quiero agendar, me llamo Lead Test, mi número es ${testPhone}, vivo en Miraflores, puedo el jueves a las 3pm` },
+                  type: 'text',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
   };
 
-  // Call the webhook handler using null signature/headers (processWebhookEvent will skip signature verification if WHATSAPP_APP_SECRET not set)
   try {
-    const webhookResult = await processWebhookEvent(fakePayload, Buffer.from(JSON.stringify(fakePayload)), {});
-    console.log('Webhook simulation result:', webhookResult);
-    process.exit(0);
-  } catch (e) {
-    console.error('Webhook simulation failed:', e);
-    process.exit(1);
+    const challenge = 'test-challenge-42';
+    const challengeResp = await fetch(`http://127.0.0.1:${port}/webhook?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN)}&hub.challenge=${encodeURIComponent(challenge)}`, {
+      headers: { Connection: 'close' },
+      agent: httpAgent,
+    });
+    const challengeBody = await challengeResp.text();
+    console.log('GET /webhook response', challengeResp.status, challengeBody);
+
+    const rawBody = JSON.stringify(fakePayload);
+    const signature = 'sha256=' + crypto.createHmac('sha256', process.env.WHATSAPP_APP_SECRET).update(rawBody).digest('hex');
+    const webhookResp = await fetch(`http://127.0.0.1:${port}/webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Hub-Signature-256': signature,
+        Connection: 'close',
+      },
+      agent: httpAgent,
+      body: rawBody,
+    });
+    const webhookText = await webhookResp.text();
+    console.log('POST /webhook response', webhookResp.status, webhookText);
+
+    const maxWaitMs = 10000;
+    const intervalMs = 500;
+    let waited = 0;
+    let savedLead = null;
+    while (waited < maxWaitMs) {
+      savedLead = await leadService.getByPhone(testPhone);
+      if (savedLead) break;
+      await new Promise((r) => setTimeout(r, intervalMs));
+      waited += intervalMs;
+    }
+
+    if (!savedLead) {
+      throw new Error(`FAIL: lead no encontrado en Supabase real para teléfono ${testPhone}`);
+    }
+
+    console.log('PASS: lead encontrado en Supabase real:');
+    console.log(JSON.stringify(savedLead, null, 2));
+    console.log('Smoke test completed successfully. Verifique en Supabase la fila con telefono:', testPhone);
+  } finally {
+    try {
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+    } catch (e) {
+      // ignore if not supported
+    }
+    for (const socket of sockets) {
+      try {
+        socket.destroy();
+      } catch (e) {
+        // ignore socket destroy errors during cleanup
+      }
+    }
+    await new Promise((resolve, reject) => {
+      server.close((err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+    httpAgent.destroy();
   }
 }
 
-run().catch((e) => { console.error('Smoke test error', e); process.exit(1); });
+run().catch((e) => {
+  console.error('Smoke test error', e && e.stack ? e.stack : e);
+  process.exit(1);
+});

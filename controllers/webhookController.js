@@ -1,0 +1,127 @@
+import config from '../config/env.js';
+import geminiService from '../services/geminiService.js';
+import leadService from '../services/leadService.js';
+import whatsappService from '../services/whatsappService.js';
+
+// Controller delgado que orquesta: Gemini -> lead -> WhatsApp -> admin notify
+// IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
+export default async function webhookController(req, res, next) {
+  try {
+    // Prefer parsedBody attached by verifySignature middleware
+    const payload = req.parsedBody || (req.body ? (req.body instanceof Buffer ? JSON.parse(req.body.toString('utf8')) : req.body) : null);
+
+    const entry = payload?.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value || {};
+    const message = value?.messages?.[0] || null;
+
+    if (!message) {
+      // nothing to process
+      return res.status(200).json({ ok: true, reason: 'no_message' });
+    }
+
+    const rawFrom = message?.from || message?.from_user_id || value?.contacts?.[0]?.wa_id || value?.contacts?.[0]?.user_id || null;
+    let from = rawFrom ? String(rawFrom).trim().replace(/^PE\./i, '') : null;
+    from = from ? from.replace(/\D/g, '') : null;
+    if (!from) {
+      console.warn('webhookController: invalid from, skipping');
+      return res.status(200).json({ ok: false, reason: 'invalid_from' });
+    }
+
+    let messageText = null;
+    if (message?.type === 'text') {
+      messageText = message?.text?.body?.trim();
+    } else if (message?.type === 'button') {
+      messageText = message?.button?.text?.trim();
+    } else if (message?.type === 'interactive') {
+      messageText = message?.interactive?.button_reply?.title?.trim() || message?.interactive?.list_reply?.title?.trim();
+    } else {
+      messageText = message?.text?.body?.trim() || null;
+    }
+
+    if (!messageText) {
+      console.warn('webhookController: message text missing');
+      return res.status(200).json({ ok: false, reason: 'no_text' });
+    }
+
+    // At this point we have validated "from" and "messageText".
+    // Respond immediately to Meta to avoid retries/duplication.
+    res.status(200).json({ ok: true });
+
+    // Continue processing in background without blocking the response.
+    // Use an immediately-invoked async function and internal try/catch to avoid unhandled rejections.
+    (async () => {
+      try {
+        const jid = `${from}@s.whatsapp.net`;
+
+        // Apply a 15s timeout to the Gemini call (requirement).
+        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: null });
+        const timeoutMs = 15_000;
+        const timeoutPromise = new Promise((_, reject) => {
+          const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
+          // ensure timer doesn't keep process alive
+          t.unref && t.unref();
+        });
+
+        let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
+        let leadData = null;
+        try {
+          const result = await Promise.race([geminiPromise, timeoutPromise]);
+          if (result) {
+            texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
+            leadData = result.leadData || null;
+          }
+        } catch (e) {
+          console.error('webhookController: gemini call failed or timed out', e && e.message ? e.message : e);
+          // On failure, fallback message is already in texto
+        }
+
+        // Save lead if leadData present and has telefono
+        let leadResult = null;
+        if (leadData && leadData.telefono) {
+          try {
+            leadResult = await leadService.saveLead({ telefono: leadData.telefono, nombre: leadData.nombre, distrito: leadData.distrito, fechaHoraTexto: leadData.fechaHora });
+          } catch (e) {
+            console.error('webhookController: error saving lead', e && e.message ? e.message : e);
+          }
+        }
+
+        // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
+        try {
+          await whatsappService.sendWhatsAppMessage(from, texto, {});
+        } catch (e) {
+          console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);
+        }
+
+        // Notify admin if needed (best-effort)
+        try {
+          if (leadResult && leadResult.readyToNotify && leadResult.lead) {
+            const adminPhoneRaw = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
+            if (adminPhoneRaw) {
+              const adminDigits = String(adminPhoneRaw).replace(/\D/g, '');
+              const fechaDisplay = leadResult.lead.fechaHoraISO ? new Date(leadResult.lead.fechaHoraISO).toLocaleString('es-PE', { timeZone: 'America/Lima', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : (leadResult.lead.fechaHoraTexto || 'N/A');
+              const alertMessage = `🚨 ¡NUEVO PACIENTE AGENDADO!\n👤 Nombre: ${leadResult.lead.nombre || 'N/A'}\n📞 Teléfono: ${leadResult.lead.telefono || leadResult.lead.telefonoOriginal || 'N/A'}\n📍 Distrito: ${leadResult.lead.distrito || 'N/A'}\n🗓️ Fecha/Hora: ${fechaDisplay}`;
+              try {
+                await whatsappService.sendWhatsAppMessage(adminDigits, alertMessage, {});
+                console.log(`✅ Notificación enviada al administrador: ${adminDigits}`);
+              } catch (e) {
+                console.error('webhookController: error notifying admin', e && e.message ? e.message : e);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('webhookController: error in admin notify flow', e && e.message ? e.message : e);
+        }
+      } catch (err) {
+        // This catch is for the entire background processing block.
+        console.error('webhookController: unexpected background processing error', err && err.message ? err.message : err);
+      }
+    })();
+
+    // We already sent response to Meta; do not await background work.
+    return;
+  } catch (err) {
+    // If we reach here before sending response, pass to centralized error handler
+    return next(err);
+  }
+}

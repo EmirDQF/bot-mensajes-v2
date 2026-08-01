@@ -1,7 +1,8 @@
 import express from 'express';
-import setupWhatsAppRoutes from './src/whatsapp.js';
+import webhookRouter from './routes/webhook.js';
 import fs from 'fs/promises';
 import path from 'path';
+import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 
@@ -46,6 +47,11 @@ app.get('/', (req, res) => {
   res.send('Bot Dental Operativo 24/7 🚀');
 });
 
+// Health endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
+
 app.listen(port, () => {
   console.log(`Express server listening on http://localhost:${port}`);
 });
@@ -59,5 +65,9 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Configure Cloud API webhook routes (if WHATSAPP_TOKEN/etc are set)
-setupWhatsAppRoutes(app);
+app.use('/', webhookRouter);
+
+// Mount centralized error handler at the end of middleware chain
+app.use(errorHandler);
+
 // No longer using Baileys socket — Cloud API uses webhooks + HTTP calls.
