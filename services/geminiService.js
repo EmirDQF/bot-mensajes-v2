@@ -100,9 +100,30 @@ function getOrCreateSession(jid) {
   resetSessionTimer(sid, entry);
   return entry;
 }
-
+ 
 function isStructuredGeminiClient(client) {
   return client && typeof client.generateContent === 'function';
+}
+ 
+function extractTextFromCandidate(candidate) {
+  if (!candidate?.content?.parts) return '';
+  return candidate.content.parts
+    .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+}
+
+function extractTextFromResult(result) {
+  if (!result) return '';
+  if (typeof result === 'string') return result;
+  if (typeof result.text === 'string') return result.text;
+  if (result.response) {
+    if (typeof result.response.text === 'string') return result.response.text;
+    const candidate = Array.isArray(result.response.candidates) ? result.response.candidates[0] : null;
+    return extractTextFromCandidate(candidate);
+  }
+  return '';
 }
 
 function buildGeminiRequest(client, mensaje, history) {
@@ -181,7 +202,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
   try {
     const result = await callClientWithRetries(client, geminiRequest, 1);
-    const rawText = (result && (result.text || (result.response && result.response.text))) || (typeof result === 'string' ? result : null) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
+    const rawText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
 
     let leadData = null;
     const leadRegex = /<<<LEAD_JSON>>>\s*([\s\S]*?)\s*<<<END_LEAD_JSON>>>/i;
