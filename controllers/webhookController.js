@@ -67,17 +67,26 @@ export default async function webhookController(req, res, next) {
 
         let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
         let leadData = null;
+        let skipResponse = false;
         try {
           const result = await Promise.race([geminiPromise, timeoutPromise]);
           if (result) {
-            texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
-            leadData = result.leadData || null;
+            if (result.skipResponse) {
+              skipResponse = true;
+            } else {
+              texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
+              leadData = result.leadData || null;
+            }
           }
         } catch (e) {
           console.error('webhookController: gemini call failed or timed out', e && e.message ? e.message : e);
           // On failure, fallback message is already in texto
         }
-
+ 
+        if (skipResponse) {
+          return;
+        }
+ 
         // Save lead if leadData present and has telefono
         let leadResult = null;
         if (leadData && leadData.telefono) {

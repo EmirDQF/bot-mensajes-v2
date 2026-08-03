@@ -45,11 +45,17 @@ function makeStructuredClientReturningText(text) {
 }
 
 describe('geminiService', () => {
+  let uniqueSessionCounter = 0;
+  function makeJid() {
+    uniqueSessionCounter += 1;
+    return `51987654${String(uniqueSessionCounter).padStart(3, '0')}@s.whatsapp.net`;
+  }
+
   it('parses LEAD_JSON when model returns it', async () => {
     const leadJson = JSON.stringify({ nombre: 'Juan Perez', telefono: '987654321', distrito: 'Miraflores', fechaHoraTexto: 'jueves a las 3pm' });
     const client = makeClientReturningText(`<<<LEAD_JSON>>>\n${leadJson}\n<<<END_LEAD_JSON>>>\nPerfecto, te tengo agendado.`);
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const res = await obtenerRespuestaIA('51987654321@s.whatsapp.net', 'quiero agendar', { client });
+    const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
     assert.equal(res.leadData.telefono, '987654321');
     assert.ok(res.texto.includes('Perfecto') || res.texto.length > 0);
   });
@@ -58,7 +64,7 @@ describe('geminiService', () => {
     const leadJson = JSON.stringify({ nombre: 'Ana', telefono: '987654324', distrito: 'Surco', fechaHoraTexto: 'viernes a las 10am' });
     const client = makeClientReturningText(`<<<LEAD_JSON>>>\n${leadJson}\n<<<END_LEAD_JSON>>>\nPerfecto, Ana, te agendé tentativamente.`);
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const res = await obtenerRespuestaIA('51987654324@s.whatsapp.net', 'quiero agendar', { client });
+    const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
     assert.equal(res.leadData.telefono, '987654324');
     assert.ok(!res.texto.includes('<<<LEAD_JSON>>>'));
     assert.ok(res.texto.includes('Perfecto'));
@@ -73,7 +79,7 @@ describe('geminiService', () => {
       },
     };
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const res = await obtenerRespuestaIA('51987654325@s.whatsapp.net', 'quiero agendar', { client });
+    const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
     assert.ok(capturedRequest, 'generateContent should be called');
     assert.equal(capturedRequest.systemInstruction.includes('Eres "Camila"'), true);
     assert.ok(res.texto.includes('Hola'));
@@ -82,7 +88,7 @@ describe('geminiService', () => {
   it('falls back to heuristic when no LEAD_JSON present', async () => {
     const client = makeClientReturningText('Hola, me llamo Maria y puedo el viernes por la tarde. Mi telefono es 987654322.');
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const res = await obtenerRespuestaIA('51987654322@s.whatsapp.net', 'quiero agendar', { client });
+    const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
     assert.ok(res.texto.includes('Hola') || typeof res.texto === 'string');
     // fallback should provide phone at least via heuristic
     assert.ok(res.leadData && res.leadData.telefono, 'fallback leadData should contain telefono');
@@ -91,7 +97,7 @@ describe('geminiService', () => {
   it('handles malformed LEAD_JSON gracefully (fallback)', async () => {
     const client = makeClientReturningText('<<<LEAD_JSON>>>\n{ nombre: "Bad JSON", telefono: 987654333 \n<<<END_LEAD_JSON>>>\nLo siento.');
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const res = await obtenerRespuestaIA('51987654333@s.whatsapp.net', 'quiero agendar', { client });
+    const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
     assert.ok(res.texto && typeof res.texto === 'string');
     assert.ok(res.leadData === null || typeof res.leadData === 'object');
   });
@@ -99,28 +105,44 @@ describe('geminiService', () => {
   it('retries on first network error and succeeds', async () => {
     const client = makeClientThatThrowsThenSucceeds(1, 'Respuesta OK');
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const res = await obtenerRespuestaIA('51987654321@s.whatsapp.net', 'hola quiero agendar', { client });
+    const res = await obtenerRespuestaIA(makeJid(), 'hola quiero agendar', { client });
     assert.equal(res.texto, 'Respuesta OK');
   });
 
   it('returns contingency after 2 consecutive failed messages', async () => {
     const client = makeClientAlwaysThrows();
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const r1 = await obtenerRespuestaIA('51987654321@s.whatsapp.net', 'mensaje 1', { client });
+    const testJid = makeJid();
+    const r1 = await obtenerRespuestaIA(testJid, 'mensaje 1', { client });
     // first failure should return polite fallback (not contingency)
     assert.ok(r1.texto && !r1.texto.includes('ocupado'));
-    const r2 = await obtenerRespuestaIA('51987654321@s.whatsapp.net', 'mensaje 2', { client });
+    const r2 = await obtenerRespuestaIA(testJid, 'mensaje 2', { client });
     assert.ok(r2.texto && r2.texto.includes('ocupado'));
+  });
+
+  it('skips response when two messages arrive within 2 seconds', async () => {
+    const client = makeClientReturningText('Ok');
+    const { obtenerRespuestaIA } = (await import('./geminiService.js'));
+    const testJid = makeJid();
+    const first = await obtenerRespuestaIA(testJid, 'mensaje rapido', { client });
+    assert.equal(first.skipResponse, undefined);
+    assert.equal(first.texto, 'Ok');
+
+    const second = await obtenerRespuestaIA(testJid, 'mensaje rapido 2', { client });
+    assert.equal(second.skipResponse, true);
+    assert.equal(second.texto, null);
+    assert.equal(second.leadData, null);
   });
 
   it('limits history to max messages', async () => {
     const client = makeClientReturningText('ok');
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
     // send many messages
+    const testJid = makeJid();
     for (let i = 0; i < 12; i++) {
-      await obtenerRespuestaIA('51987654321@s.whatsapp.net', `msg ${i}`, { client });
+      await obtenerRespuestaIA(testJid, `msg ${i}`, { client, skipDebounce: true });
     }
-    const res = await obtenerRespuestaIA('51987654321@s.whatsapp.net', 'final', { client });
+    const res = await obtenerRespuestaIA(testJid, 'final', { client, skipDebounce: true });
     assert.equal(typeof res.texto, 'string');
   });
 });

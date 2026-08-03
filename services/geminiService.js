@@ -1,6 +1,7 @@
 import config from '../config/env.js';
 
 const TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000); // 30 minutes
+const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
 const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de una clínica dental en Lima. Habla en español, con tono amable, profesional y cercano. Responde siempre de forma breve y útil (máximo 40–50 palabras). Objetivos principales:
 
@@ -12,7 +13,8 @@ IMPORTANTE: Genera el bloque <<<LEAD_JSON>>> SOLO LA PRIMERA VEZ que tengas Nomb
 
 4) Si el usuario pregunta por precios o presupuesto, responde con un precio estimado en 'brackets' (rango), p.ej. "Limpieza: S/80–S/150", y sugiere una evaluación para confirmar el presupuesto final.
 5) Nunca des instrucciones técnicas, ni enlaces a API; evita respuestas largas. Si no entiendes, pide clarificación con una pregunta concreta.
-6) Cuando respondas al usuario, sé amable: usa "Hola", "Gracias", "Por favor", "¿Podrías…?" según el caso.
+6) Cuando respondas al usuario, sé amable: usa "Gracias", "Por favor", "¿Podrías…?" según el caso, pero en respuestas subsiguientes NO comiences con un saludo como "Hola", "Buenos días", "Buenas tardes" o "Buenas noches".
+7) Acepta cualquier número peruano de 9 dígitos aunque el usuario no escriba +51 y aunque lo ingrese con espacios, guiones o texto adicional; normaliza el teléfono a solo dígitos.
 
 Ejemplos (few-shot):
 
@@ -23,7 +25,7 @@ Camila: <<<LEAD_JSON>>>
 Perfecto, Juan. Te agendé tentativamente para el jueves a las 3pm. ¿Confirmas que ese horario te viene bien?
 
 Usuario: "Hola, cuánto cuesta una ortodoncia?"
-Camila: "Hola 👋. Un tratamiento de ortodoncia suele costar entre S/2500–S/6000 según complejidad. Recomendamos una evaluación para dar precio exacto. ¿Te gustaría agendar una evaluación?"
+Camila: "Un tratamiento de ortodoncia suele costar entre S/2500–S/6000 según complejidad. Recomendamos una evaluación para dar precio exacto. ¿Te gustaría agendar una evaluación?"
 
 Usuario: "No, solo quiero saber si hay disponibilidad mañana"
 Camila: "¿A qué franja horaria prefieres mañana: mañana (8–12), tarde (12–16) o noche (16–20)?"
@@ -81,8 +83,9 @@ function extractLeadDataFromText(text) {
   const t = text.toLowerCase();
   const nombreMatch = t.match(/me llamo\s+([a-záéíóúñü\s]{2,60})(?:[,.\n]|$)/i) || t.match(/soy\s+([a-záéíóúñü\s]{2,60})(?:[,.\n]|$)/i);
   const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
-  const telefonoMatch = t.match(/(\+?51)?\s*(9\d{8}|\b\d{9}\b)/);
-  const telefono = telefonoMatch ? (telefonoMatch[2] || telefonoMatch[0]).replace(/[^0-9]/g,'') : null;
+  const digitString = t.replace(/[^0-9]/g, "");
+  const telefonoMatch = digitString.match(/(?:^51)?(9\d{8})/);
+  const telefono = telefonoMatch ? telefonoMatch[1] : null;
   const distritoMatch = t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
   const distrito = distritoMatch ? distritoMatch[1].trim() : null;
   const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
@@ -94,7 +97,7 @@ function getOrCreateSession(jid) {
   const sid = getSessionId(jid);
   let entry = chatSessions.get(sid);
   if (!entry) {
-    entry = { history: [], timer: null };
+    entry = { history: [], timer: null, lastUserMessageAt: 0 };
     chatSessions.set(sid, entry);
   }
   resetSessionTimer(sid, entry);
@@ -194,7 +197,14 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1) {
 
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const client = options.client;
+  const skipDebounce = Boolean(options.skipDebounce);
   const session = getOrCreateSession(jid);
+  const now = Date.now();
+  if (!skipDebounce && session.lastUserMessageAt && now - session.lastUserMessageAt < DEBOUNCE_MS) {
+    session.lastUserMessageAt = now;
+    return { texto: null, leadData: null, skipResponse: true };
+  }
+  session.lastUserMessageAt = now;
   session.history.push({ role: 'user', parts: [{ text: mensaje }] });
   session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
 
