@@ -110,7 +110,7 @@ export default async function webhookController(req, res, next) {
             const adminPhoneRaw = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
             if (adminPhoneRaw) {
               const adminDigits = String(adminPhoneRaw).replace(/\D/g, '');
-              const fechaDisplay = leadResult.lead.fechaHoraISO ? new Date(leadResult.lead.fechaHoraISO).toLocaleString('es-PE', { timeZone: 'America/Lima', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : (leadResult.lead.fechaHoraTexto || 'N/A');
+              const fechaDisplay = leadResult.lead.fecha_hora_texto || leadResult.lead.fechaHoraTexto || (leadResult.lead.fechaHoraISO ? new Date(leadResult.lead.fechaHoraISO).toLocaleString('es-PE', { timeZone: 'America/Lima', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'N/A');
               const alertMessage = `🚨 ¡NUEVO PACIENTE AGENDADO!\n👤 Nombre: ${leadResult.lead.nombre || 'N/A'}\n📞 Teléfono: ${leadResult.lead.telefono || leadResult.lead.telefonoOriginal || 'N/A'}\n📍 Distrito: ${leadResult.lead.distrito || 'N/A'}\n🗓️ Fecha/Hora: ${fechaDisplay}`;
               try {
                 await whatsappService.sendWhatsAppMessage(adminDigits, alertMessage, {});
