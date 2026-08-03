@@ -189,6 +189,45 @@ function extractTextFromResult(result) {
   return '';
 }
 
+function extractTextFromParsedJson(parsed) {
+  if (parsed == null) return '';
+  if (typeof parsed === 'string') return parsed.trim();
+  if (typeof parsed === 'number' || typeof parsed === 'boolean') return String(parsed);
+  if (Array.isArray(parsed)) {
+    return parsed.map(extractTextFromParsedJson).filter(Boolean).join(' ');
+  }
+
+  const candidateKeys = ['content', 'respuesta', 'response', 'texto', 'text', 'message'];
+  for (const key of candidateKeys) {
+    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+      const extracted = extractTextFromParsedJson(parsed[key]);
+      if (extracted) return extracted;
+    }
+  }
+
+  if (parsed.content && typeof parsed.content === 'object') {
+    const extracted = extractTextFromParsedJson(parsed.content);
+    if (extracted) return extracted;
+  }
+
+  if (parsed.response && typeof parsed.response === 'object') {
+    const extracted = extractTextFromParsedJson(parsed.response);
+    if (extracted) return extracted;
+  }
+
+  if (parsed.response?.content) {
+    const extracted = extractTextFromParsedJson(parsed.response.content);
+    if (extracted) return extracted;
+  }
+
+  for (const value of Object.values(parsed)) {
+    const extracted = extractTextFromParsedJson(value);
+    if (extracted) return extracted;
+  }
+
+  return '';
+}
+
 // === LIMPIEZA DE STRINGS JSON EN geminiService.js ===
 export function sanitizeModelTextOutput(rawText) {
   if (!rawText || typeof rawText !== 'string') return '';
@@ -204,21 +243,17 @@ export function sanitizeModelTextOutput(rawText) {
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 
   // 3. Desempaquetar si viene en formato JSON stringify
-  if (cleaned.startsWith('{')) {
+  if (/^[\[{]/.test(cleaned)) {
     try {
-      const candidate = cleaned.endsWith('}') ? cleaned : cleaned + '}';
+      const candidate = cleaned;
       const parsed = JSON.parse(candidate);
-
-      const possibleKeys = ['respuesta', 'response', 'texto', 'text', 'message'];
-      for (const key of possibleKeys) {
-        if (parsed && typeof parsed[key] === 'string' && parsed[key].trim().length > 0) {
-          cleaned = parsed[key];
-          break;
-        }
+      const extracted = extractTextFromParsedJson(parsed);
+      if (extracted) {
+        cleaned = extracted;
       }
     } catch (e) {
       // Fallback por expresiones regulares si el parseo estricto de JSON falla
-      const match = cleaned.match(/"(?:respuesta|response|texto|text|message)"\s*:\s*"([\s\S]*?)"\s*\}?$/i);
+      const match = cleaned.match(/"(?:content|respuesta|response|texto|text|message)"\s*:\s*"([\s\S]*?)"\s*\}?$/i);
       if (match && match[1]) {
         cleaned = match[1];
       }

@@ -4,6 +4,53 @@ import leadService from '../services/leadService.js';
 import whatsappService from '../services/whatsappService.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 
+function extractPlainText(input) {
+  let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
+
+  cleaned = cleaned.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+
+  if ((cleaned.startsWith('{') && cleaned.endsWith('}')) || (cleaned.startsWith('[') && cleaned.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(cleaned);
+      if (parsed) {
+        const possibleKeys = ['content', 'respuesta', 'response', 'texto', 'text', 'message'];
+        for (const key of possibleKeys) {
+          if (parsed[key] !== undefined && parsed[key] !== null) {
+            if (typeof parsed[key] === 'string' && parsed[key].trim().length > 0) {
+              return parsed[key].trim();
+            }
+            if (typeof parsed[key] === 'object') {
+              const nested = extractPlainText(parsed[key]);
+              if (nested && nested.trim().length > 0) {
+                return nested.trim();
+              }
+            }
+          }
+        }
+
+        if (Array.isArray(parsed)) {
+          const arrayText = parsed.map((item) => extractPlainText(item)).filter(Boolean).join(' ');
+          if (arrayText) return arrayText;
+        }
+
+        if (typeof parsed === 'object') {
+          const traversed = Object.values(parsed)
+            .map((value) => extractPlainText(value))
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          if (traversed) return traversed;
+        }
+      }
+    } catch (e) {
+      const match = cleaned.match(/"(?:content|respuesta|response|texto|text|message)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
+      if (match && match[1]) return match[1].trim();
+    }
+  }
+
+  return cleaned;
+}
+
 // Controller delgado que orquesta: Gemini -> lead -> WhatsApp -> admin notify
 // IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
 export default async function webhookController(req, res, next) {
@@ -106,11 +153,7 @@ export default async function webhookController(req, res, next) {
         // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
         try {
           // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
-          let textoFinal = texto;
-
-          if (typeof textoFinal === 'object') {
-            textoFinal = JSON.stringify(textoFinal);
-          }
+          let textoFinal = extractPlainText(texto);
 
           textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
 

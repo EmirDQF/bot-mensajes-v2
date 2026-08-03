@@ -92,6 +92,13 @@ describe('geminiService', () => {
     assert.equal(cleaned, 'Tu cita está programada para este jueves a las 2:00 p. m.');
   });
 
+  it('sanitizes nested content JSON structures returned by Gemini', async () => {
+    const { sanitizeModelTextOutput } = await import('./geminiService.js');
+    const raw = JSON.stringify({ response: { content: { parts: [{ text: 'La cita es a las 2:00 PM' }] } } });
+    const cleaned = sanitizeModelTextOutput(raw);
+    assert.equal(cleaned, 'La cita es a las 2:00 PM');
+  });
+
   it('includes current WhatsApp number in systemInstruction for phone context', async () => {
     let capturedRequest = null;
     const client = {
