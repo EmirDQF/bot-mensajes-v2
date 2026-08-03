@@ -33,6 +33,16 @@ function normalizePhone(telefono) {
   return onlyDigits || null;
 }
 
+function isLikelyDistrict(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.toLowerCase().trim();
+  if (/^\s*(?:de|del)\s+/i.test(t)) return true;
+  if (/\b(?:soy de|vivo en|nací en|naci en)\b/i.test(t)) return true;
+  if (/\bdistrit[oó]\b/i.test(t)) return true;
+  if (/\b(?:los|san|santa|villa|sur|norte)\b\s+[a-záéíóúñü]+/i.test(t)) return true;
+  return false;
+}
+
 // validateLead: throws Error with descriptive message when required fields missing in strict mode
 export function validateLead({ telefono, nombre, distrito, fechaHoraISO, fechaHoraTexto } = {}, options = { strict: false }) {
   if (!telefono) throw Object.assign(new Error('telefono is required'), { status: 400, expose: true });
@@ -105,10 +115,26 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     const wasNotified = Boolean(existingData?.notified_at);
 
     // 2. Construir el payload manteniendo datos previos si los nuevos vienen nulos
+    // Preserve valid existing fields: do not overwrite nombre with a value that looks like a distrito
+    const incomingNombre = typeof nombre === 'string' ? nombre.trim() : null;
+    const incomingDistrito = typeof distrito === 'string' ? distrito.trim() : null;
+
+    const finalNombre = (function() {
+      if (incomingNombre && !isLikelyDistrict(incomingNombre) && incomingNombre.length > 1) return incomingNombre;
+      if (existingData?.nombre && !isLikelyDistrict(existingData.nombre)) return existingData.nombre;
+      return incomingNombre || null;
+    })();
+
+    const finalDistrito = (function() {
+      if (incomingDistrito) return incomingDistrito;
+      if (existingData?.distrito) return existingData.distrito;
+      return null;
+    })();
+
     const payload = {
       telefono: normalized,
-      nombre: nombre || existingData?.nombre || null,
-      distrito: distrito || existingData?.distrito || null,
+      nombre: finalNombre,
+      distrito: finalDistrito,
       fecha_hora_texto: fechaHoraTexto ?? existingData?.fecha_hora_texto ?? null,
       fecha_hora_iso: fechaHoraISO ?? existingData?.fecha_hora_iso ?? null,
       updated_at: now,

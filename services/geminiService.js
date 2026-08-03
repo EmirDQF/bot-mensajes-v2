@@ -92,19 +92,42 @@ function hasSchedulingIntent(message, history) {
 }
 
 // Simple heuristic parser for lead data (fallback)
+function isLikelyDistrict(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.toLowerCase().trim();
+  // patterns like "soy de los olivos", "de los olivos", "vivo en san borja"
+  if (/^\s*(?:de|del)\s+/i.test(t)) return true;
+  if (/\b(?:soy de|vivo en|nací en|naci en)\b/i.test(t)) return true;
+  // short check: if string has 'distrito' word
+  if (/\bdistrit[oó]\b/i.test(t)) return true;
+  // common district words (Los, San, Santa) followed by a name
+  if (/\b(?:los|san|santa|villa|sur|norte)\b\s+[a-záéíóúñü]+/i.test(t)) return true;
+  return false;
+}
+
 function extractLeadDataFromText(text) {
   if (!text) return null;
   const t = text.toLowerCase();
-  const nombreMatch = t.match(/me llamo\s+([a-záéíóúñü\s]{2,60})(?:[,.\n]|$)/i) || t.match(/soy\s+([a-záéíóúñü\s]{2,60})(?:[,.\n]|$)/i);
+
+  // Detect explicit "soy de X" or "vivo en X" as distrito
+  const distritoFromSoy = t.match(/(?:soy\s+(?:de|del)|vivo\s+en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+  const distrito = distritoFromSoy ? distritoFromSoy[1].trim() : null;
+
+  // Name extraction: avoid capturing phrases like "soy de ..." by negative lookahead
+  const nombreMatch = t.match(/(?:me llamo)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || t.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
   const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
+
   const digitString = t.replace(/[^0-9]/g, "");
   const telefonoMatch = digitString.match(/(?:^51)?(9\d{8})/);
   const telefono = telefonoMatch ? telefonoMatch[1] : null;
-  const distritoMatch = t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i);
-  const distrito = distritoMatch ? distritoMatch[1].trim() : null;
+
+  const distritoMatch = distrito || t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i);
+  const distritoFinal = distritoMatch ? (typeof distritoMatch === 'string' ? distritoMatch : (distritoMatch[1] ? distritoMatch[1].trim() : null)) : null;
+
   const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
   const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
-  return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distrito ?? null, fechaHora: fechaHora ?? null };
+
+  return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: fechaHora ?? null };
 }
 
 function normalizeLeadData(parsed) {
@@ -162,6 +185,32 @@ function extractTextFromResult(result) {
     return extractTextFromCandidate(candidate);
   }
   return '';
+}
+
+// === LIMPIEZA DE STRINGS JSON EN geminiService.js ===
+export function sanitizeModelTextOutput(rawText) {
+  if (!rawText || typeof rawText !== 'string') return '';
+  
+  let cleaned = rawText.trim();
+
+  // Si el texto completo viene envuelto en un objeto JSON como {"respuesta": "..."}
+  if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(cleaned);
+      if (parsed && typeof parsed.respuesta === 'string') {
+        cleaned = parsed.respuesta;
+      } else if (parsed && typeof parsed.texto === 'string') {
+        cleaned = parsed.texto;
+      }
+    } catch (e) {
+      // If strict parse fails, continue with regex cleaning below
+    }
+  }
+
+  // Eliminar bloques de código markdown de JSON si los hubiera ```json ... ```
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  return cleaned;
 }
 
 function getCurrentPhoneHint(jid) {
@@ -381,7 +430,9 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
   try {
     const result = await callClientWithRetries(client, geminiRequest, 1);
-    const rawText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
+    let rawText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
+    // sanitize any JSON-wrapped or code-fenced responses from the model
+    rawText = sanitizeModelTextOutput(rawText);
 
     let leadData = null;
     const leadRegex = /<<<LEAD_JSON>>>\s*([\s\S]*?)\s*<<<END_LEAD_JSON>>>/i;
@@ -399,11 +450,35 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
           console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
           const rawLead = extractLeadDataFromText(rawText) || {};
           const messageLead = extractLeadDataFromText(mensaje) || {};
+          const historyLead = extractLeadDataFromHistory(session.history) || {};
+
+          // Preserve previously captured valid fields from history if new extraction appears to be a district or invalid
+          const finalNombre = (function() {
+            // Prefer explicit messageLead.nombre if it exists and does not look like a district
+            if (messageLead.nombre && !isLikelyDistrict(messageLead.nombre) && messageLead.nombre.length > 1) return messageLead.nombre;
+            // Else prefer rawLead.nombre if valid
+            if (rawLead.nombre && !isLikelyDistrict(rawLead.nombre) && rawLead.nombre.length > 1) return rawLead.nombre;
+            // Else keep historical name
+            if (historyLead.nombre && !isLikelyDistrict(historyLead.nombre)) return historyLead.nombre;
+            return null;
+          })();
+
+          const finalDistrito = (function() {
+            // district can come from explicit patterns or history
+            if (messageLead.distrito) return messageLead.distrito;
+            if (rawLead.distrito) return rawLead.distrito;
+            if (historyLead.distrito) return historyLead.distrito;
+            return null;
+          })();
+
+          const finalTelefono = messageLead.telefono || rawLead.telefono || historyLead.telefono || null;
+          const finalFecha = messageLead.fechaHora || rawLead.fechaHora || historyLead.fechaHora || null;
+
           leadData = {
-            nombre: messageLead.nombre || rawLead.nombre || null,
-            telefono: messageLead.telefono || rawLead.telefono || null,
-            distrito: messageLead.distrito || rawLead.distrito || null,
-            fechaHora: messageLead.fechaHora || rawLead.fechaHora || null,
+            nombre: finalNombre,
+            telefono: finalTelefono,
+            distrito: finalDistrito,
+            fechaHora: finalFecha,
             ready_to_notify: false,
           };
           if (leadData.nombre && leadData.telefono && leadData.distrito && leadData.fechaHora) {
@@ -436,8 +511,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
         }
       }
 
-    // If we have a textual fechaHora but no ISO, attempt to parse it to Lima ISO
-    if (leadData && leadData.fechaHora && !leadData.fechaHoraISO) {
+    // If we have a textual fechaHora, ensure fechaHoraISO is populated using parseTextToLimaISO
+    if (leadData && leadData.fechaHora) {
       try {
         const iso = parseTextToLimaISO(leadData.fechaHora);
         if (iso) {
@@ -457,6 +532,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     let texto = rawText;
     if (match) {
       texto = rawText.replace(leadRegex, '').trim();
+      // sanitize again after removing LEAD_JSON block
+      texto = sanitizeModelTextOutput(texto);
     }
 
     return { texto, leadData };
@@ -474,4 +551,4 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   }
 }
 
-export default { obtenerRespuestaIA };
+export default { obtenerRespuestaIA, sanitizeModelTextOutput };

@@ -91,7 +91,13 @@ export default async function webhookController(req, res, next) {
         let leadResult = null;
         if (leadData && leadData.telefono) {
           try {
-            leadResult = await leadService.saveLead({ telefono: leadData.telefono, nombre: leadData.nombre, distrito: leadData.distrito, fechaHoraTexto: leadData.fechaHora });
+            leadResult = await leadService.saveLead({
+              telefono: leadData.telefono,
+              nombre: leadData.nombre,
+              distrito: leadData.distrito,
+              fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+              fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+            });
           } catch (e) {
             console.error('webhookController: error saving lead', e && e.message ? e.message : e);
           }
@@ -99,7 +105,26 @@ export default async function webhookController(req, res, next) {
 
         // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
         try {
-          await whatsappService.sendWhatsAppMessage(from, texto, {});
+          // Defensive sanitization to ensure only plain text is sent to WhatsApp users
+          let textoEnviar = texto;
+
+          if (typeof textoEnviar === 'object') {
+            textoEnviar = textoEnviar.respuesta || textoEnviar.texto || JSON.stringify(textoEnviar);
+          }
+
+          if (typeof textoEnviar === 'string' && textoEnviar.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(textoEnviar);
+              textoEnviar = parsed.respuesta || parsed.texto || textoEnviar;
+            } catch (e) {
+              // Not valid JSON, ignore
+            }
+          }
+
+          // Ensure trimmed string
+          textoEnviar = String(textoEnviar || '').trim();
+
+          await whatsappService.sendWhatsAppMessage(from, textoEnviar, {});
         } catch (e) {
           console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);
         }
