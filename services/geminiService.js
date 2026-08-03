@@ -52,8 +52,37 @@ const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 8);
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
 const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE || 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
 
-const chatSessions = new Map(); // sessionId -> { history: [], timer }
+const chatSessions = new Map(); // sessionId -> { history: [], timer, paused: false }
 const failureCounts = new Map(); // sessionId -> consecutive failure count
+
+// Pause map helper exposed for handover control
+export function pauseSessionById(sessionId) {
+  const sid = String(sessionId || '').split('@')[0];
+  const entry = chatSessions.get(sid);
+  if (entry) {
+    entry.paused = true;
+    return true;
+  }
+  // create an entry flagged as paused so future messages are ignored until resumed
+  chatSessions.set(sid, { history: [], timer: null, paused: true });
+  return true;
+}
+
+export function resumeSessionById(sessionId) {
+  const sid = String(sessionId || '').split('@')[0];
+  const entry = chatSessions.get(sid);
+  if (entry) {
+    entry.paused = false;
+    return true;
+  }
+  return false;
+}
+
+export function isSessionPaused(sessionId) {
+  const sid = String(sessionId || '').split('@')[0];
+  const entry = chatSessions.get(sid);
+  return Boolean(entry && entry.paused);
+}
 
 function getSessionId(jid) {
   return (jid || '').split('@')[0];

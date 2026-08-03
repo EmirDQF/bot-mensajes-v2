@@ -19,7 +19,10 @@ function buildWhatsappLink(phone) {
 export async function notifyAdminNewLead(lead, options = {}) {
   if (!lead || !lead.ready_to_notify || lead.notified_at) return false;
 
-  const adminDigits = getAdminPhoneDigits();
+  // Prefer clinic's admin number when provided in options
+  const adminFromOptions = options.clinic && options.clinic.admin_whatsapp_number ? String(options.clinic.admin_whatsapp_number) : null;
+  const raw = adminFromOptions || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
+  const adminDigits = raw ? raw.replace(/\D/g, '') : null;
   if (!adminDigits) {
     console.warn('notificationService: ADMIN_WHATSAPP_NUMBER no está configurado. No se envió la notificación al administrador.');
     return false;

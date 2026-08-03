@@ -19,18 +19,23 @@ router.get('/webhook', (req, res) => {
   return res.status(403).send('Forbidden');
 });
 
-// POST /webhook: raw body -> rateLimiter -> verifySignature -> controller
-router.post('/webhook', express.raw({ type: 'application/json' }),
-  rateLimiter(),
-  makeVerifySignature(),
-  async (req, res, next) => {
-    // webhookController expects (req,res,next) and returns a response
+// POST /webhook: Respond 200 immediately to Meta, then process asynchronously.
+router.post('/webhook', express.raw({ type: 'application/json' }), rateLimiter(), async (req, res, next) => {
+  // Send immediate ACK to Meta to avoid retries/timeouts
+  try {
+    res.status(200).send('EVENT_RECEIVED');
+  } catch (e) {
+    console.error('webhook route: failed to send immediate 200:', e && e.message ? e.message : e);
+  }
+
+  // Continue processing in background without blocking the response
+  (async () => {
     try {
       await webhookController(req, res, next);
-    } catch (e) {
-      next(e);
+    } catch (err) {
+      console.error('webhook route: background processing error', err && err.message ? err.message : err);
     }
-  }
-);
+  })();
+});
 
 export default router;

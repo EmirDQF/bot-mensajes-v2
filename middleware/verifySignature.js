@@ -18,27 +18,28 @@ cleanupInterval.unref && cleanupInterval.unref();
 
 export default function verifySignature(options = {}) {
   const appSecret = config.whatsapp?.appSecret || process.env.WHATSAPP_APP_SECRET || null;
+  const enforce = String(process.env.ENFORCE_WHATSAPP_SIGNATURE || 'false').toLowerCase() === 'true';
 
   return async (req, res, next) => {
     try {
       const rawBody = req.body instanceof Buffer ? req.body : (typeof req.body === 'string' ? Buffer.from(req.body, 'utf8') : Buffer.from(JSON.stringify(req.body || {})));
 
+      // If enforcement is disabled, accept and attach parsedBody without rejecting
+      if (!enforce) {
+        try { req.parsedBody = JSON.parse(rawBody.toString('utf8')); } catch (e) { req.parsedBody = null; }
+        if (!appSecret) console.warn('verifySignature: skipping signature enforcement (ENFORCE_WHATSAPP_SIGNATURE not set)');
+        return next();
+      }
+
+      // From here, enforcement is required
       // Extract and normalize header value
       const header = (req.headers && (req.headers['x-hub-signature-256'] || req.headers['x-hub-signature'])) || req.get && (req.get('x-hub-signature-256') || req.get('x-hub-signature')) || null;
       const headerVal = header ? String(header).trim() : null;
 
-          if (!appSecret) {
-            const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-            const msg = 'verifySignature: WHATSAPP_APP_SECRET not set';
-            if (isProd) {
-              console.error(msg + ' and running in production — rejecting request');
-              return res.status(500).json({ error: 'Server misconfiguration' });
-            }
-            console.warn(msg + '; webhook will accept requests without signature verification (dev mode).');
-            // Still attach parsed body for downstream handlers
-            try { req.parsedBody = JSON.parse(rawBody.toString('utf8')); } catch (e) { req.parsedBody = null; }
-            return next();
-          }
+      if (!appSecret) {
+        console.error('verifySignature: WHATSAPP_APP_SECRET not set but signature enforcement is enabled');
+        return res.status(500).json({ error: 'Server misconfiguration' });
+      }
 
       if (!headerVal) {
         console.warn('verifySignature: missing x-hub-signature-256 header');
