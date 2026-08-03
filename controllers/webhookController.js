@@ -43,6 +43,10 @@ function extractPlainText(input) {
         }
       }
     } catch (e) {
+      const malformedPrefixMatch = cleaned.match(/^\s*\{\s*"(?:content|respuesta|response|texto|text|message)"\s*:\s*"?(.*)$/i);
+      if (malformedPrefixMatch && malformedPrefixMatch[1]) {
+        return malformedPrefixMatch[1].replace(/\}?\s*$/,'').replace(/^"/, '').trim();
+      }
       const match = cleaned.match(/"(?:content|respuesta|response|texto|text|message)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
       if (match && match[1]) return match[1].trim();
     }

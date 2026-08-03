@@ -7,8 +7,9 @@ const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de una cl�
 
 1) Detectar si el paciente quiere AGENDAR una cita.
 2) Si pide agendar, guía la conversación para OBTENER: Nombre, Teléfono (9 dígitos Perú), Distrito, Día y Hora deseada. Pide un dato por mensaje si hace falta (p.ej. "¿Cuál es tu nombre completo?").
+   - Si el usuario comete un error tipográfico como "me llamos", interpreta esto como "me llamo" y extrae el nombre correctamente.
 3) Si ya hay Nombre+Teléfono+Distrito+DíaHora, confirma resumidamente y genera un objeto JSON con los campos exactos: { "nombre": "...", "telefono": "...", "distrito": "...", "fechaHoraTexto": "..." } PRIMERO dentro de un bloque separado etiquetado como <<<LEAD_JSON>>> ... <<<END_LEAD_JSON>>>. Luego envía el mensaje de confirmación breve al usuario.
-
+   - La fecha y hora deben guardarse completas: no envíes ni utilices solo el día. Fecha/Hora final acordada debe incluir el día y la hora exacta.
 IMPORTANTE: Genera el bloque <<<LEAD_JSON>>> SOLO LA PRIMERA VEZ que tengas Nombre+Teléfono+Distrito+Día/Hora completos en una conversación. En turnos posteriores de la misma conversación, NUNCA vuelvas a generar ese bloque, aunque el paciente haga más preguntas o la información se repita — simplemente responde de forma natural y breve a la nueva pregunta sin incluir el bloque JSON.
 
 REGLA DE MEMORIA: Si el usuario pregunta por los detalles de su cita agendada, consulta la CITA REGISTRADA VERIFICADA en el historial y responde con la FECHA Y HORA EXACTA previamente confirmada. Jamás inventes una hora distinta.
@@ -115,8 +116,9 @@ function extractLeadDataFromText(text) {
   const distritoFromSoy = t.match(/(?:soy\s+(?:de|del)|vivo\s+en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
   const distrito = distritoFromSoy ? distritoFromSoy[1].trim() : null;
 
-  // Name extraction: avoid capturing phrases like "soy de ..." by negative lookahead
-  const nombreMatch = t.match(/(?:me llamo)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || t.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+  // Name extraction: support typos like "me llamos" and avoid capturing phrases like "soy de ..." by negative lookahead
+  const nombreMatch = t.match(/(?:me\s+llam(?:o|os)|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i)
+    || t.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i);
   const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
 
   const digitString = t.replace(/[^0-9]/g, "");
@@ -253,9 +255,14 @@ export function sanitizeModelTextOutput(rawText) {
       }
     } catch (e) {
       // Fallback por expresiones regulares si el parseo estricto de JSON falla
-      const match = cleaned.match(/"(?:content|respuesta|response|texto|text|message)"\s*:\s*"([\s\S]*?)"\s*\}?$/i);
-      if (match && match[1]) {
-        cleaned = match[1];
+      const malformedPrefixMatch = cleaned.match(/^\s*\{\s*"(?:content|respuesta|response|texto|text|message)"\s*:\s*"?(.*)$/i);
+      if (malformedPrefixMatch && malformedPrefixMatch[1]) {
+        cleaned = malformedPrefixMatch[1].replace(/\}?\s*$/,'').replace(/^"/, '').trim();
+      } else {
+        const match = cleaned.match(/"(?:content|respuesta|response|texto|text|message)"\s*:\s*"([\s\S]*?)"\s*\}?$/i);
+        if (match && match[1]) {
+          cleaned = match[1];
+        }
       }
     }
   }

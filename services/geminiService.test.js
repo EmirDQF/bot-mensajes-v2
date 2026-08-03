@@ -99,6 +99,22 @@ describe('geminiService', () => {
     assert.equal(cleaned, 'La cita es a las 2:00 PM');
   });
 
+  it('sanitizes incomplete JSON prefix from model output', async () => {
+    const { sanitizeModelTextOutput } = await import('./geminiService.js');
+    const raw = '{"respuesta": "Tu cita está programada para este jueves a las 2:00 p. m.';
+    const cleaned = sanitizeModelTextOutput(raw);
+    assert.equal(cleaned, 'Tu cita está programada para este jueves a las 2:00 p. m.');
+  });
+
+  it('extracts name from typo "me llamos" and sets ready_to_notify true', async () => {
+    const client = makeClientReturningText('Perfecto, tu cita está agendada.');
+    const { obtenerRespuestaIA } = (await import('./geminiService.js'));
+    const res = await obtenerRespuestaIA(makeJid(), 'me llamos tom holland vivo en Miraflores, mi telefono es 987654321 y puedo el martes a las 2pm', { client });
+    assert.equal(res.leadData.nombre, 'tom holland');
+    assert.equal(res.leadData.ready_to_notify, true);
+    assert.ok(res.leadData.fechaHora);
+  });
+
   it('includes current WhatsApp number in systemInstruction for phone context', async () => {
     let capturedRequest = null;
     const client = {

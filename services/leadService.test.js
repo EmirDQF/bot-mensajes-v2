@@ -171,6 +171,18 @@ describe('leadService (supabase mock)', () => {
     assert.equal(byPhone.distrito, 'Barranco');
   });
 
+  it('sets ready_to_notify true when fecha_hora_iso valida is provided along with nombre and distrito', async () => {
+    const { saveLead, getByPhone } = leadServiceModule;
+    const fechaHoraISO = '2026-08-05T14:00:00-05:00';
+    const result = await saveLead({ telefono: '999333444', nombre: 'Tom Holland', distrito: 'Miraflores', fechaHoraISO, fechaHoraTexto: 'martes 2pm' });
+    assert.equal(result.readyToNotify, true);
+    assert.equal(result.lead.ready_to_notify, true);
+    assert.equal(result.lead.fecha_hora_iso, fechaHoraISO);
+    const byPhone = await getByPhone('999333444');
+    assert.equal(byPhone.ready_to_notify, true);
+    assert.equal(byPhone.fecha_hora_iso, fechaHoraISO);
+  });
+
   it('does not re-mark readyToNotify if already notified', async () => {
     const { saveLead, getByPhone, markAsNotified } = leadServiceModule;
 
