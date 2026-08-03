@@ -118,6 +118,16 @@ describe('geminiService', () => {
     assert.ok(res.leadData === null || typeof res.leadData === 'object');
   });
 
+  it('builds ready_to_notify fallback from history when JSON block is missing and all data is present', async () => {
+    const client = makeClientReturningText('Perfecto, tu cita está agendada.');
+    const { obtenerRespuestaIA } = (await import('./geminiService.js'));
+    const testJid = makeJid();
+    const res = await obtenerRespuestaIA(testJid, 'Quiero agendar, me llamo Ana, mi numero es 987654321, vivo en Surco y puedo el viernes a las 3pm', { client });
+    assert.equal(res.leadData.telefono, '987654321');
+    assert.equal(res.leadData.ready_to_notify, true);
+    assert.ok(res.texto.includes('Perfecto'));
+  });
+
   it('retries on first network error and succeeds', async () => {
     const client = makeClientThatThrowsThenSucceeds(1, 'Respuesta OK');
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));

@@ -16,6 +16,19 @@ IMPORTANTE: Genera el bloque <<<LEAD_JSON>>> SOLO LA PRIMERA VEZ que tengas Nomb
 6) Cuando respondas al usuario, sé amable: usa "Gracias", "Por favor", "¿Podrías…?" según el caso, pero en respuestas subsiguientes NO comiences con un saludo como "Hola", "Buenos días", "Buenas tardes" o "Buenas noches".
 7) Acepta cualquier número peruano de 9 dígitos aunque el usuario no escriba +51 y aunque lo ingrese con espacios, guiones o texto adicional; normaliza el teléfono a solo dígitos.
 8) Si el usuario dice "a este número" o pide detalles al número actual, reconoce que se refiere al número de WhatsApp con el que está escribiendo y responde: "Perfecto, te enviamos la información al [número_registrado]." sin volver a pedir el teléfono.
+9) Cuando ya tengas Nombre, Teléfono, Distrito y Fecha/Hora completos, ADJUNTA siempre AL FINAL de tu mensaje el siguiente bloque EXACTO:
+
+<<<LEAD_JSON>>>
+{
+"nombre": "Nombre Capturado",
+"telefono": "987654321",
+"distrito": "Distrito",
+"fecha_hora_texto": "viernes 3:00 PM",
+"ready_to_notify": true
+}
+<<<END_LEAD_JSON>>>
+
+No omitas este bloque si la cita está lista, y colócalo siempre después de la respuesta al usuario.
 
 Ejemplos (few-shot):
 
@@ -87,11 +100,32 @@ function extractLeadDataFromText(text) {
   const digitString = t.replace(/[^0-9]/g, "");
   const telefonoMatch = digitString.match(/(?:^51)?(9\d{8})/);
   const telefono = telefonoMatch ? telefonoMatch[1] : null;
-  const distritoMatch = t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+  const distritoMatch = t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i);
   const distrito = distritoMatch ? distritoMatch[1].trim() : null;
   const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
   const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
   return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distrito ?? null, fechaHora: fechaHora ?? null };
+}
+
+function normalizeLeadData(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  return {
+    nombre: parsed.nombre || parsed.name || null,
+    telefono: parsed.telefono ? String(parsed.telefono).replace(/\D/g, '') : null,
+    distrito: parsed.distrito || parsed.district || null,
+    fechaHora: parsed.fechaHoraTexto || parsed.fecha_hora_texto || parsed.fecha_hora || parsed.fechaHora || null,
+    ready_to_notify: parsed.ready_to_notify === true || parsed.readyToNotify === true || false,
+  };
+}
+
+function extractLeadDataFromHistory(history) {
+  if (!Array.isArray(history) || !history.length) return null;
+  const fullText = history.map((h) => {
+    const role = h.role === 'user' ? 'Cliente:' : 'Camila:';
+    const text = (h.parts || []).map((p) => p.text || '').join(' ').trim();
+    return text ? `${role} ${text}` : '';
+  }).filter(Boolean).join('\n');
+  return extractLeadDataFromText(fullText);
 }
 
 function getOrCreateSession(jid) {
@@ -228,11 +262,28 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     if (match && match[1]) {
       const jsonText = match[1].trim();
       try {
-        const parsed = JSON.parse(jsonText);
-        if (parsed.telefono) parsed.telefono = String(parsed.telefono).replace(/\D/g, '');
-        leadData = parsed;
-      } catch (e) {
-        console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
+          const parsed = normalizeLeadData(JSON.parse(jsonText));
+          if (parsed && parsed.telefono) parsed.telefono = String(parsed.telefono).replace(/\D/g, '');
+          if (parsed && parsed.ready_to_notify === false && parsed.nombre && parsed.telefono && parsed.distrito && parsed.fechaHora) {
+            parsed.ready_to_notify = true;
+          }
+          leadData = parsed;
+        } catch (e) {
+          console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
+          const rawLead = extractLeadDataFromText(rawText) || {};
+          const messageLead = extractLeadDataFromText(mensaje) || {};
+          leadData = {
+            nombre: messageLead.nombre || rawLead.nombre || null,
+            telefono: messageLead.telefono || rawLead.telefono || null,
+            distrito: messageLead.distrito || rawLead.distrito || null,
+            fechaHora: messageLead.fechaHora || rawLead.fechaHora || null,
+            ready_to_notify: false,
+          };
+          if (leadData.nombre && leadData.telefono && leadData.distrito && leadData.fechaHora) {
+            leadData.ready_to_notify = true;
+          }
+        }
+      } else {
         const rawLead = extractLeadDataFromText(rawText) || {};
         const messageLead = extractLeadDataFromText(mensaje) || {};
         leadData = {
@@ -241,19 +292,22 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
           distrito: messageLead.distrito || rawLead.distrito || null,
           fechaHora: messageLead.fechaHora || rawLead.fechaHora || null,
         };
+        if (!leadData.telefono || !leadData.nombre || !leadData.distrito || !leadData.fechaHora) {
+          const historyLead = extractLeadDataFromHistory(session.history) || {};
+          leadData = {
+            nombre: leadData.nombre || historyLead.nombre || null,
+            telefono: leadData.telefono || historyLead.telefono || null,
+            distrito: leadData.distrito || historyLead.distrito || null,
+            fechaHora: leadData.fechaHora || historyLead.fechaHora || null,
+          };
+        }
+        if (leadData.nombre && leadData.telefono && leadData.distrito && leadData.fechaHora) {
+          leadData.ready_to_notify = true;
+        }
+        if (!leadData.nombre && !leadData.telefono && !leadData.distrito && !leadData.fechaHora) {
+          leadData = null;
+        }
       }
-    } else {
-      if (hasSchedulingIntent(mensaje, session.history)) {
-        const rawLead = extractLeadDataFromText(rawText) || {};
-        const messageLead = extractLeadDataFromText(mensaje) || {};
-        leadData = {
-          nombre: messageLead.nombre || rawLead.nombre || null,
-          telefono: messageLead.telefono || rawLead.telefono || null,
-          distrito: messageLead.distrito || rawLead.distrito || null,
-          fechaHora: messageLead.fechaHora || rawLead.fechaHora || null,
-        };
-      }
-    }
 
     session.history.push({ role: 'model', parts: [{ text: rawText }] });
     session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
