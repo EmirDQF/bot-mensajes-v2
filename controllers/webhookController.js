@@ -105,26 +105,18 @@ export default async function webhookController(req, res, next) {
 
         // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
         try {
-          // Defensive sanitization to ensure only plain text is sent to WhatsApp users
-          let textoEnviar = texto;
+          // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
+          let textoFinal = texto;
 
-          if (typeof textoEnviar === 'object') {
-            textoEnviar = textoEnviar.respuesta || textoEnviar.texto || JSON.stringify(textoEnviar);
+          if (typeof textoFinal === 'object') {
+            textoFinal = JSON.stringify(textoFinal);
           }
 
-          if (typeof textoEnviar === 'string' && textoEnviar.trim().startsWith('{')) {
-            try {
-              const parsed = JSON.parse(textoEnviar);
-              textoEnviar = parsed.respuesta || parsed.texto || textoEnviar;
-            } catch (e) {
-              // Not valid JSON, ignore
-            }
+          textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
+
+          if (textoFinal && textoFinal.length > 0 && !skipResponse) {
+            await whatsappService.sendWhatsAppMessage(from, textoFinal, {});
           }
-
-          // Ensure trimmed string
-          textoEnviar = String(textoEnviar || '').trim();
-
-          await whatsappService.sendWhatsAppMessage(from, textoEnviar, {});
         } catch (e) {
           console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);
         }

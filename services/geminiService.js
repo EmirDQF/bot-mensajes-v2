@@ -11,6 +11,8 @@ const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de una cl�
 
 IMPORTANTE: Genera el bloque <<<LEAD_JSON>>> SOLO LA PRIMERA VEZ que tengas Nombre+Teléfono+Distrito+Día/Hora completos en una conversación. En turnos posteriores de la misma conversación, NUNCA vuelvas a generar ese bloque, aunque el paciente haga más preguntas o la información se repita — simplemente responde de forma natural y breve a la nueva pregunta sin incluir el bloque JSON.
 
+REGLA DE MEMORIA: Si el usuario pregunta por los detalles de su cita agendada, consulta la CITA REGISTRADA VERIFICADA en el historial y responde con la FECHA Y HORA EXACTA previamente confirmada. Jamás inventes una hora distinta.
+
 4) Si el usuario pregunta por precios o presupuesto, responde con un precio estimado en 'brackets' (rango), p.ej. "Limpieza: S/80–S/150", y sugiere una evaluación para confirmar el presupuesto final.
 5) Nunca des instrucciones técnicas, ni enlaces a API; evita respuestas largas. Si no entiendes, pide clarificación con una pregunta concreta.
 6) Cuando respondas al usuario, sé amable: usa "Gracias", "Por favor", "¿Podrías…?" según el caso, pero en respuestas subsiguientes NO comiences con un saludo como "Hola", "Buenos días", "Buenas tardes" o "Buenas noches".
@@ -193,22 +195,38 @@ export function sanitizeModelTextOutput(rawText) {
   
   let cleaned = rawText.trim();
 
-  // Si el texto completo viene envuelto en un objeto JSON como {"respuesta": "..."}
-  if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
+  // 1. Eliminar etiquetas LEAD_JSON (completas o truncadas por el modelo)
+  cleaned = cleaned.replace(/<<<LEAD_JSON>>>[\s\S]*?(?:<<<END_LEAD_JSON>>>|$)/gi, '');
+  cleaned = cleaned.replace(/<<<[\s\S]*?$/gi, ''); // Limpiar cualquier residuo de tag inconcluso
+  cleaned = cleaned.replace(/<+$/g, '');            // Limpiar símbolos '<' sueltos al final
+
+  // 2. Eliminar bloques de código Markdown ```json ... ```
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  // 3. Desempaquetar si viene en formato JSON stringify
+  if (cleaned.startsWith('{')) {
     try {
-      const parsed = JSON.parse(cleaned);
-      if (parsed && typeof parsed.respuesta === 'string') {
-        cleaned = parsed.respuesta;
-      } else if (parsed && typeof parsed.texto === 'string') {
-        cleaned = parsed.texto;
+      const candidate = cleaned.endsWith('}') ? cleaned : cleaned + '}';
+      const parsed = JSON.parse(candidate);
+
+      const possibleKeys = ['respuesta', 'response', 'texto', 'text', 'message'];
+      for (const key of possibleKeys) {
+        if (parsed && typeof parsed[key] === 'string' && parsed[key].trim().length > 0) {
+          cleaned = parsed[key];
+          break;
+        }
       }
     } catch (e) {
-      // If strict parse fails, continue with regex cleaning below
+      // Fallback por expresiones regulares si el parseo estricto de JSON falla
+      const match = cleaned.match(/"(?:respuesta|response|texto|text|message)"\s*:\s*"([\s\S]*?)"\s*\}?$/i);
+      if (match && match[1]) {
+        cleaned = match[1];
+      }
     }
   }
 
-  // Eliminar bloques de código markdown de JSON si los hubiera ```json ... ```
-  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  // 4. Limpieza de comillas dobles externas o saltos de línea sobrantes
+  cleaned = cleaned.replace(/^"/, '').replace(/"$/, '').trim();
 
   return cleaned;
 }
@@ -430,9 +448,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
   try {
     const result = await callClientWithRetries(client, geminiRequest, 1);
-    let rawText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
-    // sanitize any JSON-wrapped or code-fenced responses from the model
-    rawText = sanitizeModelTextOutput(rawText);
+    const rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
+    let rawText = rawModelText;
+    // sanitize any JSON-wrapped or code-fenced responses from the model for user output only
+    const sanitizedRawText = sanitizeModelTextOutput(rawModelText);
 
     let leadData = null;
     const leadRegex = /<<<LEAD_JSON>>>\s*([\s\S]*?)\s*<<<END_LEAD_JSON>>>/i;
@@ -524,12 +543,18 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     }
 
     session.history.push({ role: 'model', parts: [{ text: rawText }] });
+    if (leadData && leadData.nombre && leadData.distrito && leadData.fechaHora && !session.history.some((h) => (h.parts || []).some((p) => typeof p.text === 'string' && p.text.includes('[SISTEMA - CITA REGISTRADA VERIFICADA:')))) {
+      session.history.push({
+        role: 'model',
+        parts: [{ text: `[SISTEMA - CITA REGISTRADA VERIFICADA: Nombre: ${leadData.nombre}, Distrito: ${leadData.distrito}, Fecha/Hora Agendada: ${leadData.fechaHora}]` }]
+      });
+    }
     session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
 
     const sid = getSessionId(jid);
     failureCounts.set(sid, 0);
 
-    let texto = rawText;
+    let texto = sanitizedRawText;
     if (match) {
       texto = rawText.replace(leadRegex, '').trim();
       // sanitize again after removing LEAD_JSON block
