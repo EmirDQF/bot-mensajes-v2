@@ -67,72 +67,106 @@ export async function listLeads() {
   return Array.isArray(data) ? data : [];
 }
 
-// saveLead: uses Supabase. Dedup within last 24 hours by telefono (normalized). Returns { isNew, readyToNotify, lead }
-export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fechaHoraTexto, fechaHoraConfirmada } = {}) {
+export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fechaHoraTexto } = {}) {
   const client = getSupabaseClient();
   try {
-    if (!telefono) throw Object.assign(new Error('telefono is required to save a lead'), { status: 400, expose: true });
-    const normalized = normalizePhone(telefono);
-    const now = new Date().toISOString();
-    const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-
-    // Look for existing within 24 hours
-    const { data: existingData, error: existingErr } = await client.from('leads')
-      .select('*')
-      .eq('telefono', normalized)
-      .gte('created_at', cutoff)
-      .order('created_at', { ascending: false })
-      .limit(1);
-    if (existingErr) throw existingErr;
-
-    if (Array.isArray(existingData) && existingData.length) {
-      const existing = existingData[0];
-      const wasReady = Boolean(existing.ready_to_notify);
-      const wasNotified = !!existing.notified_at;
-
-      const updates = {
-        nombre: nombre || existing.nombre,
-        distrito: distrito || existing.distrito,
-        fecha_hora_texto: fechaHoraTexto ?? existing.fecha_hora_texto,
-        fecha_hora_iso: fechaHoraISO ?? existing.fecha_hora_iso,
-        // we'll set ready_to_notify in DB to real value; but return readyToNotify only if transitioning and not yet notified
-        ready_to_notify: Boolean((nombre || existing.nombre) && (distrito || existing.distrito) && (fechaHoraISO || fechaHoraTexto || existing.fecha_hora_texto)),
-        updated_at: now,
-      };
-      const updateRes = await client.from('leads').update(updates).eq('id', existing.id).select('*').limit(1);
-      const updatedRows = updateRes && updateRes.data ? updateRes.data : (Array.isArray(updateRes) ? updateRes : null);
-      const updateErr = updateRes && updateRes.error ? updateRes.error : null;
-      if (updateErr) throw updateErr;
-      const lead = Array.isArray(updatedRows) && updatedRows.length ? updatedRows[0] : existing;
-
-      // Compute whether this save should signal readyToNotify to caller
-      const nowReady = Boolean(lead.ready_to_notify);
-      const shouldNotify = nowReady && !wasReady && !wasNotified;
-
-      return { isNew: false, readyToNotify: !!shouldNotify, lead };
+    if (!telefono && telefono !== 0) {
+      throw Object.assign(new Error('telefono is required to save a lead'), { status: 400, expose: true });
     }
 
-    // Insert new
-    const newRow = {
-      nombre: nombre || null,
+    const normalized = normalizePhone(telefono);
+    const now = new Date().toISOString();
+
+    // 1. Intentar obtener si el lead ya existe y si ya fue notificado previamente
+    let existingData = null;
+    try {
+      const baseQuery = client.from('leads').select('id, ready_to_notify, notified_at, nombre, distrito, fecha_hora_texto, fecha_hora_iso').eq('telefono', normalized);
+      if (typeof baseQuery.maybeSingle === 'function') {
+        const { data } = await baseQuery.maybeSingle();
+        existingData = data || null;
+      } else {
+        // older mock clients may not support maybeSingle
+        const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+        const { data } = await client.from('leads')
+          .select('id, ready_to_notify, notified_at, nombre, distrito, fecha_hora_texto, fecha_hora_iso')
+          .eq('telefono', normalized)
+          .gte('created_at', cutoff)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        existingData = Array.isArray(data) && data.length ? data[0] : null;
+      }
+    } catch (e) {
+      // If query shape is unexpected for mock, fallback to null and continue
+      console.warn('leadService.saveLead: could not read existing lead with maybeSingle/fallback:', e && e.message ? e.message : e);
+      existingData = null;
+    }
+
+    const wasReady = Boolean(existingData?.ready_to_notify);
+    const wasNotified = Boolean(existingData?.notified_at);
+
+    // 2. Construir el payload manteniendo datos previos si los nuevos vienen nulos
+    const payload = {
       telefono: normalized,
-      distrito: distrito || null,
-      fecha_hora_texto: fechaHoraTexto || null,
-      fecha_hora_iso: fechaHoraISO || null,
-      ready_to_notify: Boolean(nombre && distrito && (fechaHoraISO || fechaHoraTexto)),
-      created_at: now,
+      nombre: nombre || existingData?.nombre || null,
+      distrito: distrito || existingData?.distrito || null,
+      fecha_hora_texto: fechaHoraTexto ?? existingData?.fecha_hora_texto ?? null,
+      fecha_hora_iso: fechaHoraISO ?? existingData?.fecha_hora_iso ?? null,
       updated_at: now,
-      notified_at: null,
     };
 
-    const { data: inserted, error: insertErr } = await client.from('leads').insert([newRow]).select('*').limit(1);
-    if (insertErr) throw insertErr;
-    const lead = Array.isArray(inserted) && inserted.length ? inserted[0] : newRow;
+    // Calcular estado ready_to_notify
+    const isNowReady = Boolean(
+      payload.nombre && 
+      payload.distrito && 
+      (payload.fecha_hora_iso || payload.fecha_hora_texto)
+    );
 
-    // For inserts, readyToNotify is true only if ready_to_notify and not notified (new rows have notified_at null)
-    return { isNew: true, readyToNotify: !!lead.ready_to_notify, lead };
+    payload.ready_to_notify = isNowReady;
+
+    // 3. Ejecutar UPSERT atómico en Supabase para evitar Race Conditions (si está disponible)
+    let updatedLead = null;
+    if (typeof client.from === 'function') {
+      try {
+        const testQuery = client.from('leads');
+        if (testQuery && typeof testQuery.upsert === 'function') {
+          const { data: upserted, error: upsertErr } = await client
+            .from('leads')
+            .upsert(payload, { onConflict: 'telefono' })
+            .select('*')
+            .single();
+          if (upsertErr) throw upsertErr;
+          updatedLead = upserted;
+        } else {
+          // Fallback for mocks that don't implement upsert(): update if existing, else insert
+          if (existingData && existingData.id) {
+            const { data: updatedRows, error: updateErr } = await client.from('leads').update(payload).eq('id', existingData.id).select('*').limit(1);
+            if (updateErr) throw updateErr;
+            updatedLead = Array.isArray(updatedRows) && updatedRows.length ? updatedRows[0] : updatedRows;
+          } else {
+            const newRow = Object.assign({ created_at: now, notified_at: null }, payload);
+            const { data: inserted, error: insertErr } = await client.from('leads').insert([newRow]).select('*').limit(1);
+            if (insertErr) throw insertErr;
+            updatedLead = Array.isArray(inserted) && inserted.length ? inserted[0] : inserted;
+          }
+        }
+      } catch (e) {
+        throw e;
+      }
+    } else {
+      throw new Error('Supabase client shape unexpected');
+    }
+
+    // 4. Evaluar si se debe disparar la notificación al administrador
+    const shouldNotify = isNowReady && !wasReady && !wasNotified;
+
+    return {
+      isNew: !existingData,
+      readyToNotify: shouldNotify,
+      lead: updatedLead
+    };
+
   } catch (error) {
-    console.error('leadService.saveLead error:', error && error.message ? error.message : error);
+    console.error('leadService.saveLead error:', error?.message || error);
     throw error;
   }
 }

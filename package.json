@@ -8,7 +8,8 @@
     "reset": "node ./scripts/reset-auth.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:smoke": "node scripts/smoke-test.js",
-    "test:unit": "set \"NODE_ENV=test\"&& node --test ./services/*.test.js"
+    "test:unit": "set \"NODE_ENV=test\"&& node --test ./services/*.test.js",
+    "prospect": "node scripts/runProspector.js"
   },
   "keywords": [],
   "author": "",

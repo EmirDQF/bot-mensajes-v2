@@ -169,11 +169,137 @@ function getCurrentPhoneHint(jid) {
   return phone ? `El usuario escribe desde el número de WhatsApp ${phone}. Si el usuario pide "a este número" o menciona el número actual, reconoce que se refiere a este número y no vuelvas a preguntar por teléfono.` : '';
 }
 
+/**
+ * Obtiene la fecha y hora actual formateada explícitamente para el huso horario de Lima.
+ */
+function getLimaCurrentDateTime() {
+  const options = {
+    timeZone: 'America/Lima',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  };
+  return new Intl.DateTimeFormat('es-PE', options).format(new Date());
+}
+
+/**
+ * Construye el prompt de sistema dinámico incluyendo el contexto temporal y de WhatsApp.
+ */
+export function buildSystemPromptWithContext(jid) {
+  const fechaActual = getLimaCurrentDateTime();
+  const phoneHint = getCurrentPhoneHint(jid);
+
+  return `${CAMILA_SYSTEM_PROMPT}\n\n[CONTEXTO TEMPORAL Y DE SISTEMA EN VIVO]\n- FECHA Y HORA ACTUAL EN LIMA: ${fechaActual}\n- REGLA DE TIEMPO: Usa esta fecha actual de Lima como tu única referencia absoluta para calcular "hoy", "mañana", "el próximo lunes", o fechas específicas solicitadas por el cliente. No asumas años ni meses pasados.${phoneHint ? `\n${phoneHint}` : ''}`;
+}
+
+/**
+ * Parsea texto libre de fecha/hora relativo a Lima y devuelve ISO 8601 con offset -05:00
+ * Ejemplos aceptados: "hoy a las 3pm", "mañana 16:00", "el jueves a las 4pm", "3 de agosto a las 10:30"
+ */
+function parseTextToLimaISO(fechaTexto) {
+  if (!fechaTexto || typeof fechaTexto !== 'string') return null;
+  const txt = fechaTexto.toLowerCase();
+
+  // Obtener fecha base en Lima (YYYY-MM-DD)
+  const limaDateStr = new Date().toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
+  const [baseYear, baseMonth, baseDay] = limaDateStr.split('-').map((s) => parseInt(s, 10));
+  let target = new Date(Date.UTC(baseYear, baseMonth - 1, baseDay)); // use UTC date arithmetic
+
+  // Mappings
+  const weekdays = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6 };
+  const months = {
+    enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+    julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12
+  };
+
+  // Relative days
+  if (txt.includes('pasado mañana')) {
+    target.setUTCDate(target.getUTCDate() + 2);
+  } else if (txt.includes('mañana')) {
+    target.setUTCDate(target.getUTCDate() + 1);
+  } else if (txt.includes('hoy')) {
+    // no change
+  } else {
+    // Weekday names
+    for (const [name, idx] of Object.entries(weekdays)) {
+      if (txt.includes(name)) {
+        // advance until weekday matches
+        const maxIter = 14;
+        let iter = 0;
+        while (target.getUTCDay() !== idx && iter < maxIter) {
+          target.setUTCDate(target.getUTCDate() + 1);
+          iter += 1;
+        }
+        break;
+      }
+    }
+
+    // Explicit day e.g., '3 de agosto' or '3 agosto'
+    const explicitDateMatch = txt.match(/(\d{1,2})\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i);
+    if (explicitDateMatch) {
+      const dayNum = parseInt(explicitDateMatch[1], 10);
+      const monthName = explicitDateMatch[2].toLowerCase();
+      const monthNum = months[monthName];
+      if (monthNum) {
+        // Keep year same as base; adjust year if month earlier than base month (assume next year if month < baseMonth - rare but safe)
+        let year = baseYear;
+        if (monthNum < baseMonth) year = baseYear + 0; // keep same year to avoid assumptions
+        target = new Date(Date.UTC(year, monthNum - 1, dayNum));
+      }
+    }
+  }
+
+  // Time parsing
+  let hour = 12;
+  let minute = 0;
+  const timeMatchAmPm = txt.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  const timeMatch24 = txt.match(/(\d{1,2}):(\d{2})/);
+  const timeMatchPlain = txt.match(/(?:a\s*las|a|\bat\b)?\s*(\d{1,2})\s*(?:hm|h|hrs|horas)?\s*(am|pm)?/i);
+
+  if (timeMatchAmPm) {
+    hour = parseInt(timeMatchAmPm[1], 10);
+    minute = timeMatchAmPm[2] ? parseInt(timeMatchAmPm[2], 10) : 0;
+    const ampm = (timeMatchAmPm[3] || '').toLowerCase();
+    if (ampm === 'pm' && hour < 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
+  } else if (timeMatch24) {
+    hour = parseInt(timeMatch24[1], 10);
+    minute = parseInt(timeMatch24[2], 10);
+  } else if (timeMatchPlain) {
+    hour = parseInt(timeMatchPlain[1], 10);
+    minute = 0;
+    const ampm = (timeMatchPlain[2] || '').toLowerCase();
+    if (ampm === 'pm' && hour < 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
+  } else {
+    // default to 12:00 (noon) if no time provided
+    hour = 12;
+    minute = 0;
+  }
+
+  // Build ISO-like string with -05:00 offset for Lima
+  const y = target.getUTCFullYear();
+  const m = String(target.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(target.getUTCDate()).padStart(2, '0');
+  const hh = String(hour).padStart(2, '0');
+  const mm = String(minute).padStart(2, '0');
+
+  return `${y}-${m}-${d}T${hh}:${mm}:00-05:00`;
+}
+
+/**
+ * Prepara el request hacia la API de Gemini inyectando el prompt dinámico.
+ */
 function buildGeminiRequest(client, mensaje, history, jid) {
   const historyText = formatHistoryForPrompt(history);
   const userText = `${historyText ? historyText + '\n' : ''}Cliente: ${mensaje}`;
-  const phoneHint = getCurrentPhoneHint(jid);
-  const effectiveSystemPrompt = phoneHint ? `${CAMILA_SYSTEM_PROMPT}\n\n${phoneHint}` : CAMILA_SYSTEM_PROMPT;
+  
+  // Se obtiene el prompt enriquecido dinámicamente con Fecha de Lima y WhatsApp Hint
+  const effectiveSystemPrompt = buildSystemPromptWithContext(jid);
 
   if (isStructuredGeminiClient(client)) {
     return {
@@ -188,6 +314,7 @@ function buildGeminiRequest(client, mensaje, history, jid) {
         systemInstruction: effectiveSystemPrompt,
         generationConfig: {
           maxOutputTokens: config.gemini?.maxOutputTokens || 150,
+          responseMimeType: "application/json"
         },
       },
     };
@@ -308,6 +435,18 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
           leadData = null;
         }
       }
+
+    // If we have a textual fechaHora but no ISO, attempt to parse it to Lima ISO
+    if (leadData && leadData.fechaHora && !leadData.fechaHoraISO) {
+      try {
+        const iso = parseTextToLimaISO(leadData.fechaHora);
+        if (iso) {
+          leadData.fechaHoraISO = iso;
+        }
+      } catch (e) {
+        console.warn('parseTextToLimaISO failed:', e && e.message ? e.message : e);
+      }
+    }
 
     session.history.push({ role: 'model', parts: [{ text: rawText }] });
     session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
