@@ -115,12 +115,12 @@ function extractLeadDataFromText(text) {
   // Detect explicit "soy de X" or "vivo en X" as distrito
   const distritoFromSoy = t.match(/(?:soy\s+(?:de|del)|vivo\s+en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
   const distrito = distritoFromSoy ? distritoFromSoy[1].trim() : null;
-
-  // Name extraction: support typos like "me llamos" and avoid capturing phrases like "soy de ..." by negative lookahead
-  const nombreMatch = t.match(/(?:me\s+llam(?:o|os)|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i)
-    || t.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i);
+ 
+  // Name extraction: support typos like "me llamos" or "me llasmo" and avoid capturing phrases like "soy de ..." by negative lookahead
+  const nombreMatch = text.match(/(?:me\s+llam(?:o|os|smo)|me\s+llasm[oó]|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i)
+    || text.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i);
   const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
-
+ 
   const digitString = t.replace(/[^0-9]/g, "");
   const telefonoMatch = digitString.match(/(?:^51)?(9\d{8})/);
   const telefono = telefonoMatch ? telefonoMatch[1] : null;
@@ -128,7 +128,17 @@ function extractLeadDataFromText(text) {
   const distritoMatch = distrito || t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i);
   const distritoFinal = distritoMatch ? (typeof distritoMatch === 'string' ? distritoMatch : (distritoMatch[1] ? distritoMatch[1].trim() : null)) : null;
 
-  const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
+  const explicitWeekdayDateMatch = t.match(/\b(?:lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\s+\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
+  if (explicitWeekdayDateMatch) {
+    return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitWeekdayDateMatch[0].trim() };
+  }
+ 
+  const explicitDateMatch = t.match(/\b\d{1,2}\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
+  if (explicitDateMatch) {
+    return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitDateMatch[0].trim() };
+  }
+ 
+  const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo))(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
   const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
 
   return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: fechaHora ?? null };
@@ -530,12 +540,11 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
       try {
           const parsed = normalizeLeadData(JSON.parse(jsonText));
           if (parsed && parsed.telefono) parsed.telefono = String(parsed.telefono).replace(/\D/g, '');
-          if (parsed && parsed.ready_to_notify === false && parsed.nombre && parsed.telefono && parsed.distrito && parsed.fechaHora) {
+          if (parsed && parsed.nombre && parsed.telefono && parsed.distrito && parsed.fechaHora) {
             parsed.ready_to_notify = true;
           }
           leadData = parsed;
-        } catch (e) {
-          console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
+        } catch (e) {          console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
           const rawLead = extractLeadDataFromText(rawText) || {};
           const messageLead = extractLeadDataFromText(mensaje) || {};
           const historyLead = extractLeadDataFromHistory(session.history) || {};

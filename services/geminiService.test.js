@@ -60,6 +60,30 @@ describe('geminiService', () => {
     assert.ok(res.texto.includes('Perfecto') || res.texto.length > 0);
   });
 
+  it('forces ready_to_notify true when parsed lead JSON has all required fields', async () => {
+    const leadJson = JSON.stringify({ nombre: 'Shawmie', telefono: '987654321', distrito: 'Miraflores', fechaHoraTexto: 'lunes 10 de agosto a las 2:00 PM' });
+    const client = makeClientReturningText(`<<<LEAD_JSON>>>
+${leadJson}
+<<<END_LEAD_JSON>>>
+Perfecto, tu cita queda agendada.`);
+    const { obtenerRespuestaIA } = (await import('./geminiService.js'));
+    const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
+    assert.equal(res.leadData.ready_to_notify, true);
+    assert.equal(res.leadData.nombre, 'Shawmie');
+    assert.equal(res.leadData.fechaHora, 'lunes 10 de agosto, 2:00 PM');
+    assert.equal(res.leadData.fechaHoraISO, '2026-08-10T19:00:00+00:00');
+  });
+
+  it('captures misspelled "me llasmo" names and explicit dates', async () => {
+    const client = makeClientReturningText('Perfecto, tu cita queda agendada para el lunes 10 de agosto a las 2:00 PM.');
+    const { obtenerRespuestaIA } = (await import('./geminiService.js'));
+    const res = await obtenerRespuestaIA(makeJid(), 'Me llasmo Shawmie, vivo en Miraflores, mi telefono es 987654321 y quiero el lunes 10 de agosto a las 2:00 PM', { client });
+    assert.equal(res.leadData.nombre, 'Shawmie');
+    assert.equal(res.leadData.ready_to_notify, true);
+    assert.equal(res.leadData.fechaHora, 'lunes 10 de agosto, 2:00 PM');
+    assert.equal(res.leadData.fechaHoraISO, '2026-08-10T19:00:00+00:00');
+  });
+
   it('removes the LEAD_JSON block from texto before replying', async () => {
     const leadJson = JSON.stringify({ nombre: 'Ana', telefono: '987654324', distrito: 'Surco', fechaHoraTexto: 'viernes a las 10am' });
     const client = makeClientReturningText(`<<<LEAD_JSON>>>\n${leadJson}\n<<<END_LEAD_JSON>>>\nPerfecto, Ana, te agendé tentativamente.`);

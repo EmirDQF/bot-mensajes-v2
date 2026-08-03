@@ -174,6 +174,8 @@ export default async function webhookController(req, res, next) {
         // Notify admin if needed (best-effort)
         try {
           if (leadResult && leadResult.readyToNotify && leadResult.lead) {
+            const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone || 'unknown';
+            console.log('[NOTIFICACION ENVIADA A ADMIN]:', adminNumber);
             await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService });
           }
         } catch (e) {
