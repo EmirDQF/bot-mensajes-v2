@@ -85,6 +85,22 @@ describe('geminiService', () => {
     assert.ok(res.texto.includes('Hola'));
   });
 
+  it('includes current WhatsApp number in systemInstruction for phone context', async () => {
+    let capturedRequest = null;
+    const client = {
+      async generateContent(request) {
+        capturedRequest = request;
+        return { text: 'Perfecto, te enviamos la información al número registrado.' };
+      },
+    };
+    const { obtenerRespuestaIA } = (await import('./geminiService.js'));
+    const testJid = makeJid();
+    const res = await obtenerRespuestaIA(testJid, 'Por favor envía la dirección a este número', { client });
+    assert.ok(capturedRequest, 'generateContent should be called');
+    assert.ok(capturedRequest.systemInstruction.includes(`WhatsApp ${testJid.split('@')[0]}`));
+    assert.ok(res.texto.includes('Perfecto') || typeof res.texto === 'string');
+  });
+
   it('falls back to heuristic when no LEAD_JSON present', async () => {
     const client = makeClientReturningText('Hola, me llamo Maria y puedo el viernes por la tarde. Mi telefono es 987654322.');
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));

@@ -15,6 +15,7 @@ IMPORTANTE: Genera el bloque <<<LEAD_JSON>>> SOLO LA PRIMERA VEZ que tengas Nomb
 5) Nunca des instrucciones técnicas, ni enlaces a API; evita respuestas largas. Si no entiendes, pide clarificación con una pregunta concreta.
 6) Cuando respondas al usuario, sé amable: usa "Gracias", "Por favor", "¿Podrías…?" según el caso, pero en respuestas subsiguientes NO comiences con un saludo como "Hola", "Buenos días", "Buenas tardes" o "Buenas noches".
 7) Acepta cualquier número peruano de 9 dígitos aunque el usuario no escriba +51 y aunque lo ingrese con espacios, guiones o texto adicional; normaliza el teléfono a solo dígitos.
+8) Si el usuario dice "a este número" o pide detalles al número actual, reconoce que se refiere al número de WhatsApp con el que está escribiendo y responde: "Perfecto, te enviamos la información al [número_registrado]." sin volver a pedir el teléfono.
 
 Ejemplos (few-shot):
 
@@ -129,9 +130,16 @@ function extractTextFromResult(result) {
   return '';
 }
 
-function buildGeminiRequest(client, mensaje, history) {
+function getCurrentPhoneHint(jid) {
+  const phone = getSessionId(jid);
+  return phone ? `El usuario escribe desde el número de WhatsApp ${phone}. Si el usuario pide "a este número" o menciona el número actual, reconoce que se refiere a este número y no vuelvas a preguntar por teléfono.` : '';
+}
+
+function buildGeminiRequest(client, mensaje, history, jid) {
   const historyText = formatHistoryForPrompt(history);
   const userText = `${historyText ? historyText + '\n' : ''}Cliente: ${mensaje}`;
+  const phoneHint = getCurrentPhoneHint(jid);
+  const effectiveSystemPrompt = phoneHint ? `${CAMILA_SYSTEM_PROMPT}\n\n${phoneHint}` : CAMILA_SYSTEM_PROMPT;
 
   if (isStructuredGeminiClient(client)) {
     return {
@@ -143,7 +151,7 @@ function buildGeminiRequest(client, mensaje, history) {
             parts: [{ text: userText }],
           },
         ],
-        systemInstruction: CAMILA_SYSTEM_PROMPT,
+        systemInstruction: effectiveSystemPrompt,
         generationConfig: {
           maxOutputTokens: config.gemini?.maxOutputTokens || 150,
         },
@@ -153,7 +161,7 @@ function buildGeminiRequest(client, mensaje, history) {
 
   return {
     type: 'text',
-    prompt: `${CAMILA_SYSTEM_PROMPT}\n${userText}`,
+    prompt: `${effectiveSystemPrompt}\n${userText}`,
   };
 }
 
@@ -208,7 +216,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.history.push({ role: 'user', parts: [{ text: mensaje }] });
   session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
 
-  const geminiRequest = buildGeminiRequest(client, mensaje, session.history);
+  const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid);
 
   try {
     const result = await callClientWithRetries(client, geminiRequest, 1);
