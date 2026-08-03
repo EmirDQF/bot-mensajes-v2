@@ -159,7 +159,7 @@ describe('leadService (supabase mock)', () => {
     assert.equal(initial.isNew, true);
     assert.equal(initial.readyToNotify, false);
 
-    const updated = await saveLead({ telefono: '999111222', nombre: 'First Name', distrito: 'Barranco', fechaHoraTexto: 'viernes a las 5pm' });
+    const updated = await saveLead({ telefono: '999111222', nombre: 'First Name', distrito: 'Barranco', fechaHoraISO: '2026-08-09T22:00:00+00:00', fechaHoraTexto: 'viernes a las 5pm' });
     assert.equal(updated.isNew, false);
     assert.equal(updated.readyToNotify, true);
     assert.equal(updated.lead.ready_to_notify, true);
@@ -192,7 +192,7 @@ describe('leadService (supabase mock)', () => {
     assert.equal(r1.readyToNotify, false);
 
     // complete data -> should signal readyToNotify true
-    const r2 = await saveLead({ telefono: '999222333', nombre: 'Ana', distrito: 'Surco', fechaHoraTexto: 'lunes 10am' });
+    const r2 = await saveLead({ telefono: '999222333', nombre: 'Ana', distrito: 'Surco', fechaHoraISO: '2026-08-10T15:00:00+00:00', fechaHoraTexto: 'lunes 10am' });
     assert.equal(r2.isNew, false);
     assert.equal(r2.readyToNotify, true);
 

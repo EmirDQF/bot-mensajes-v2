@@ -1,6 +1,7 @@
 import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
 import leadService from '../services/leadService.js';
+import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 
@@ -158,9 +159,11 @@ export default async function webhookController(req, res, next) {
         try {
           // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
           let textoFinal = extractPlainText(texto);
-
+ 
           textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
-
+          // Ensure admin-only alert text is never forwarded to the patient.
+          textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
+ 
           if (textoFinal && textoFinal.length > 0 && !skipResponse) {
             await whatsappService.sendWhatsAppMessage(from, textoFinal, {});
           }
@@ -171,27 +174,7 @@ export default async function webhookController(req, res, next) {
         // Notify admin if needed (best-effort)
         try {
           if (leadResult && leadResult.readyToNotify && leadResult.lead) {
-            const adminPhoneRaw = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
-            if (adminPhoneRaw) {
-              const adminDigits = String(adminPhoneRaw).replace(/\D/g, '');
-              const fechaDisplay = leadResult.lead.fecha_hora_texto || leadResult.lead.fechaHoraTexto || (leadResult.lead.fechaHoraISO ? new Date(leadResult.lead.fechaHoraISO).toLocaleString('es-PE', { timeZone: 'America/Lima', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'N/A');
-              const alertMessage = `🚨 ¡NUEVO PACIENTE AGENDADO!\n👤 Nombre: ${leadResult.lead.nombre || 'N/A'}\n📞 Teléfono: ${leadResult.lead.telefono || leadResult.lead.telefonoOriginal || 'N/A'}\n📍 Distrito: ${leadResult.lead.distrito || 'N/A'}\n🗓️ Fecha/Hora: ${fechaDisplay}`;
-              try {
-                await whatsappService.sendWhatsAppMessage(adminDigits, alertMessage, {});
-                console.log(`✅ Notificación enviada al administrador: ${adminDigits}`);
-                // Mark lead as notified to avoid duplicate admin notifications
-                try {
-                  if (leadResult && leadResult.lead && leadResult.lead.id) {
-                    await leadService.markAsNotified(leadResult.lead.id);
-                    console.log(`Marked lead ${leadResult.lead.id} as notified`);
-                  }
-                } catch (markErr) {
-                  console.error('webhookController: error marking lead as notified', markErr && markErr.message ? markErr.message : markErr);
-                }
-              } catch (e) {
-                console.error('webhookController: error notifying admin', e && e.message ? e.message : e);
-              }
-            }
+            await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService });
           }
         } catch (e) {
           console.error('webhookController: error in admin notify flow', e && e.message ? e.message : e);

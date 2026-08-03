@@ -140,11 +140,11 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       updated_at: now,
     };
 
-    // Calcular estado ready_to_notify
+    // Calcular estado ready_to_notify solo cuando ya contamos con una fecha/hora ISO válida.
     const isNowReady = Boolean(
-      payload.nombre && 
-      payload.distrito && 
-      (payload.fecha_hora_iso || payload.fecha_hora_texto)
+      payload.nombre &&
+      payload.distrito &&
+      payload.fecha_hora_iso
     );
 
     payload.ready_to_notify = isNowReady;

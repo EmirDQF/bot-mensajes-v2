@@ -240,6 +240,8 @@ export function sanitizeModelTextOutput(rawText) {
   cleaned = cleaned.replace(/<<<LEAD_JSON>>>[\s\S]*?(?:<<<END_LEAD_JSON>>>|$)/gi, '');
   cleaned = cleaned.replace(/<<<[\s\S]*?$/gi, ''); // Limpiar cualquier residuo de tag inconcluso
   cleaned = cleaned.replace(/<+$/g, '');            // Limpiar símbolos '<' sueltos al final
+  // 1.5 Eliminar cualquier texto de alerta interna destinado al administrador
+  cleaned = cleaned.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
   // 2. Eliminar bloques de código Markdown ```json ... ```
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -306,10 +308,10 @@ export function buildSystemPromptWithContext(jid) {
 }
 
 /**
- * Parsea texto libre de fecha/hora relativo a Lima y devuelve ISO 8601 con offset -05:00
+ * Parsea texto libre de fecha/hora relativo a Lima y devuelve ISO 8601 en UTC (+00:00).
  * Ejemplos aceptados: "hoy a las 3pm", "mañana 16:00", "el jueves a las 4pm", "3 de agosto a las 10:30"
  */
-function parseTextToLimaISO(fechaTexto) {
+export function parseTextToLimaISO(fechaTexto) {
   if (!fechaTexto || typeof fechaTexto !== 'string') return null;
   const txt = fechaTexto.toLowerCase();
 
@@ -354,9 +356,9 @@ function parseTextToLimaISO(fechaTexto) {
       const monthName = explicitDateMatch[2].toLowerCase();
       const monthNum = months[monthName];
       if (monthNum) {
-        // Keep year same as base; adjust year if month earlier than base month (assume next year if month < baseMonth - rare but safe)
+        // Keep year same as base; adjust year only if month less than current month? Avoid future-year assumptions.
         let year = baseYear;
-        if (monthNum < baseMonth) year = baseYear + 0; // keep same year to avoid assumptions
+        if (monthNum < baseMonth) year = baseYear;
         target = new Date(Date.UTC(year, monthNum - 1, dayNum));
       }
     }
@@ -390,14 +392,39 @@ function parseTextToLimaISO(fechaTexto) {
     minute = 0;
   }
 
-  // Build ISO-like string with -05:00 offset for Lima
-  const y = target.getUTCFullYear();
-  const m = String(target.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(target.getUTCDate()).padStart(2, '0');
-  const hh = String(hour).padStart(2, '0');
-  const mm = String(minute).padStart(2, '0');
+  // Build a UTC ISO string from Lima local time by applying the -05:00 offset.
+  const limaUtcDate = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate(), hour + 5, minute, 0));
+  return limaUtcDate.toISOString().replace(/\.000Z$/, '+00:00');
+}
 
-  return `${y}-${m}-${d}T${hh}:${mm}:00-05:00`;
+export function formatLimaFechaHoraText(fechaHoraISO) {
+  if (!fechaHoraISO || typeof fechaHoraISO !== 'string') return null;
+  const parsed = new Date(fechaHoraISO);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  let datePart = new Intl.DateTimeFormat('es-PE', {
+    timeZone: 'America/Lima',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(parsed);
+
+  const timePart = new Intl.DateTimeFormat('es-PE', {
+    timeZone: 'America/Lima',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(parsed);
+
+  datePart = datePart.replace(/\s*,\s*/, ' ');
+  const normalizedTime = timePart
+    .replace(/\s*a\.?\s*m\.?/i, ' AM')
+    .replace(/\s*p\.?\s*m\.?/i, ' PM')
+    .replace(/\u202F/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return `${datePart}, ${normalizedTime}`.replace(/\s+de\s+\d{4}/, '').trim();
 }
 
 /**
@@ -578,6 +605,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
         const iso = parseTextToLimaISO(leadData.fechaHora);
         if (iso) {
           leadData.fechaHoraISO = iso;
+          const explicitText = formatLimaFechaHoraText(iso);
+          if (explicitText) {
+            leadData.fechaHora = explicitText;
+          }
         }
       } catch (e) {
         console.warn('parseTextToLimaISO failed:', e && e.message ? e.message : e);

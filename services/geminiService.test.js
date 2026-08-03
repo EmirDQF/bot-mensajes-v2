@@ -106,6 +106,27 @@ describe('geminiService', () => {
     assert.equal(cleaned, 'Tu cita está programada para este jueves a las 2:00 p. m.');
   });
 
+  it('converts Lima local date/time to UTC ISO correctly', async () => {
+    const { parseTextToLimaISO } = await import('./geminiService.js');
+    const now = new Date();
+    const year = now.getFullYear();
+    const iso = parseTextToLimaISO('6 de agosto a las 3:00 pm');
+    assert.equal(iso, `${year}-08-06T20:00:00+00:00`);
+  });
+ 
+  it('formats Lima date/time ISO to explicit fechaHoraTexto', async () => {
+    const { formatLimaFechaHoraText } = await import('./geminiService.js');
+    const formatted = formatLimaFechaHoraText('2026-08-06T20:00:00+00:00');
+    assert.equal(formatted, 'jueves 6 de agosto, 3:00 PM');
+  });
+ 
+  it('removes admin alert text from sanitized model output', async () => {
+    const { sanitizeModelTextOutput } = await import('./geminiService.js');
+    const raw = 'Perfecto.\n🚨 ¡NUEVO PACIENTE AGENDADO!\n👤 Nombre: Juan\n📞 Teléfono: https://wa.me/51987654321\n📍 Distrito: Miraflores\n🗓️ Cita: jueves 6 de agosto, 3:00 PM';
+    const cleaned = sanitizeModelTextOutput(raw);
+    assert.equal(cleaned, 'Perfecto.');
+  });
+ 
   it('extracts name from typo "me llamos" and sets ready_to_notify true', async () => {
     const client = makeClientReturningText('Perfecto, tu cita está agendada.');
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
