@@ -28,10 +28,22 @@ router.post('/webhook', express.raw({ type: 'application/json' }), rateLimiter()
     console.error('webhook route: failed to send immediate 200:', e && e.message ? e.message : e);
   }
 
-  // Continue processing in background without blocking the response
+  // Continue processing in background without blocking the response.
+  // Use a safe mock response object so background processing cannot send headers after ACK.
+  const safeRes = {
+    headersSent: true,
+    status() { return this; },
+    json() { return this; },
+    send() { return this; },
+    setHeader() {},
+    getHeader() { return undefined; },
+    end() { return this; }
+  };
+
   (async () => {
     try {
-      await webhookController(req, res, next);
+      // Pass safeRes so the controller's attempts to write headers are no-ops.
+      await webhookController(req, safeRes, next);
     } catch (err) {
       console.error('webhook route: background processing error', err && err.message ? err.message : err);
     }

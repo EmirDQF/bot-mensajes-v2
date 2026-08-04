@@ -255,7 +255,11 @@ export default async function webhookController(req, res, next) {
 
     // At this point we have validated "from" and "messageText".
     // Respond immediately to Meta to avoid retries/duplication.
-    res.status(200).json({ ok: true });
+    if (!res || !res.headersSent) {
+      try { return res.status(200).json({ ok: true }); } catch (e) { /* safe no-op */ }
+    }
+    // If headers already sent, continue silently
+    
 
     // Continue processing in background without blocking the response.
     // Use an immediately-invoked async function and internal try/catch to avoid unhandled rejections.
