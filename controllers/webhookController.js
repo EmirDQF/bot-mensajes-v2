@@ -78,6 +78,8 @@ export default async function webhookController(req, res, next) {
     }
 
     // Detect Chatwoot webhook (message_created)
+    // Safe fallback for clinic name in case `clinic` is undefined in some webhook flows
+    let clinicName = process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental';
     if (payload?.event === 'message_created' && payload?.payload) {
       const p = payload.payload;
       const message = p?.message || p?.content || null;
@@ -108,6 +110,8 @@ export default async function webhookController(req, res, next) {
         console.error('webhookController: error looking up clinic for chatwoot webhook', e && e.message ? e.message : e);
       }
 
+      // Update clinicName from clinic if available
+      clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
       // If conversation is assigned to a human agent and open, skip bot
       const convStatus = conversation?.status || (p?.conversation?.status);
       const assigneeId = conversation?.meta?.assignee_id || conversation?.assignee_id || null;
@@ -337,7 +341,8 @@ export default async function webhookController(req, res, next) {
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
           // Defensive placeholder cleanup before sending to user
-          const clinicName = (typeof clinic !== 'undefined' && clinic?.name) || process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental';
+          // Use shared clinicName declared earlier (already contains env/default fallback); prefer clinic.name when available
+          clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
           const session = (() => { try { return geminiService.getOrCreateSession(from + '@s.whatsapp.net'); } catch (e) { return null; } })();
           let patientName = null;
           try {
