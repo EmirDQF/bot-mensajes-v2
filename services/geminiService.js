@@ -353,7 +353,7 @@ export function getOrCreateSession(jid) {
   const sid = getSessionId(jid);
   let entry = chatSessions.get(sid);
   if (!entry) {
-    entry = { history: [], timer: null, lastUserMessageAt: 0 };
+    entry = { history: [], timer: null, lastUserMessageAt: 0, booked: false, leadSnapshot: null };
     chatSessions.set(sid, entry);
   }
   resetSessionTimer(sid, entry);
@@ -553,6 +553,15 @@ export function buildSystemPromptWithContext(jid, session = null, clinic = null)
   } else {
     // ensure literal placeholder is removed if no patientName
     promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
+  }
+
+  // If this session already has a booked appointment, instruct the model to NOT ask for core booking fields again.
+  if (session && session.booked) {
+    try {
+      const snap = session.leadSnapshot || {};
+      const snapText = `Nombre: ${snap.nombre || 'N/A'}, Distrito: ${snap.distrito || 'N/A'}, Fecha/Hora: ${snap.fecha_hora_texto || 'N/A'}`;
+      promptBase = promptBase + `\n\n- AVISO: Este usuario ya tiene una cita agendada: ${snapText}. No vuelvas a pedir nombre, teléfono, distrito ni fecha. Responde dudas post-agendamiento o procesa reprogramaciones solo si el usuario lo solicita explícitamente.`;
+    } catch (e) { /* ignore */ }
   }
 
   return `${promptBase}\n\n[CONTEXTO TEMPORAL Y DE SISTEMA EN VIVO]\n- FECHA Y HORA ACTUAL EN LIMA: ${fechaActual}\n- REGLA DE TIEMPO: Usa esta fecha actual de Lima como tu única referencia absoluta para calcular "hoy", "mañana", "el próximo lunes", o fechas específicas solicitadas por el cliente. No asumas años ni meses pasados.${phoneHint ? `\n${phoneHint}` : ''}`;
@@ -872,7 +881,21 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
         role: 'model',
         parts: [{ text: `[SISTEMA - CITA REGISTRADA VERIFICADA: Nombre: ${leadData.nombre}, Distrito: ${leadData.distrito}, Fecha/Hora Agendada: ${leadData.fechaHora}]` }]
       });
+
+      // Mark session as booked and keep a snapshot of the confirmed lead data so follow-up turns do not re-ask core fields.
+      try {
+        session.booked = true;
+        session.leadSnapshot = {
+          nombre: leadData.nombre || null,
+          telefono: leadData.telefono || null,
+          distrito: leadData.distrito || null,
+          fecha_hora_texto: leadData.fechaHora || null,
+          fecha_hora_iso: leadData.fechaHoraISO || null,
+          confirmedAt: new Date().toISOString()
+        };
+      } catch (e) { /* non fatal */ }
     }
+
     session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
 
     const sid = getSessionId(jid);
