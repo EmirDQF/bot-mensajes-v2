@@ -17,6 +17,9 @@ Nunca pidas dos datos en el mismo mensaje. Sigue este orden estricto y NUNCA vue
 3. Distrito de Lima
 4. Día y hora deseada
 
+IMPORTANTE: LA CLÍNICA ATIENDE DE LUNES A SÁBADO
+La clínica atiende de lunes a sábado. Si el usuario pide domingo o un día fuera de este rango, indícaselo amablemente y pide que elija otro día dentro del horario.
+
 REGLA DE TELÉFONO — CRÍTICA
 - Si el usuario dice frases como "a este número", "el mismo con el que te escribo", "este número de acá": NO inventes ni derives el número del texto. El sistema usará exclusivamente el número real de WhatsApp del remitente; tú solo confirma conversacionalmente, nunca generes ni repitas un número distinto al confirmado por el sistema.
 - Si el usuario te da el número escrito en el chat, valida que tenga exactamente 9 dígitos y empiece en 9. Si no cumple, pide que lo repita — nunca "arregles" o adivines dígitos.
@@ -151,8 +154,10 @@ function extractLeadDataFromText(text) {
  const distrito = distritoFromSoy ? distritoFromSoy[1].trim() : null;
  
  // Name extraction: support typos like "me llamos" or "me llasmo" and avoid capturing phrases like "soy de ..." by negative lookahead
- const nombreMatch = text.match(/(?:me\s+llam(?:o|os|smo)|me\s+llasm[oó]|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i)
-   || text.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i);
+ // Capture up to 3-word names after common phrases like "me llamo", "mi nombre es", or "soy".
+ // Stop capture at common connectors such as 'vivo', 'vi', 'mi', 'tengo', 'y', 'con' or punctuation.
+ const nombreMatch = text.match(/(?:me\s+llam(?:o|os|smo)|me\s+llasm[oó]|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü]+(?:\s+[a-záéíóúñü]+){0,2})(?=\s*(?:[,\.\n]|vivo\b|vivo\s+en\b|vi\b|mi\b|mi\s+telefono|mi\s+número|tengo\b|y\b|con\b|$))/i)
+   || text.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü]+(?:\s+[a-záéíóúñü]+){0,2})(?=\s*(?:[,\.\n]|vivo\b|vivo\s+en\b|vi\b|mi\b|mi\s+telefono|mi\s+número|tengo\b|y\b|con\b|$))/i);
  const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
  
  const digitString = t.replace(/[^0-9]/g, "");
@@ -210,6 +215,8 @@ function isValidName(nombre) {
   if (!nombre || typeof nombre !== 'string') return false;
   const n = nombre.trim();
   if (n.length < 2) return false;
+  // reject the literal placeholder the system sometimes uses
+  if (normalizeTextForCompare(n) === 'no proporcionado') return false;
   // reject assistant name or phrases
   if (/^camila\b/i.test(n)) return false;
   // reject if contains question forms or system prompts
@@ -263,7 +270,30 @@ function finalizeLeadData(lead) {
   const hasValidDistrict = isValidDistrictName(lead.distrito);
   const hasValidFechaISO = Boolean(lead.fechaHoraISO && typeof lead.fechaHoraISO === 'string');
 
-  lead.ready_to_notify = hasValidPhone && hasValidName && hasValidDistrict && hasValidFechaISO;
+  // Respect clinic hours configuration: if the parsed date falls outside diasAtencion, do NOT mark ready_to_notify.
+  let withinClinicDays = true;
+  try {
+    const clinicCfg = (config && config.clinicHours) ? config.clinicHours : { diasAtencion: [1,2,3,4,5,6] };
+    if (hasValidFechaISO) {
+      const parsedDate = new Date(lead.fechaHoraISO);
+      if (!Number.isNaN(parsedDate.getTime())) {
+        // Derive weekday in Lima timezone by formatting weekday name and mapping to index
+        const limaWeekdayName = new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', weekday: 'long' }).format(parsedDate).toLowerCase();
+        const weekdayMap = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6 };
+        const weekdayIndex = typeof weekdayMap[limaWeekdayName] === 'number' ? weekdayMap[limaWeekdayName] : parsedDate.getUTCDay();
+        withinClinicDays = Array.isArray(clinicCfg.diasAtencion) ? clinicCfg.diasAtencion.includes(weekdayIndex) : true;
+      }
+    }
+  } catch (e) {
+    withinClinicDays = true; // conservative: if validation fails, do not block
+  }
+
+  lead.ready_to_notify = hasValidPhone && hasValidName && hasValidDistrict && hasValidFechaISO && withinClinicDays;
+  if (!withinClinicDays) {
+    // signal that the date is out of clinic hours so caller can inform user
+    lead.outsideClinicHours = true;
+  }
+
   return lead;
 }
 
@@ -372,11 +402,36 @@ export function sanitizeModelTextOutput(rawText) {
   // 3. Desempaquetar si viene en formato JSON stringify
   if (/^[\[{]/.test(cleaned)) {
     try {
-      const candidate = cleaned;
-      const parsed = JSON.parse(candidate);
-      const extracted = extractTextFromParsedJson(parsed);
-      if (extracted) {
-        cleaned = extracted;
+      const parsed = JSON.parse(cleaned);
+
+      // If the model returned a structured object with a top-level "response", prefer that.
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.response === 'string' && parsed.response.trim().length > 0) {
+          return parsed.response.trim();
+        }
+
+        // If response is nested object with parts (structured Gemini), try to extract its text
+        if (parsed.response && typeof parsed.response === 'object') {
+          const nested = extractTextFromParsedJson(parsed.response);
+          if (nested && nested.trim()) return nested.trim();
+        }
+
+        // If the payload looks like it contains lead data (LEAD_JSON key or personal fields), do NOT forward raw JSON.
+        const containsLeadKeys = ('LEAD_JSON' in parsed) || ('lead' in parsed) || ('nombre' in parsed) || ('telefono' in parsed) || ('distrito' in parsed);
+        if (containsLeadKeys) {
+          // Try to extract any human-readable textual reply (message/text/content). If none, return a safe generic confirmation.
+          const extracted = extractTextFromParsedJson(parsed);
+          if (extracted && extracted.trim()) return extracted.trim();
+
+          // Last-resort safe message to avoid leaking JSON to end-user
+          return 'Gracias, registré tu solicitud. Te contactaré por este número para confirmar los detalles de la cita.';
+        }
+
+        // Generic traversal extraction if no explicit response key
+        const extracted = extractTextFromParsedJson(parsed);
+        if (extracted && extracted.trim()) {
+          cleaned = extracted.trim();
+        }
       }
     } catch (e) {
       // Fallback por expresiones regulares si el parseo estricto de JSON falla
@@ -572,8 +627,7 @@ function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
         ],
         systemInstruction: effectiveSystemPrompt,
         generationConfig: {
-          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100,
-          responseMimeType: "application/json"
+          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100
         },
       },
     };

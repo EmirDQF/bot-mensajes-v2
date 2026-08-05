@@ -74,6 +74,12 @@ export default {
   server: {
     port: Number(process.env.PORT || 3000),
   },
+  clinicHours: {
+    // Default clinic schedule: lunes(1) .. sábado(6). Domingo (0) no atendemos.
+    diasAtencion: [1,2,3,4,5,6],
+    horaInicio: process.env.CLINIC_HOUR_START || '09:00',
+    horaFin: process.env.CLINIC_HOUR_END || '19:00'
+  },
   helpers: {
     maskSecret,
     maskPhone,
