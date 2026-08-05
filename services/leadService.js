@@ -36,11 +36,34 @@ function normalizePhone(telefono) {
 function isLikelyDistrict(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.toLowerCase().trim();
+  // reject lines that look like a question or a system prompt
+  if (/\?|¿|\b(qué|cual|cuál|por favor|porfavor|por favor|dónde|donde)\b/i.test(t)) return false;
   if (/^\s*(?:de|del)\s+/i.test(t)) return true;
   if (/\b(?:soy de|vivo en|nací en|naci en)\b/i.test(t)) return true;
   if (/\bdistrit[oó]\b/i.test(t)) return true;
   if (/\b(?:los|san|santa|villa|sur|norte)\b\s+[a-záéíóúñü]+/i.test(t)) return true;
+  // accept typical district names (single word or two words with letters and spaces)
+  if (/^[a-záéíóúñü\s]{3,40}$/i.test(t)) return true;
   return false;
+}
+
+function isValidNormalizedPhone(normalized) {
+  return Boolean(normalized && /^\d{9}$/.test(String(normalized)));
+}
+
+function isValidNameForNotify(name) {
+  if (!name || typeof name !== 'string') return false;
+  const n = name.trim();
+  if (n.length < 2) return false;
+  if (/^camila\b/i.test(n)) return false; // avoid assistant name
+  if (/\b(qué|cuál|cuando|a este número|dónde|donde)\b/i.test(n)) return false;
+  return true;
+}
+
+function isValidISODateString(s) {
+  if (!s || typeof s !== 'string') return false;
+  const d = new Date(s);
+  return !Number.isNaN(d.getTime());
 }
 
 // validateLead: throws Error with descriptive message when required fields missing in strict mode
@@ -140,11 +163,12 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       updated_at: now,
     };
 
-    // Calcular estado ready_to_notify solo cuando ya contamos con una fecha/hora ISO válida.
+    // Calcular estado ready_to_notify solo cuando ya contamos con una fecha/hora ISO válida y datos validados.
     const isNowReady = Boolean(
-      payload.nombre &&
-      payload.distrito &&
-      payload.fecha_hora_iso
+      payload.nombre && isValidNameForNotify(payload.nombre) &&
+      payload.distrito && isLikelyDistrict(payload.distrito) &&
+      payload.fecha_hora_iso && isValidISODateString(payload.fecha_hora_iso) &&
+      isValidNormalizedPhone(normalized)
     );
 
     payload.ready_to_notify = isNowReady;

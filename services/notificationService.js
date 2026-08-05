@@ -19,6 +19,24 @@ function buildWhatsappLink(phone) {
 export async function notifyAdminNewLead(lead, options = {}) {
   if (!lead || !lead.ready_to_notify || lead.notified_at) return false;
 
+  // Basic validation guard: ensure phone and name and distrito appear valid
+  const phone = lead.telefono || lead.phone || '';
+  const onlyDigits = String(phone).replace(/\D/g, '');
+  if (!/^9\d{8}$/.test(onlyDigits)) {
+    console.warn('notificationService: telefono inválido para notificar admin:', phone);
+    return false;
+  }
+  const nombre = lead.nombre || '';
+  if (!nombre || /^camila\b/i.test(nombre)) {
+    console.warn('notificationService: nombre inválido para notificar admin:', nombre);
+    return false;
+  }
+  const distrito = lead.distrito || '';
+  if (!distrito || /\b(qué|que|cual|cuál|a este número|dónde|donde)\b/i.test(distrito)) {
+    console.warn('notificationService: distrito inválido para notificar admin:', distrito);
+    return false;
+  }
+
   // Prefer clinic's admin number when provided in options
   const adminFromOptions = options.clinic && options.clinic.admin_whatsapp_number ? String(options.clinic.admin_whatsapp_number) : null;
   const raw = adminFromOptions || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;

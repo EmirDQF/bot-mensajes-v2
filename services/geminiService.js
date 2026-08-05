@@ -3,7 +3,7 @@ import config from '../config/env.js';
 const TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000); // 30 minutes
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
-const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de una clínica dental en Lima. Habla en español, con tono amable, profesional y cercano. Responde siempre de forma breve y útil (máximo 40–50 palabras). Objetivos principales:
+const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de una clínica dental en Lima. Camila es el asistente; NUNCA confundas la identidad del asistente con el nombre del cliente. Habla en español, con tono amable, profesional y cercano. Responde siempre de forma breve y útil (máximo 40–50 palabras). Objetivos principales:
 
 1) Detectar si el paciente quiere AGENDAR una cita.
 2) Si pide agendar, guía la conversación para OBTENER: Nombre, Teléfono (9 dígitos Perú), Distrito, Día y Hora deseada. Pide un dato por mensaje si hace falta (p.ej. "¿Cuál es tu nombre completo?").
@@ -17,9 +17,10 @@ REGLA DE MEMORIA: Si el usuario pregunta por los detalles de su cita agendada, c
 4) Si el usuario pregunta por precios o presupuesto, responde con un precio estimado en 'brackets' (rango), p.ej. "Limpieza: S/80–S/150", y sugiere una evaluación para confirmar el presupuesto final.
 5) Nunca des instrucciones técnicas, ni enlaces a API; evita respuestas largas. Si no entiendes, pide clarificación con una pregunta concreta.
 6) Cuando respondas al usuario, sé amable: usa "Gracias", "Por favor", "¿Podrías…?" según el caso, pero en respuestas subsiguientes NO comiences con un saludo como "Hola", "Buenos días", "Buenas tardes" o "Buenas noches".
-7) Acepta cualquier número peruano de 9 dígitos aunque el usuario no escriba +51 y aunque lo ingrese con espacios, guiones o texto adicional; normaliza el teléfono a solo dígitos.
-8) Si el usuario dice "a este número" o pide detalles al número actual, reconoce que se refiere al número de WhatsApp con el que está escribiendo y responde: "Perfecto, te enviamos la información al [número_registrado]." sin volver a pedir el teléfono.
-9) Cuando ya tengas Nombre, Teléfono, Distrito y Fecha/Hora completos, ADJUNTA siempre AL FINAL de tu mensaje el siguiente bloque EXACTO:
+7) USO DEL NOMBRE DEL CLIENTE: Usa el nombre del cliente ÚNICAMENTE la primera vez que te presentes o al confirmar la cita final. NO repitas el nombre del usuario en cada mensaje intermedio para evitar sonar robótico e insistente.
+8) Acepta cualquier número peruano de 9 dígitos aunque el usuario no escriba +51 y aunque lo ingrese con espacios, guiones o texto adicional; normaliza el teléfono a solo dígitos.
+9) Si el usuario dice "a este número" o pide detalles al número actual, reconoce que se refiere al número de WhatsApp con el que está escribiendo y responde: "Perfecto, te enviamos la información al [número_registrado]." sin volver a pedir el teléfono.
+10) Cuando ya tengas Nombre, Teléfono, Distrito y Fecha/Hora completos, ADJUNTA siempre AL FINAL de tu mensaje el siguiente bloque EXACTO:
 
 <<<LEAD_JSON>>>
 {
@@ -124,16 +125,23 @@ function hasSchedulingIntent(message, history) {
 }
 
 // Simple heuristic parser for lead data (fallback)
+// A curated list of Lima districts (normalized without accents). Expand as needed.
+const LIMA_DISTRICTS = new Set([
+  'cercado de lima','lima','ancon','ate','barranco','breña','carabayllo','chaclacayo','chorrillos','cieneguilla','comas','el agustino','independencia','jesus maria','la molina','la victoria','lince','los olivos','lica a','magdalena del mar','miraflores','pachacamac','pucusana','puente piedra','punta negra','punta hermosa','rimac','san borja','san isidro','san juan de lurigancho','san juan de miraflores','san luis','san martín de porres','san miguel','santa anita','santa maria del mar','santa rosa','santiago de surco','surco','surquillo','venta','villa el salvador','villa maria del triunfo'
+].map(s => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()));
+
 function isLikelyDistrict(text) {
   if (!text || typeof text !== 'string') return false;
-  const t = text.toLowerCase().trim();
-  // patterns like "soy de los olivos", "de los olivos", "vivo en san borja"
-  if (/^\s*(?:de|del)\s+/i.test(t)) return true;
-  if (/\b(?:soy de|vivo en|nací en|naci en)\b/i.test(t)) return true;
-  // short check: if string has 'distrito' word
-  if (/\bdistrit[oó]\b/i.test(t)) return true;
-  // common district words (Los, San, Santa) followed by a name
-  if (/\b(?:los|san|santa|villa|sur|norte)\b\s+[a-záéíóúñü]+/i.test(t)) return true;
+  const t = text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+  // Quick direct match against known districts
+  for (const d of LIMA_DISTRICTS) {
+    if (t.includes(d)) return true;
+  }
+  // fallback patterns like "soy de los olivos", "vivo en san borja"
+  if (/^\s*(?:de|del)\s+/i.test(text)) return true;
+  if (/\b(?:soy de|vivo en|nací en|naci en)\b/i.test(text)) return true;
+  if (/\bdistrit[oó]\b/i.test(text)) return true;
+  if (/\b(?:los|san|santa|villa|sur|norte)\b\s+[a-záéíóúñü]+/i.test(text)) return true;
   return false;
 }
 
@@ -180,9 +188,73 @@ function normalizeLeadData(parsed) {
     telefono: parsed.telefono ? String(parsed.telefono).replace(/\D/g, '') : null,
     distrito: parsed.distrito || parsed.district || null,
     fechaHora: parsed.fechaHoraTexto || parsed.fecha_hora_texto || parsed.fecha_hora || parsed.fechaHora || null,
-    ready_to_notify: parsed.ready_to_notify === true || parsed.readyToNotify === true || false,
+    // Do not trust model-provided ready flag; server will validate before setting
+    ready_to_notify: false,
   };
 }
+
+// Helper: normalize and remove diacritics
+function normalizeTextForCompare(s) {
+  if (!s || typeof s !== 'string') return '';
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+}
+
+function isValidPhoneNumber9(telefono) {
+  if (!telefono) return false;
+  const t = String(telefono).replace(/\D/g, '');
+  return /^9\d{8}$/.test(t);
+}
+
+function isValidName(nombre) {
+  if (!nombre || typeof nombre !== 'string') return false;
+  const n = nombre.trim();
+  if (n.length < 2) return false;
+  // reject assistant name or phrases
+  if (/^camila\b/i.test(n)) return false;
+  // reject if contains question forms or system prompts
+  if (/\b(qué|cuál|cuando|a qué|a este número|dónde|donde)\b/i.test(n)) return false;
+  return true;
+}
+
+function isValidDistrictName(distrito) {
+  if (!distrito || typeof distrito !== 'string') return false;
+  const n = normalizeTextForCompare(distrito);
+  // direct match to known Lima districts
+  for (const d of LIMA_DISTRICTS) {
+    if (n.includes(d)) return true;
+  }
+  // fallback to heuristic
+  return isLikelyDistrict(distrito);
+}
+
+function finalizeLeadData(lead) {
+  if (!lead || typeof lead !== 'object') return null;
+  // normalize phone
+  if (lead.telefono) lead.telefono = String(lead.telefono).replace(/\D/g, '');
+
+  // If textual fechaHora exists but no ISO, try to parse
+  if (lead.fechaHora && !lead.fechaHoraISO) {
+    try {
+      const iso = parseTextToLimaISO(lead.fechaHora);
+      if (iso) {
+        lead.fechaHoraISO = iso;
+        const explicitText = formatLimaFechaHoraText(iso);
+        if (explicitText) lead.fechaHora = explicitText;
+      }
+    } catch (e) {
+      // ignore parse failures
+    }
+  }
+
+  const hasValidPhone = isValidPhoneNumber9(lead.telefono);
+  const hasValidName = isValidName(lead.nombre);
+  const hasValidDistrict = isValidDistrictName(lead.distrito);
+  const hasValidFechaISO = Boolean(lead.fechaHoraISO && typeof lead.fechaHoraISO === 'string');
+
+  lead.ready_to_notify = hasValidPhone && hasValidName && hasValidDistrict && hasValidFechaISO;
+  return lead;
+}
+
 
 function extractLeadDataFromHistory(history) {
   if (!Array.isArray(history) || !history.length) return null;
@@ -567,11 +639,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     if (match && match[1]) {
       const jsonText = match[1].trim();
       try {
-          const parsed = normalizeLeadData(JSON.parse(jsonText));
+          let parsed = normalizeLeadData(JSON.parse(jsonText));
           if (parsed && parsed.telefono) parsed.telefono = String(parsed.telefono).replace(/\D/g, '');
-          if (parsed && parsed.nombre && parsed.telefono && parsed.distrito && parsed.fechaHora) {
-            parsed.ready_to_notify = true;
-          }
+          // finalize and validate lead data server-side (compute ISO and readiness)
+          parsed = finalizeLeadData(parsed);
           leadData = parsed;
         } catch (e) {          console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
           const rawLead = extractLeadDataFromText(rawText) || {};
@@ -607,9 +678,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
             fechaHora: finalFecha,
             ready_to_notify: false,
           };
-          if (leadData.nombre && leadData.telefono && leadData.distrito && leadData.fechaHora) {
-            leadData.ready_to_notify = true;
-          }
+          // finalize and validate lead data server-side
+          leadData = finalizeLeadData(leadData);
         }
       } else {
         const rawLead = extractLeadDataFromText(rawText) || {};
@@ -629,10 +699,9 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
             fechaHora: leadData.fechaHora || historyLead.fechaHora || null,
           };
         }
-        if (leadData.nombre && leadData.telefono && leadData.distrito && leadData.fechaHora) {
-          leadData.ready_to_notify = true;
-        }
-        if (!leadData.nombre && !leadData.telefono && !leadData.distrito && !leadData.fechaHora) {
+        // finalize and validate lead data server-side
+        leadData = finalizeLeadData(leadData);
+        if (!leadData || (!leadData.nombre && !leadData.telefono && !leadData.distrito && !leadData.fechaHora)) {
           leadData = null;
         }
       }
