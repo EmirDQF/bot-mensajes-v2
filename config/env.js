@@ -56,8 +56,9 @@ export default {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
     model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
-    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 150),
+    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 110),
   },
+  clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental',
   whatsapp: {
     token: process.env.WHATSAPP_TOKEN || null,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,

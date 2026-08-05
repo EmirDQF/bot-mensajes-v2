@@ -121,10 +121,38 @@ function cleanupSessions() {
 const cleanupInterval = setInterval(cleanupSessions, CLEANUP_MS);
 cleanupInterval.unref && cleanupInterval.unref();
 
-function formatHistoryForPrompt(history) {
-  return history.map((h) => {
+export function mergeRecentUserMessages(history, windowMs = 10000) {
+  // Merge consecutive user messages within windowMs into a single consolidated message string.
+  if (!Array.isArray(history) || history.length === 0) return [];
+  const merged = [];
+  for (let i = 0; i < history.length; i++) {
+    const item = history[i];
+    if (item.role === 'user') {
+      const last = merged.length ? merged[merged.length - 1] : null;
+      const ts = item.at || 0;
+      const text = (item.parts || []).map(p => p.text || '').join(' ').trim();
+      if (!text) continue;
+      if (last && last.role === 'user' && Math.abs((ts - (last.at || 0))) <= windowMs) {
+        // concatenate
+        last.text = `${last.text} ${text}`.trim();
+        last.at = Math.max(last.at || 0, ts);
+      } else {
+        merged.push({ role: 'user', text, at: ts });
+      }
+    } else {
+      const text = (item.parts || []).map(p => p.text || '').join(' ').trim();
+      if (!text) continue;
+      merged.push({ role: 'model', text, at: item.at || 0 });
+    }
+  }
+  return merged;
+}
+
+function formatHistoryForPrompt(history, mergeWindowMs = 10000) {
+  const normalized = mergeRecentUserMessages(history, mergeWindowMs);
+  return normalized.map((h) => {
     const role = h.role === 'user' ? 'Cliente' : 'Camila';
-    const text = (h.parts || []).map(p => p.text || '').join(' ').trim();
+    const text = h.text || '';
     return text ? `${role}: ${text}` : '';
   }).filter(Boolean).join('\n');
 }
@@ -145,7 +173,7 @@ function isLikelyDistrict(text) {
   return isValidDistrict(text);
 }
 
-function extractLeadDataFromText(text) {
+export function extractLeadDataFromText(text) {
  if (!text) return null;
  const t = text.toLowerCase();
 
@@ -211,7 +239,7 @@ function isValidPhoneNumber9(telefono) {
   return /^9\d{8}$/.test(t);
 }
 
-function isValidName(nombre) {
+export function isValidName(nombre) {
   if (!nombre || typeof nombre !== 'string') return false;
   const n = nombre.trim();
   if (n.length < 2) return false;
@@ -308,7 +336,7 @@ function extractLeadDataFromHistory(history) {
   return extractLeadDataFromText(fullText);
 }
 
-function getOrCreateSession(jid) {
+export function getOrCreateSession(jid) {
   const sid = getSessionId(jid);
   let entry = chatSessions.get(sid);
   if (!entry) {
@@ -318,7 +346,7 @@ function getOrCreateSession(jid) {
   resetSessionTimer(sid, entry);
   return entry;
 }
- 
+
 function isStructuredGeminiClient(client) {
   return client && typeof client.generateContent === 'function';
 }
@@ -478,11 +506,43 @@ function getLimaCurrentDateTime() {
 /**
  * Construye el prompt de sistema dinámico incluyendo el contexto temporal y de WhatsApp.
  */
-export function buildSystemPromptWithContext(jid) {
+export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
   const fechaActual = getLimaCurrentDateTime();
   const phoneHint = getCurrentPhoneHint(jid);
 
-  return `${CAMILA_SYSTEM_PROMPT}\n\n[CONTEXTO TEMPORAL Y DE SISTEMA EN VIVO]\n- FECHA Y HORA ACTUAL EN LIMA: ${fechaActual}\n- REGLA DE TIEMPO: Usa esta fecha actual de Lima como tu única referencia absoluta para calcular "hoy", "mañana", "el próximo lunes", o fechas específicas solicitadas por el cliente. No asumas años ni meses pasados.${phoneHint ? `\n${phoneHint}` : ''}`;
+  // Determine clinic name fallback and patient name from session if available
+  const clinicName = (clinic && clinic.name) ? clinic.name : (config.clinicNameFallback || 'nuestra clínica dental');
+  let patientName = null;
+  try {
+    if (session && Array.isArray(session.history)) {
+      const hist = session.history.slice().reverse();
+      for (const h of hist) {
+        if (h.role === 'user') {
+          const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
+          const parsed = extractLeadDataFromText(t) || {};
+          if (parsed && parsed.nombre && isValidName(parsed.nombre)) {
+            patientName = parsed.nombre;
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    patientName = null;
+  }
+
+  // Apply safe prompt placeholders replacements
+  let promptBase = CAMILA_SYSTEM_PROMPT.replace(/\[NOMBRE_CLINICA\]/g, clinicName);
+  if (patientName) {
+    promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
+    // Add a short explicit confirmation line so the model has the confirmed patient name in context
+    promptBase = promptBase + `\n- PACIENTE CONFIRMADO: ${patientName}`;
+  } else {
+    // ensure literal placeholder is removed if no patientName
+    promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
+  }
+
+  return `${promptBase}\n\n[CONTEXTO TEMPORAL Y DE SISTEMA EN VIVO]\n- FECHA Y HORA ACTUAL EN LIMA: ${fechaActual}\n- REGLA DE TIEMPO: Usa esta fecha actual de Lima como tu única referencia absoluta para calcular "hoy", "mañana", "el próximo lunes", o fechas específicas solicitadas por el cliente. No asumas años ni meses pasados.${phoneHint ? `\n${phoneHint}` : ''}`;
 }
 
 /**
@@ -609,11 +669,11 @@ export function formatLimaFechaHoraText(fechaHoraISO) {
  * Prepara el request hacia la API de Gemini inyectando el prompt dinámico.
  */
 function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
-  const historyText = formatHistoryForPrompt(history);
+  const historyText = formatHistoryForPrompt(history, 10000);
   const userText = `${historyText ? historyText + '\n' : ''}Cliente: ${mensaje}`;
   
-  // Se obtiene el prompt enriquecido dinámicamente con Fecha de Lima y WhatsApp Hint
-  const effectiveSystemPrompt = buildSystemPromptWithContext(jid);
+  // Se obtiene el prompt enriquecido dinámicamente con Fecha de Lima, WhatsApp Hint y posibles placeholders inyectados
+  const effectiveSystemPrompt = buildSystemPromptWithContext(jid, getOrCreateSession(jid), options.clinic);
 
   if (isStructuredGeminiClient(client)) {
     return {

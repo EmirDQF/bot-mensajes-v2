@@ -10,7 +10,7 @@ export function getGeminiClient() {
 
   const apiKey = config.gemini?.apiKey;
   const modelName = config.gemini?.model || process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-  const maxOutputTokens = Number(config.gemini?.maxOutputTokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 100);
+  const maxOutputTokens = Number(config.gemini?.maxOutputTokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 110);
 
   if (!apiKey) {
     console.warn('GEMINI_API_KEY not set; returning null client. Gemini calls will fall back to local heuristics in test mode.');

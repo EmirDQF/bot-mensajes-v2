@@ -335,7 +335,34 @@ export default async function webhookController(req, res, next) {
           textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
           // Ensure admin-only alert text is never forwarded to the patient.
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
- 
+
+          // Defensive placeholder cleanup before sending to user
+          const clinicName = (clinic && clinic.name) ? clinic.name : require('../config/env.js').default.clinicNameFallback || 'nuestra clínica dental';
+          const session = (() => { try { return geminiService.getOrCreateSession(from + '@s.whatsapp.net'); } catch (e) { return null; } })();
+          let patientName = null;
+          try {
+            if (session && Array.isArray(session.history)) {
+              for (let i = session.history.length - 1; i >= 0; i--) {
+                const h = session.history[i];
+                if (h.role === 'user') {
+                  const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
+                  const parsed = geminiService.extractLeadDataFromText ? geminiService.extractLeadDataFromText(t) : null;
+                  if (parsed && parsed.nombre && geminiService.isValidName && geminiService.isValidName(parsed.nombre)) {
+                    patientName = parsed.nombre;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) { patientName = null; }
+
+          textoFinal = textoFinal.replace(/\[NOMBRE_CLINICA\]/g, clinicName);
+          if (patientName) {
+            textoFinal = textoFinal.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
+          } else {
+            textoFinal = textoFinal.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
+          }
+
           if (textoFinal && textoFinal.length > 0 && !skipResponse) {
             await whatsappService.sendWhatsAppMessage(from, textoFinal, {});
           }
