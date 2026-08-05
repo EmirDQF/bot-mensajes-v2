@@ -3,50 +3,59 @@ import config from '../config/env.js';
 const TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000); // 30 minutes
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
-const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de una clínica dental en Lima. Camila es el asistente; NUNCA confundas la identidad del asistente con el nombre del cliente. Habla en español, con tono amable, profesional y cercano. Responde siempre de forma breve y útil (máximo 40–50 palabras). Objetivos principales:
+const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de [NOMBRE_CLINICA], una clínica dental en Lima especializada en ortodoncia.
 
-1) Detectar si el paciente quiere AGENDAR una cita.
-2) Si pide agendar, guía la conversación para OBTENER: Nombre, Teléfono (9 dígitos Perú), Distrito, Día y Hora deseada. Pide un dato por mensaje si hace falta (p.ej. "¿Cuál es tu nombre completo?").
-   - Si el usuario comete un error tipográfico como "me llamos", interpreta esto como "me llamo" y extrae el nombre correctamente.
-3) Si ya hay Nombre+Teléfono+Distrito+DíaHora, confirma resumidamente y genera un objeto JSON con los campos exactos: { "nombre": "...", "telefono": "...", "distrito": "...", "fechaHoraTexto": "..." } PRIMERO dentro de un bloque separado etiquetado como <<<LEAD_JSON>>> ... <<<END_LEAD_JSON>>>. Luego envía el mensaje de confirmación breve al usuario.
-   - La fecha y hora deben guardarse completas: no envíes ni utilices solo el día. Fecha/Hora final acordada debe incluir el día y la hora exacta.
-IMPORTANTE: Genera el bloque <<<LEAD_JSON>>> SOLO LA PRIMERA VEZ que tengas Nombre+Teléfono+Distrito+Día/Hora completos en una conversación. En turnos posteriores de la misma conversación, NUNCA vuelvas a generar ese bloque, aunque el paciente haga más preguntas o la información se repita — simplemente responde de forma natural y breve a la nueva pregunta sin incluir el bloque JSON.
+TONO
+- Español, cercano, profesional, cálido. Nunca robótico ni repetitivo.
+- Respuestas breves: máximo 40 palabras salvo que te pidan detalle.
+- Usa el nombre del paciente SOLO al presentarte por primera vez y al confirmar la cita final. Nunca en cada mensaje.
 
-REGLA DE MEMORIA: Si el usuario pregunta por los detalles de su cita agendada, consulta la CITA REGISTRADA VERIFICADA en el historial y responde con la FECHA Y HORA EXACTA previamente confirmada. Jamás inventes una hora distinta.
+REGLA DE ORO: UN SOLO DATO POR TURNO
+Nunca pidas dos datos en el mismo mensaje. Sigue este orden estricto y NUNCA vuelvas a pedir un dato que ya tengas confirmado en el historial de la conversación, aunque el usuario cambie de tema y regrese:
+1. Nombre completo
+2. Teléfono (9 dígitos, Perú)
+3. Distrito de Lima
+4. Día y hora deseada
 
-4) Si el usuario pregunta por precios o presupuesto, responde con un precio estimado en 'brackets' (rango), p.ej. "Limpieza: S/80–S/150", y sugiere una evaluación para confirmar el presupuesto final.
-5) Nunca des instrucciones técnicas, ni enlaces a API; evita respuestas largas. Si no entiendes, pide clarificación con una pregunta concreta.
-6) Cuando respondas al usuario, sé amable: usa "Gracias", "Por favor", "¿Podrías…?" según el caso, pero en respuestas subsiguientes NO comiences con un saludo como "Hola", "Buenos días", "Buenas tardes" o "Buenas noches".
-7) USO DEL NOMBRE DEL CLIENTE: Usa el nombre del cliente ÚNICAMENTE la primera vez que te presentes o al confirmar la cita final. NO repitas el nombre del usuario en cada mensaje intermedio para evitar sonar robótico e insistente.
-8) Acepta cualquier número peruano de 9 dígitos aunque el usuario no escriba +51 y aunque lo ingrese con espacios, guiones o texto adicional; normaliza el teléfono a solo dígitos.
-9) Si el usuario dice "a este número" o pide detalles al número actual, reconoce que se refiere al número de WhatsApp con el que está escribiendo y responde: "Perfecto, te enviamos la información al [número_registrado]." sin volver a pedir el teléfono.
-10) Cuando ya tengas Nombre, Teléfono, Distrito y Fecha/Hora completos, ADJUNTA siempre AL FINAL de tu mensaje el siguiente bloque EXACTO:
+REGLA DE TELÉFONO — CRÍTICA
+- Si el usuario dice frases como "a este número", "el mismo con el que te escribo", "este número de acá": NO inventes ni derives el número del texto. El sistema usará exclusivamente el número real de WhatsApp del remitente; tú solo confirma conversacionalmente, nunca generes ni repitas un número distinto al confirmado por el sistema.
+- Si el usuario te da el número escrito en el chat, valida que tenga exactamente 9 dígitos y empiece en 9. Si no cumple, pide que lo repita — nunca "arregles" o adivines dígitos.
 
+REGLA DE DISTRITO — CRÍTICA
+- Solo acepta un distrito si coincide (exacto o muy cercano) con un distrito real de Lima Metropolitana (Miraflores, San Isidro, Surco, La Molina, San Borja, etc.).
+- Si el usuario responde algo ambiguo, conversacional o que no es un distrito real (ej. "escríbenos", "ya te dije", "el de siempre"), NO lo guardes como distrito. Vuelve a preguntar explícitamente: "¿Me confirmas en qué distrito de Lima te encuentras?"
+
+REGLA DE FECHA/HORA
+- Acepta expresiones relativas ("mañana", "el miércoles", "próxima semana") y conviértelas mentalmente a fecha/hora explícita antes de confirmar.
+- Siempre confirma con fecha completa: "miércoles 12 de agosto a las 4:00 PM", nunca dejes la fecha ambigua.
+- Si el usuario da solo día sin hora (o viceversa), pide el dato faltante antes de continuar.
+
+BLOQUE DE DATOS (LEAD_JSON)
+- Genera el bloque <<<LEAD_JSON>>>...<<<END_LEAD_JSON>>> SOLO en el turno donde por primera vez tengas los 4 datos completos y validados.
+- CRÍTICO: en ese bloque incluye SIEMPRE los 4 campos completos (nombre, telefono, distrito, fecha_hora), aunque algunos hayan sido capturados en turnos anteriores. Nunca dejes un campo vacío o null en el JSON si ya fue confirmado antes en la conversación — repítelo explícitamente.
+- Formato exacto:
 <<<LEAD_JSON>>>
 {
-"nombre": "Nombre Capturado",
-"telefono": "987654321",
-"distrito": "Distrito",
-"fecha_hora_texto": "viernes 3:00 PM",
-"ready_to_notify": true
+  "nombre": "...",
+  "telefono": "...",
+  "distrito": "...",
+  "fecha_hora_texto": "...",
+  "ready_to_notify": true
 }
 <<<END_LEAD_JSON>>>
+- No regeneres este bloque en turnos posteriores salvo que el usuario pida reprogramar o corregir un dato — en ese caso, genera el bloque de nuevo con TODOS los campos (los que cambiaron y los que no).
 
-No omitas este bloque si la cita está lista, y colócalo siempre después de la respuesta al usuario.
+DESPUÉS DE AGENDAR
+- Si el usuario pregunta dudas post-agendamiento (requisitos, ayuno, qué llevar, etc.), respóndelas de forma breve y natural SIN regenerar el bloque JSON y SIN volver a pedir datos ya confirmados.
+- Si preguntan "¿ya quedó agendada mi cita?", confirma con la fecha/hora exacta ya acordada, nunca con datos genéricos.
 
-Ejemplos (few-shot):
+MANEJO DE OBJECIONES DE PRECIO
+- Inicial: S/300–S/600. Mensualidad: S/150–S/250.
+- Siempre cierra la respuesta de precio invitando a agendar una evaluación para confirmar el plan exacto.
 
-Usuario: "Quiero agendar, me llamo Juan Perez, mi numero es 987654321, vivo en San Borja, puedo el jueves a las 3pm"
-Camila: <<<LEAD_JSON>>>
-{"nombre":"Juan Perez","telefono":"987654321","distrito":"San Borja","fechaHoraTexto":"jueves a las 3pm"}
-<<<END_LEAD_JSON>>>
-Perfecto, Juan. Te agendé tentativamente para el jueves a las 3pm. ¿Confirmas que ese horario te viene bien?
-
-Usuario: "Hola, cuánto cuesta una ortodoncia?"
-Camila: "Un tratamiento de ortodoncia suele costar entre S/2500–S/6000 según complejidad. Recomendamos una evaluación para dar precio exacto. ¿Te gustaría agendar una evaluación?"
-
-Usuario: "No, solo quiero saber si hay disponibilidad mañana"
-Camila: "¿A qué franja horaria prefieres mañana: mañana (8–12), tarde (12–16) o noche (16–20)?"
+LÍMITES
+- No des consejos médicos específicos (dolor, medicación, diagnósticos).
+- Si el usuario pide hablar con un humano, indícalo claramente en tu respuesta para que el system active el handover.
 `;
 
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
@@ -125,60 +134,52 @@ function hasSchedulingIntent(message, history) {
 }
 
 // Simple heuristic parser for lead data (fallback)
-// A curated list of Lima districts (normalized without accents). Expand as needed.
-const LIMA_DISTRICTS = new Set([
-  'cercado de lima','lima','ancon','ate','barranco','breña','carabayllo','chaclacayo','chorrillos','cieneguilla','comas','el agustino','independencia','jesus maria','la molina','la victoria','lince','los olivos','lica a','magdalena del mar','miraflores','pachacamac','pucusana','puente piedra','punta negra','punta hermosa','rimac','san borja','san isidro','san juan de lurigancho','san juan de miraflores','san luis','san martín de porres','san miguel','santa anita','santa maria del mar','santa rosa','santiago de surco','surco','surquillo','venta','villa el salvador','villa maria del triunfo'
-].map(s => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()));
+import { isValidDistrict } from './districts.js';
 
 function isLikelyDistrict(text) {
   if (!text || typeof text !== 'string') return false;
-  const t = text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
-  // Quick direct match against known districts
-  for (const d of LIMA_DISTRICTS) {
-    if (t.includes(d)) return true;
-  }
-  // fallback patterns like "soy de los olivos", "vivo en san borja"
-  if (/^\s*(?:de|del)\s+/i.test(text)) return true;
-  if (/\b(?:soy de|vivo en|nací en|naci en)\b/i.test(text)) return true;
-  if (/\bdistrit[oó]\b/i.test(text)) return true;
-  if (/\b(?:los|san|santa|villa|sur|norte)\b\s+[a-záéíóúñü]+/i.test(text)) return true;
-  return false;
+  // Use strict validation against the canonical list with fuzzy matching
+  return isValidDistrict(text);
 }
 
 function extractLeadDataFromText(text) {
-  if (!text) return null;
-  const t = text.toLowerCase();
+ if (!text) return null;
+ const t = text.toLowerCase();
 
-  // Detect explicit "soy de X" or "vivo en X" as distrito
-  const distritoFromSoy = t.match(/(?:soy\s+(?:de|del)|vivo\s+en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
-  const distrito = distritoFromSoy ? distritoFromSoy[1].trim() : null;
+ // Detect explicit "soy de X" or "vivo en X" as distrito
+ const distritoFromSoy = t.match(/(?:soy\s+(?:de|del)|vivo\s+en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+ const distrito = distritoFromSoy ? distritoFromSoy[1].trim() : null;
  
-  // Name extraction: support typos like "me llamos" or "me llasmo" and avoid capturing phrases like "soy de ..." by negative lookahead
-  const nombreMatch = text.match(/(?:me\s+llam(?:o|os|smo)|me\s+llasm[oó]|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i)
-    || text.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i);
-  const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
+ // Name extraction: support typos like "me llamos" or "me llasmo" and avoid capturing phrases like "soy de ..." by negative lookahead
+ const nombreMatch = text.match(/(?:me\s+llam(?:o|os|smo)|me\s+llasm[oó]|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i)
+   || text.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü\s]{2,60}?)(?=\s*(?:[,\.\n]|vivo\s+en|mi\s+telefono|mi\s+número|mi\s+nro|tengo\b|y\b|con\b|$))/i);
+ const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
  
-  const digitString = t.replace(/[^0-9]/g, "");
-  const telefonoMatch = digitString.match(/(?:^51)?(9\d{8})/);
-  const telefono = telefonoMatch ? telefonoMatch[1] : null;
+ const digitString = t.replace(/[^0-9]/g, "");
+ const telefonoMatch = digitString.match(/(?:^51)?(9\d{8})/);
+ // DO NOT use telefono extracted from text as primary key. It can be used as reference only.
+ const telefono = telefonoMatch ? telefonoMatch[1] : null;
 
-  const distritoMatch = distrito || t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i);
-  const distritoFinal = distritoMatch ? (typeof distritoMatch === 'string' ? distritoMatch : (distritoMatch[1] ? distritoMatch[1].trim() : null)) : null;
+ const distritoMatch = distrito || t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i);
+ const distritoCandidate = distritoMatch ? (typeof distritoMatch === 'string' ? distritoMatch : (distritoMatch[1] ? distritoMatch[1].trim() : null)) : null;
 
-  const explicitWeekdayDateMatch = t.match(/\b(?:lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\s+\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
-  if (explicitWeekdayDateMatch) {
-    return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitWeekdayDateMatch[0].trim() };
-  }
- 
-  const explicitDateMatch = t.match(/\b\d{1,2}\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
-  if (explicitDateMatch) {
-    return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitDateMatch[0].trim() };
-  }
- 
-  const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo))(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
-  const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
+ // Validate district strictly against canonical list; if not valid, do not set
+ const distritoFinal = distritoCandidate && isLikelyDistrict(distritoCandidate) ? distritoCandidate : null;
 
-  return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: fechaHora ?? null };
+ const explicitWeekdayDateMatch = t.match(/\b(?:lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\s+\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
+ if (explicitWeekdayDateMatch) {
+   return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitWeekdayDateMatch[0].trim() };
+ }
+ 
+ const explicitDateMatch = t.match(/\b\d{1,2}\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
+ if (explicitDateMatch) {
+   return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitDateMatch[0].trim() };
+ }
+ 
+ const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo))(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
+ const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
+
+ return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: fechaHora ?? null };
 }
 
 function normalizeLeadData(parsed) {
@@ -218,13 +219,24 @@ function isValidName(nombre) {
 
 function isValidDistrictName(distrito) {
   if (!distrito || typeof distrito !== 'string') return false;
-  const n = normalizeTextForCompare(distrito);
-  // direct match to known Lima districts
-  for (const d of LIMA_DISTRICTS) {
-    if (n.includes(d)) return true;
+  try {
+    // Prefer centralized validator
+    return isValidDistrict(distrito);
+  } catch (e) {
+    // Fallback: simple normalization + substring match against known items if available
+    try {
+      const n = normalizeTextForCompare(distrito);
+      // If the districts module exposes a list, attempt to use it safely
+      if (Array.isArray(typeof DISTRICTS !== 'undefined' ? DISTRICTS : [])) {
+        for (const d of DISTRICTS) {
+          if (String(d).toLowerCase && n.includes(String(d).toLowerCase())) return true;
+        }
+      }
+    } catch (err) {
+      // ignore
+    }
+    return isLikelyDistrict(distrito);
   }
-  // fallback to heuristic
-  return isLikelyDistrict(distrito);
 }
 
 function finalizeLeadData(lead) {
@@ -541,7 +553,7 @@ export function formatLimaFechaHoraText(fechaHoraISO) {
 /**
  * Prepara el request hacia la API de Gemini inyectando el prompt dinámico.
  */
-function buildGeminiRequest(client, mensaje, history, jid) {
+function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
   const historyText = formatHistoryForPrompt(history);
   const userText = `${historyText ? historyText + '\n' : ''}Cliente: ${mensaje}`;
   
@@ -560,7 +572,7 @@ function buildGeminiRequest(client, mensaje, history, jid) {
         ],
         systemInstruction: effectiveSystemPrompt,
         generationConfig: {
-          maxOutputTokens: config.gemini?.maxOutputTokens || 150,
+          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100,
           responseMimeType: "application/json"
         },
       },
@@ -573,7 +585,7 @@ function buildGeminiRequest(client, mensaje, history, jid) {
   };
 }
 
-async function callClientWithRetries(client, geminiRequest, maxRetries = 1) {
+async function callClientWithRetries(client, geminiRequest, maxRetries = 1, options = {}) {
   let attempt = 0;
   let lastErr = null;
   const attempts = maxRetries + 1;
@@ -591,10 +603,11 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1) {
       }
 
       if (typeof client.generate === 'function') {
-        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: config.gemini?.maxOutputTokens || 150 });
+        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100 });
       }
 
       if (typeof client.generateContent === 'function' && geminiRequest?.type === 'structured') {
+        // generationConfig already included in geminiRequest.request; still pass model
         return await client.generateContent(geminiRequest.request, { model: config.gemini?.model });
       }
 
@@ -628,10 +641,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.history.push({ role: 'user', parts: [{ text: mensaje }] });
   session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
 
-  const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid);
+  const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid, options);
 
   try {
-    const result = await callClientWithRetries(client, geminiRequest, maxRetries);
+    const result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
     const rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
     let rawText = rawModelText;
     // sanitize any JSON-wrapped or code-fenced responses from the model for user output only

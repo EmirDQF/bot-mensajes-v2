@@ -33,18 +33,12 @@ function normalizePhone(telefono) {
   return onlyDigits || null;
 }
 
+import { isValidDistrict } from './districts.js';
+
 function isLikelyDistrict(text) {
   if (!text || typeof text !== 'string') return false;
-  const t = text.toLowerCase().trim();
-  // reject lines that look like a question or a system prompt
-  if (/\?|¿|\b(qué|cual|cuál|por favor|porfavor|por favor|dónde|donde)\b/i.test(t)) return false;
-  if (/^\s*(?:de|del)\s+/i.test(t)) return true;
-  if (/\b(?:soy de|vivo en|nací en|naci en)\b/i.test(t)) return true;
-  if (/\bdistrit[oó]\b/i.test(t)) return true;
-  if (/\b(?:los|san|santa|villa|sur|norte)\b\s+[a-záéíóúñü]+/i.test(t)) return true;
-  // accept typical district names (single word or two words with letters and spaces)
-  if (/^[a-záéíóúñü\s]{3,40}$/i.test(t)) return true;
-  return false;
+  // Delegate to canonical validator with fuzzy matching
+  return isValidDistrict(text);
 }
 
 function isValidNormalizedPhone(normalized) {
@@ -143,8 +137,10 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     const incomingDistrito = typeof distrito === 'string' ? distrito.trim() : null;
 
     const finalNombre = (function() {
-      if (incomingNombre && !isLikelyDistrict(incomingNombre) && incomingNombre.length > 1) return incomingNombre;
-      if (existingData?.nombre && !isLikelyDistrict(existingData.nombre)) return existingData.nombre;
+      // Prefer incoming name when provided and not clearly the assistant name
+      if (incomingNombre && incomingNombre.length > 1 && !/^camila\b/i.test(incomingNombre)) return incomingNombre;
+      // Otherwise preserve existing name if present
+      if (existingData?.nombre && existingData.nombre.length > 1 && !/^camila\b/i.test(existingData.nombre)) return existingData.nombre;
       return incomingNombre || null;
     })();
 
@@ -158,8 +154,8 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       telefono: normalized,
       nombre: finalNombre,
       distrito: finalDistrito,
-      fecha_hora_texto: fechaHoraTexto ?? existingData?.fecha_hora_texto ?? null,
-      fecha_hora_iso: fechaHoraISO ?? existingData?.fecha_hora_iso ?? null,
+      fecha_hora_texto: (typeof fechaHoraTexto === 'string' && fechaHoraTexto.trim().length > 0) ? fechaHoraTexto : (existingData?.fecha_hora_texto || null),
+      fecha_hora_iso: (typeof fechaHoraISO === 'string' && fechaHoraISO.trim().length > 0) ? fechaHoraISO : (existingData?.fecha_hora_iso || null),
       updated_at: now,
     };
 
@@ -208,6 +204,37 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
 
     // 4. Evaluar si se debe disparar la notificación al administrador
     const shouldNotify = isNowReady && !wasReady && !wasNotified;
+
+    // If we must notify now (we recovered a previously incomplete but now-complete lead), attempt to notify admin immediately (best-effort).
+    if (shouldNotify && updatedLead) {
+      try {
+        // Dynamic import to avoid potential circular deps at top-level
+        const { notifyAdminNewLead } = await import('./notificationService.js');
+        // Fire and forget but await best-effort call to catch errors here
+        await notifyAdminNewLead(updatedLead);
+        console.log('leadService.saveLead: triggered admin notification for recovered lead', updatedLead?.id || updatedLead?.telefono);
+      } catch (e) {
+        console.error('leadService.saveLead: failed to notify admin for recovered lead', e && e.message ? e.message : e);
+      }
+    }
+
+    // 5. After upsert, log if lead is stuck (has phone but not ready_to_notify for >10 minutes)
+    try {
+      const createdAt = updatedLead?.created_at || existingData?.created_at || null;
+      if (createdAt) {
+        const createdTime = new Date(createdAt).getTime();
+        if (!isNowReady && isValidNormalizedPhone(normalized) && (Date.now() - createdTime) > 10 * 60 * 1000) {
+          const missing = [];
+          if (!payload.nombre || !isValidNameForNotify(payload.nombre)) missing.push('nombre');
+          if (!payload.distrito || !isLikelyDistrict(payload.distrito)) missing.push('distrito');
+          if (!payload.fecha_hora_iso || !isValidISODateString(payload.fecha_hora_iso)) missing.push('fecha_hora_iso');
+          console.warn(JSON.stringify({ tag: 'LEAD_ATASCADO', leadId: updatedLead?.id || null, telefono: normalized, missingFields: missing }));
+        }
+      }
+    } catch (e) {
+      // non fatal
+      console.warn('leadService.saveLead: error checking lead stuck condition', e && e.message ? e.message : e);
+    }
 
     return {
       isNew: !existingData,

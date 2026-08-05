@@ -41,6 +41,15 @@ export async function notifyAdminNewLead(lead, options = {}) {
   const adminFromOptions = options.clinic && options.clinic.admin_whatsapp_number ? String(options.clinic.admin_whatsapp_number) : null;
   const raw = adminFromOptions || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
   const adminDigits = raw ? raw.replace(/\D/g, '') : null;
+
+  // Log resolved admin source for debugging (clinic vs env)
+  try {
+    const source = adminFromOptions ? 'clinic' : (process.env.ADMIN_WHATSAPP_NUMBER ? 'env' : (config.admin?.phone ? 'config' : 'unknown'));
+    console.log(`[NOTIFICATION] Resolved admin WhatsApp number: ${adminDigits || 'NONE'} (source: ${source})`);
+  } catch (e) {
+    // ignore logging failures
+  }
+
   if (!adminDigits) {
     console.warn('notificationService: ADMIN_WHATSAPP_NUMBER no está configurado. No se envió la notificación al administrador.');
     return false;

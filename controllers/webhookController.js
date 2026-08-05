@@ -162,7 +162,7 @@ export default async function webhookController(req, res, next) {
 
       // call geminiService to obtain reply; pass clinic config for system prompt
       const geminiClient = getGeminiClient();
-      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic, maxRetries: 1 });
+      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic, maxRetries: 1, maxOutputTokens: 100 });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
       let leadData = null;
       try {
@@ -172,7 +172,8 @@ export default async function webhookController(req, res, next) {
           leadData = result.leadData || null;
         }
       } catch (e) {
-        console.error('webhookController: gemini call failed for chatwoot message', e && e.message ? e.message : e);
+        console.error('webhookController: gemini call failed for chatwoot message', e && e.stack ? e.stack : e);
+        if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
       }
 
       // Send response back via Chatwoot so it's recorded in inbox
@@ -190,21 +191,26 @@ export default async function webhookController(req, res, next) {
         console.error('webhookController: failed to send reply via chatwoot/whatsapp', e && e.message ? e.message : e);
       }
 
-      // If leadData present, save lead (include clinic_id if available)
-      if (leadData && leadData.telefono) {
+      // If leadData present, attempt to save lead using the contact's WhatsApp number as source-of-truth
+      if (leadData) {
         try {
-          const leadResult = await leadService.saveLead({
-            telefono: leadData.telefono,
-            nombre: leadData.nombre,
-            distrito: leadData.distrito,
-            fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
-            fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-            clinic_id: clinic?.id || null,
-          });
+          const telefonoKey = contactDigits || null; // contactDigits is the remitente phone for Chatwoot events
+          if (!telefonoKey) {
+            console.warn('webhookController: no remitente phone found for chatwoot message; skipping lead save to avoid using model-extracted phone');
+          } else {
+            const leadResult = await leadService.saveLead({
+              telefono: telefonoKey,
+              nombre: leadData.nombre,
+              distrito: leadData.distrito,
+              fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+              fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+              clinic_id: clinic?.id || null,
+            });
 
-          if (leadResult && leadResult.readyToNotify && leadResult.lead) {
-            console.log('[NOTIFICACION ENVIADA A ADMIN]:', clinic?.admin_whatsapp_number || process.env.ADMIN_WHATSAPP_NUMBER);
-            await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+            if (leadResult && leadResult.readyToNotify && leadResult.lead) {
+              console.log('[NOTIFICACION ENVIADA A ADMIN]:', clinic?.admin_whatsapp_number || process.env.ADMIN_WHATSAPP_NUMBER);
+              await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+            }
           }
         } catch (e) {
           console.error('webhookController: error saving lead from chatwoot message', e && e.message ? e.message : e);
@@ -269,8 +275,8 @@ export default async function webhookController(req, res, next) {
 
         // Apply a 15s timeout to the Gemini call (requirement).
         const geminiClient = getGeminiClient();
-        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1 });
-        const timeoutMs = 15_000;
+        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 100 });
+        const timeoutMs = 25_000;
         const timeoutPromise = new Promise((_, reject) => {
           const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
           // ensure timer doesn't keep process alive
@@ -291,7 +297,8 @@ export default async function webhookController(req, res, next) {
             }
           }
         } catch (e) {
-          console.error('webhookController: gemini call failed or timed out', e && e.message ? e.message : e);
+          console.error('webhookController: gemini call failed or timed out', e && e.stack ? e.stack : e);
+          if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
           // On failure, fallback message is already in texto
         }
  
@@ -299,17 +306,22 @@ export default async function webhookController(req, res, next) {
           return;
         }
  
-        // Save lead if leadData present and has telefono
+        // Save lead if leadData is present. Use the remitente phone ('from') as the canonical source-of-truth for telefono.
         let leadResult = null;
-        if (leadData && leadData.telefono) {
+        if (leadData) {
           try {
-            leadResult = await leadService.saveLead({
-              telefono: leadData.telefono,
-              nombre: leadData.nombre,
-              distrito: leadData.distrito,
-              fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
-              fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-            });
+            const telefonoKey = from || null;
+            if (!telefonoKey) {
+              console.warn('webhookController: no remitente phone available in WhatsApp event; skipping lead save to avoid using model-extracted phone');
+            } else {
+              leadResult = await leadService.saveLead({
+                telefono: telefonoKey,
+                nombre: leadData.nombre,
+                distrito: leadData.distrito,
+                fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+                fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+              });
+            }
           } catch (e) {
             console.error('webhookController: error saving lead', e && e.message ? e.message : e);
           }
