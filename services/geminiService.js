@@ -49,7 +49,7 @@ Usuario: "No, solo quiero saber si hay disponibilidad mañana"
 Camila: "¿A qué franja horaria prefieres mañana: mañana (8–12), tarde (12–16) o noche (16–20)?"
 `;
 
-const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 8);
+const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
 const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE || 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
 
@@ -602,7 +602,7 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1) {
     } catch (e) {
       lastErr = e;
       const msg = String(e && (e.message || e.code || ''));
-      const isRetriable = /timeout|network|ECONNRESET|ECONNREFUSED|5\d{2}/i.test(msg) || true;
+      const isRetriable = /timeout|network|ECONNRESET|ECONNREFUSED|5\d{2}/i.test(msg);
       if (!isRetriable) break;
       await new Promise((r) => setTimeout(r, attempt === 1 ? 500 : 1500));
       continue;
@@ -614,9 +614,13 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1) {
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const client = options.client;
   const skipDebounce = Boolean(options.skipDebounce);
+  const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 1;
   const session = getOrCreateSession(jid);
   const now = Date.now();
-  if (!skipDebounce && session.lastUserMessageAt && now - session.lastUserMessageAt < DEBOUNCE_MS) {
+  const sid = getSessionId(jid);
+  const priorFailures = failureCounts.get(sid) || 0;
+  // Only debounce if there are no recent consecutive failures; if we have recent failures, allow retry even within debounce window
+  if (!skipDebounce && session.lastUserMessageAt && now - session.lastUserMessageAt < DEBOUNCE_MS && priorFailures === 0) {
     session.lastUserMessageAt = now;
     return { texto: null, leadData: null, skipResponse: true };
   }
@@ -627,7 +631,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid);
 
   try {
-    const result = await callClientWithRetries(client, geminiRequest, 1);
+    const result = await callClientWithRetries(client, geminiRequest, maxRetries);
     const rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
     let rawText = rawModelText;
     // sanitize any JSON-wrapped or code-fenced responses from the model for user output only

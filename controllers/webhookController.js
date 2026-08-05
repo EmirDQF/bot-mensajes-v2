@@ -162,7 +162,7 @@ export default async function webhookController(req, res, next) {
 
       // call geminiService to obtain reply; pass clinic config for system prompt
       const geminiClient = getGeminiClient();
-      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic });
+      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic, maxRetries: 1 });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
       let leadData = null;
       try {
@@ -269,7 +269,7 @@ export default async function webhookController(req, res, next) {
 
         // Apply a 15s timeout to the Gemini call (requirement).
         const geminiClient = getGeminiClient();
-        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient });
+        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1 });
         const timeoutMs = 15_000;
         const timeoutPromise = new Promise((_, reject) => {
           const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
