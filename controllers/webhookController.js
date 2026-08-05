@@ -124,7 +124,7 @@ export default async function webhookController(req, res, next) {
         try {
           const accountId = payload.account_id || payload?.account?.id || null;
           const convId = conversation?.id || p?.conversation?.id;
-          const apiToken = clinic?.chatwoot_api_token || process.env.CHATWOOT_API_TOKEN;
+          const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
           if (accountId && convId) {
             await chatwootService.updateConversation(accountId, convId, apiToken, { status: 'open' });
             // add a tag or attribute indicating human handover
@@ -147,7 +147,7 @@ export default async function webhookController(req, res, next) {
         try {
           // Create a minimal lead object to notify admin that human handover requested
           const leadLike = { nombre: contact?.name || null, telefono: contactDigits || null, distrito: null, fecha_hora_texto: null };
-          await notificationService.notifyAdminNewLead(leadLike, { whatsappService, leadService, clinic });
+          await notificationService.notifyAdminNewLead(leadLike, { whatsappService, leadService, clinic: (typeof clinic !== 'undefined' ? clinic : null) });
         } catch (e) {
           console.error('webhookController: error notifying admin about human handover', e && e.message ? e.message : e);
         }
@@ -162,7 +162,7 @@ export default async function webhookController(req, res, next) {
 
       // call geminiService to obtain reply; pass clinic config for system prompt
       const geminiClient = getGeminiClient();
-      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic, maxRetries: 1, maxOutputTokens: 100 });
+      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic: (typeof clinic !== 'undefined' ? clinic : null), maxRetries: 1, maxOutputTokens: 100 });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
       let leadData = null;
       try {
@@ -178,9 +178,9 @@ export default async function webhookController(req, res, next) {
 
       // Send response back via Chatwoot so it's recorded in inbox
       try {
-        const accountId = clinic?.chatwoot_account_id || payload.account_id || null;
+        const accountId = (typeof clinic !== 'undefined' && clinic?.chatwoot_account_id) || payload.account_id || null;
         const convId = conversation?.id || p?.conversation?.id;
-        const apiToken = clinic?.chatwoot_api_token || process.env.CHATWOOT_API_TOKEN;
+        const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
         if (accountId && convId && apiToken) {
           await chatwootService.sendMessageToConversation(accountId, convId, apiToken, texto);
         } else {
@@ -204,12 +204,12 @@ export default async function webhookController(req, res, next) {
               distrito: leadData.distrito,
               fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
               fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-              clinic_id: clinic?.id || null,
+              clinic_id: (typeof clinic !== 'undefined' && clinic?.id) || null,
             });
 
             if (leadResult && leadResult.readyToNotify && leadResult.lead) {
-              console.log('[NOTIFICACION ENVIADA A ADMIN]:', clinic?.admin_whatsapp_number || process.env.ADMIN_WHATSAPP_NUMBER);
-              await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+              console.log('[NOTIFICACION ENVIADA A ADMIN]:', (typeof clinic !== 'undefined' && clinic?.admin_whatsapp_number) || process.env.ADMIN_WHATSAPP_NUMBER);
+              await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic: (typeof clinic !== 'undefined' ? clinic : null) });
             }
           }
         } catch (e) {
@@ -337,7 +337,7 @@ export default async function webhookController(req, res, next) {
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
           // Defensive placeholder cleanup before sending to user
-          const clinicName = (clinic && clinic.name) ? clinic.name : require('../config/env.js').default.clinicNameFallback || 'nuestra clínica dental';
+          const clinicName = (typeof clinic !== 'undefined' && clinic?.name) || process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental';
           const session = (() => { try { return geminiService.getOrCreateSession(from + '@s.whatsapp.net'); } catch (e) { return null; } })();
           let patientName = null;
           try {
