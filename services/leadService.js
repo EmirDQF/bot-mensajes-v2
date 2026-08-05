@@ -150,12 +150,18 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       return null;
     })();
 
+    // Explicitly prefer incoming confirmed fecha values when present and valid.
+    const incomingFechaTexto = (typeof fechaHoraTexto === 'string' && fechaHoraTexto.trim().length > 0) ? fechaHoraTexto : null;
+    const incomingFechaIso = (typeof fechaHoraISO === 'string' && fechaHoraISO.trim().length > 0 && isValidISODateString(fechaHoraISO)) ? fechaHoraISO : null;
+
     const payload = {
       telefono: normalized,
       nombre: finalNombre,
       distrito: finalDistrito,
-      fecha_hora_texto: (typeof fechaHoraTexto === 'string' && fechaHoraTexto.trim().length > 0) ? fechaHoraTexto : (existingData?.fecha_hora_texto || null),
-      fecha_hora_iso: (typeof fechaHoraISO === 'string' && fechaHoraISO.trim().length > 0) ? fechaHoraISO : (existingData?.fecha_hora_iso || null),
+      // If incoming textual fecha provided, prefer it (it may later be parsed to ISO). Otherwise preserve existing textual value.
+      fecha_hora_texto: incomingFechaTexto || (existingData?.fecha_hora_texto || null),
+      // If incoming ISO is present and valid, always prefer it. Else preserve existing ISO if any.
+      fecha_hora_iso: incomingFechaIso || (existingData?.fecha_hora_iso || null),
       updated_at: now,
     };
 
