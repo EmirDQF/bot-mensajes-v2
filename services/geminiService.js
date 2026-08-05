@@ -311,6 +311,19 @@ function finalizeLeadData(lead) {
         const weekdayIndex = typeof weekdayMap[limaWeekdayName] === 'number' ? weekdayMap[limaWeekdayName] : parsedDate.getUTCDay();
         withinClinicDays = Array.isArray(clinicCfg.diasAtencion) ? clinicCfg.diasAtencion.includes(weekdayIndex) : true;
       }
+    } else if (lead.fechaHora && typeof lead.fechaHora === 'string') {
+      // If we don't have an ISO but the textual fechaHora explicitly mentions a weekday, use that to detect outside clinic hours.
+      const t = lead.fechaHora.toLowerCase();
+      const weekdayMapText = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, 'miércoles': 3, jueves: 4, viernes: 5, sabado: 6, 'sábado': 6 };
+      for (const [name, idx] of Object.entries(weekdayMapText)) {
+        if (t.includes(name)) {
+          withinClinicDays = Array.isArray(clinicCfg.diasAtencion) ? clinicCfg.diasAtencion.includes(idx) : true;
+          if (!withinClinicDays) {
+            lead.outsideClinicHours = true;
+          }
+          break;
+        }
+      }
     }
   } catch (e) {
     withinClinicDays = true; // conservative: if validation fails, do not block
@@ -625,9 +638,9 @@ export function parseTextToLimaISO(fechaTexto) {
     if (ampm === 'pm' && hour < 12) hour += 12;
     if (ampm === 'am' && hour === 12) hour = 0;
   } else {
-    // default to 12:00 (noon) if no time provided
-    hour = 12;
-    minute = 0;
+    // If no explicit time provided, treat as incomplete: do not assume a default time.
+    // Returning null will indicate that fechaHora is incomplete (missing time) and should not be persisted as an ISO datetime.
+    return null;
   }
 
   // Build a UTC ISO string from Lima local time by applying the -05:00 offset.

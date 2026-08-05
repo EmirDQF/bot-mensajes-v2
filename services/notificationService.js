@@ -82,4 +82,51 @@ export async function notifyAdminNewLead(lead, options = {}) {
   return true;
 }
 
-export default { notifyAdminNewLead };
+export async function notifyAdminUpdatedLead(lead, previousFechaIso = null, options = {}) {
+  if (!lead || !lead.id) return false;
+
+  // Basic guards similar to notifyAdminNewLead
+  const phone = lead.telefono || lead.phone || '';
+  const onlyDigits = String(phone).replace(/\D/g, '');
+  if (!/^9\d{8}$/.test(onlyDigits)) return false;
+  const nombre = lead.nombre || '';
+  if (!nombre || /^camila\b/i.test(nombre)) return false;
+
+  const adminFromOptions = options.clinic && options.clinic.admin_whatsapp_number ? String(options.clinic.admin_whatsapp_number) : null;
+  const raw = adminFromOptions || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
+  const adminDigits = raw ? raw.replace(/\D/g, '') : null;
+  if (!adminDigits) return false;
+
+  const sendWhatsAppMessage = options.whatsappService?.sendWhatsAppMessage || whatsappService.sendWhatsAppMessage;
+  const markNotified = options.leadService?.markAsNotified || markAsNotified;
+
+  // Format previous and current fecha text if available
+  const previousText = previousFechaIso || lead.previous_fecha_hora_texto || null;
+  const currentText = lead.fecha_hora_texto || lead.fechaHoraTexto || lead.fechaHora || null;
+
+  const alertMessage = [
+    '--------------------------------─────',
+    '⚠️ ACTUALIZACIÓN DE CITA',
+    `👤 Nombre: ${lead.nombre || 'N/A'}`,
+    `📞 Teléfono: ${buildWhatsappLink(lead.telefono || lead.phone || '')}`,
+    `📍 Distrito: ${lead.distrito || 'N/A'}`,
+    `🔁 Cambió de: ${previousText || 'N/A'}`,
+    `🗓️ A: ${currentText || 'N/A'}`,
+    '--------------------------------─────',
+  ].join('\n');
+
+  await sendWhatsAppMessage(adminDigits, alertMessage, {});
+
+  // Update notified_at to reflect the latest notification
+  if (lead.id) {
+    try {
+      await markNotified(lead.id);
+    } catch (e) {
+      console.error('notificationService: failed to mark lead as notified after update', e && e.message ? e.message : e);
+    }
+  }
+
+  return true;
+}
+
+export default { notifyAdminNewLead, notifyAdminUpdatedLead };

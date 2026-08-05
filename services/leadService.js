@@ -218,6 +218,27 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       }
     }
 
+    // If this lead was already notified previously but the fecha changed (e.g., correction by user), send an update notification to admin
+    try {
+      if (existingData?.notified_at && updatedLead && payload.fecha_hora_iso && isValidISODateString(payload.fecha_hora_iso)) {
+        const previousIso = existingData?.fecha_hora_iso || null;
+        if (previousIso && previousIso !== payload.fecha_hora_iso) {
+          try {
+            const { notifyAdminUpdatedLead } = await import('./notificationService.js');
+            // Provide previous fecha text where available for clarity
+            const prevText = existingData?.fecha_hora_texto || previousIso;
+            const leadForNotify = Object.assign({}, updatedLead, { previous_fecha_hora_texto: prevText });
+            await notifyAdminUpdatedLead(leadForNotify, previousIso);
+            console.log('leadService.saveLead: triggered admin UPDATE notification for lead', updatedLead?.id || updatedLead?.telefono);
+          } catch (e) {
+            console.error('leadService.saveLead: failed to send admin update notification', e && e.message ? e.message : e);
+          }
+        }
+      }
+    } catch (e) {
+      // non-fatal: continue
+    }
+
     // 5. After upsert, log if lead is stuck (has phone but not ready_to_notify for >10 minutes)
     try {
       const createdAt = updatedLead?.created_at || existingData?.created_at || null;
