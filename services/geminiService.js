@@ -1,6 +1,8 @@
 import config from '../config/env.js';
 
 const TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000); // 30 minutes
+// Booked sessions (confirmed appointments) should persist much longer to avoid losing booking context if user replies slowly
+const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 3600 * 1000); // 7 days
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
 const CAMILA_SYSTEM_PROMPT = `Eres "Camila", la recepcionista virtual de [NOMBRE_CLINICA], una clínica dental en Lima especializada en ortodoncia.
@@ -103,11 +105,14 @@ function getSessionId(jid) {
 
 function resetSessionTimer(sessionId, entry) {
   if (entry.timer) clearTimeout(entry.timer);
+  // If the session is booked (appointment confirmed), extend the TTL to BOOKED_TTL_MS to retain context
+  const delay = (entry && entry.booked) ? BOOKED_TTL_MS : TTL_MS;
   entry.timer = setTimeout(() => {
+    // Only delete non-booked sessions; if booked, respect the longer TTL and delete only when it expires
     chatSessions.delete(sessionId);
     failureCounts.delete(sessionId);
     // console.log(`Gemini: cleared session ${sessionId} due to inactivity`);
-  }, TTL_MS);
+  }, delay);
   entry.timer.unref && entry.timer.unref();
 }
 
@@ -893,6 +898,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
           fecha_hora_iso: leadData.fechaHoraISO || null,
           confirmedAt: new Date().toISOString()
         };
+        // Ensure timer respects booked TTL after marking booked
+        try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }
       } catch (e) { /* non fatal */ }
     }
 
