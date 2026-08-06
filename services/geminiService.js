@@ -34,6 +34,7 @@ REGLA DE FECHA/HORA
 - Acepta expresiones relativas ("mañana", "el miércoles", "próxima semana") y conviértelas mentalmente a fecha/hora explícita antes de confirmar.
 - Siempre confirma con fecha completa: "miércoles 12 de agosto a las 4:00 PM", nunca dejes la fecha ambigua.
 - Si el usuario da solo día sin hora (o viceversa), pide el dato faltante antes de continuar.
+- NUNCA confirmes ni afirmes que "la cita ya quedó agendada" a menos que el usuario haya dado explícitamente el DÍA Y LA HORA, ya sea en ESTE TURNO o en turnos previos de la conversación. Si el usuario pregunta por otra cosa (precio, requisitos, etc.) antes de dar fecha/hora, responde a esa pregunta y vuelve a pedir la fecha/hora — no asumas ni inventes una cita.
 
 BLOQUE DE DATOS (LEAD_JSON)
 - Genera el bloque <<<LEAD_JSON>>>...<<<END_LEAD_JSON>>> SOLO en el turno donde por primera vez tengas los 4 datos completos y validados.
@@ -946,6 +947,22 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     failureCounts.set(sid, 0);
 
     let texto = sanitizedRawText;
+
+    // Protect against model hallucinations: if the model claims a booking ("ya quedó agendada", "tu cita quedó...", etc.)
+    // but we do NOT have a confirmed fecha (neither in leadData nor in session.leadSnapshot), remove those assertions
+    try {
+      const bookingClaimPattern = /\b(ya\s+quedó\s+agendad[ao]|quedó\s+agendad[ao]|tu\s+cita\s+(?:quedó|est(a|á)\s+agendada|ya\s+est[aá]))/i;
+      const hasBookingClaim = bookingClaimPattern.test(texto);
+      const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
+      if (hasBookingClaim && !hasConfirmedDate) {
+        // strip sentences that assert booking
+        texto = texto.replace(/[^.?!]*\b(ya\s+quedó\s+agendad[ao]|quedó\s+agendad[ao]|tu\s+cita\s+(?:quedó|est(a|á)\s+agendada|ya\s+est[aá]))[^.?!]*[.?!]?/gi, '').trim();
+        if (!texto) texto = 'Gracias por tu mensaje. ¿Qué día y a qué hora prefieres para la cita?';
+      }
+    } catch (e) {
+      // non-fatal: leave texto as-is
+    }
+
     if (match) {
       texto = rawText.replace(leadRegex, '').trim();
       // sanitize again after removing LEAD_JSON block

@@ -56,7 +56,26 @@ export async function notifyAdminNewLead(lead, options = {}) {
   }
 
   const sendWhatsAppMessage = options.whatsappService?.sendWhatsAppMessage || whatsappService.sendWhatsAppMessage;
-  const markNotified = options.leadService?.markAsNotified || markAsNotified;
+
+  // If lead has an id, attempt to atomically claim the notification (set notified_at) to prevent duplicates
+  let claimedLead = null;
+  if (lead.id) {
+    try {
+      const { tryClaimNotification } = await import('./leadService.js');
+      if (typeof tryClaimNotification === 'function') {
+        claimedLead = await tryClaimNotification(lead.id);
+      }
+    } catch (e) {
+      console.warn('notificationService: could not perform atomic claim for notification', e && e.message ? e.message : e);
+      // fall back to best-effort; we'll continue to attempt sending but risk duplication
+    }
+
+    if (!claimedLead) {
+      // someone else already claimed or claim failed: skip sending
+      console.warn('notificationService: notification already claimed or could not claim for lead id', lead.id);
+      return false;
+    }
+  }
 
   const phoneLink = buildWhatsappLink(lead.telefono || lead.phone || '');
   const alertMessage = [
@@ -69,14 +88,25 @@ export async function notifyAdminNewLead(lead, options = {}) {
     '--------------------------------─────',
   ].join('\n');
  
-  await sendWhatsAppMessage(adminDigits, alertMessage, {});
-
-  if (lead.id) {
-    try {
-      await markNotified(lead.id);
-    } catch (e) {
-      console.error('notificationService: failed to mark lead as notified', e && e.message ? e.message : e);
+  try {
+    await sendWhatsAppMessage(adminDigits, alertMessage, {});
+  } catch (e) {
+    console.error('notificationService: failed to send admin WhatsApp message', e && e.message ? e.message : e);
+    // If we previously claimed the notification but failed to send, attempt to rollback notified_at by setting it back to null (best-effort)
+    if (claimedLead && claimedLead.id) {
+      try {
+        const { markAsNotified } = await import('./leadService.js');
+        // markAsNotified will set notified_at to now; to rollback we directly unset via Supabase client using a dynamic update
+        const { getSupabaseClient } = await import('./leadService.js');
+        const client = getSupabaseClient();
+        if (client) {
+          await client.from('leads').update({ notified_at: null, updated_at: new Date().toISOString() }).eq('id', claimedLead.id);
+        }
+      } catch (err) {
+        console.error('notificationService: failed to rollback notified_at after send failure', err && err.message ? err.message : err);
+      }
     }
+    return false;
   }
 
   return true;

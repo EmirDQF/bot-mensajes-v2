@@ -343,6 +343,27 @@ export async function saveLeadSnapshot(telefono, snapshot) {
   }
 }
 
+export async function tryClaimNotification(leadId) {
+  // Atomically set notified_at only if currently NULL to avoid double notifications
+  const client = getSupabaseClient();
+  try {
+    const now = new Date().toISOString();
+    // Use .is to check NULL in Supabase client
+    const { data, error } = await client.from('leads')
+      .update({ notified_at: now, updated_at: now })
+      .eq('id', leadId)
+      .is('notified_at', null)
+      .select('*')
+      .limit(1);
+    if (error) throw error;
+    const row = Array.isArray(data) && data.length ? data[0] : null;
+    return row; // returns the updated row if claimed, or null if someone else already notified
+  } catch (e) {
+    console.error('leadService.tryClaimNotification error', e && e.message ? e.message : e);
+    throw e;
+  }
+}
+
 export async function markAsNotified(leadId) {
   const client = getSupabaseClient();
   try {

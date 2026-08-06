@@ -212,8 +212,7 @@ export default async function webhookController(req, res, next) {
             });
 
             if (leadResult && leadResult.readyToNotify && leadResult.lead) {
-              console.log('[NOTIFICACION ENVIADA A ADMIN]:', (typeof clinic !== 'undefined' && clinic?.admin_whatsapp_number) || process.env.ADMIN_WHATSAPP_NUMBER);
-              await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic: (typeof clinic !== 'undefined' ? clinic : null) });
+              console.log('[NOTIFICACION] lead marked readyToNotify; notification will be handled by leadService/notificationService atomically');
             }
           }
         } catch (e) {
