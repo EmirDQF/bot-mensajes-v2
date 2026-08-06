@@ -275,6 +275,49 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
   }
 }
 
+export async function saveLeadSnapshot(telefono, snapshot) {
+  const client = getSupabaseClient();
+  if (!telefono) throw new Error('telefono is required to save snapshot');
+  const normalized = normalizePhone(telefono);
+  const now = new Date().toISOString();
+  const payload = {
+    telefono: normalized,
+    lead_snapshot: snapshot || null,
+    updated_at: now
+  };
+
+  try {
+    // Try upsert if available
+    const testQuery = client.from('leads');
+    if (testQuery && typeof testQuery.upsert === 'function') {
+      const { data: upserted, error: upsertErr } = await client
+        .from('leads')
+        .upsert(payload, { onConflict: 'telefono' })
+        .select('*')
+        .single();
+      if (upsertErr) throw upsertErr;
+      return upserted;
+    }
+
+    // Fallback: update if exists, else insert
+    const { data: existingRows } = await client.from('leads').select('id').eq('telefono', normalized).limit(1);
+    const existing = Array.isArray(existingRows) && existingRows.length ? existingRows[0] : null;
+    if (existing && existing.id) {
+      const { data: updatedRows, error: updateErr } = await client.from('leads').update(payload).eq('id', existing.id).select('*').limit(1);
+      if (updateErr) throw updateErr;
+      return Array.isArray(updatedRows) && updatedRows.length ? updatedRows[0] : updatedRows;
+    }
+
+    const newRow = Object.assign({ created_at: now, notified_at: null }, payload);
+    const { data: inserted, error: insertErr } = await client.from('leads').insert([newRow]).select('*').limit(1);
+    if (insertErr) throw insertErr;
+    return Array.isArray(inserted) && inserted.length ? inserted[0] : inserted;
+  } catch (e) {
+    console.error('leadService.saveLeadSnapshot error', e && e.message ? e.message : e);
+    throw e;
+  }
+}
+
 export async function markAsNotified(leadId) {
   const client = getSupabaseClient();
   try {
