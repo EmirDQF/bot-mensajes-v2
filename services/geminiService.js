@@ -949,14 +949,16 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     let texto = sanitizedRawText;
 
     // Protect against model hallucinations: if the model claims a booking ("ya quedó agendada", "tu cita quedó...", etc.)
-    // but we do NOT have a confirmed fecha (neither in leadData nor in session.leadSnapshot), remove those assertions
+    // but we do NOT have a confirmed fecha (neither in leadData nor in session.leadSnapshot), remove those assertions aggressively.
     try {
-      const bookingClaimPattern = /\b(ya\s+quedó\s+agendad[ao]|quedó\s+agendad[ao]|tu\s+cita\s+(?:quedó|est(a|á)\s+agendada|ya\s+est[aá]))/i;
-      const hasBookingClaim = bookingClaimPattern.test(texto);
+      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
+      const hasBookingClaim = bookingClaimPattern.test(texto || '');
       const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
       if (hasBookingClaim && !hasConfirmedDate) {
-        // strip sentences that assert booking
-        texto = texto.replace(/[^.?!]*\b(ya\s+quedó\s+agendad[ao]|quedó\s+agendad[ao]|tu\s+cita\s+(?:quedó|est(a|á)\s+agendada|ya\s+est[aá]))[^.?!]*[.?!]?/gi, '').trim();
+        // Remove any sentence that mentions 'cita' or booking verbs to be conservative
+        const sentences = (texto || '').split(/[\.\?!]+/).map(s => s.trim()).filter(Boolean);
+        const filtered = sentences.filter(s => !/\b(cita|qued[oó]|agendad|agendar|reservad|programad)\b/i.test(s));
+        texto = (filtered.join('. ') || '').trim();
         if (!texto) texto = 'Gracias por tu mensaje. ¿Qué día y a qué hora prefieres para la cita?';
       }
     } catch (e) {
