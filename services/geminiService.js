@@ -360,6 +360,28 @@ export function getOrCreateSession(jid) {
   if (!entry) {
     entry = { history: [], timer: null, lastUserMessageAt: 0, booked: false, leadSnapshot: null };
     chatSessions.set(sid, entry);
+
+    // Attempt to restore persisted lead_snapshot if present so booked state survives restarts
+    (async () => {
+      try {
+        const { getByPhone } = await import('./leadService.js');
+        if (typeof getByPhone === 'function') {
+          const existing = await getByPhone(sid);
+          if (existing && existing.lead_snapshot) {
+            try {
+              entry.booked = true;
+              entry.leadSnapshot = existing.lead_snapshot;
+              // reset timer now that booked state restored
+              resetSessionTimer(sid, entry);
+            } catch (err) {
+              // ignore any restore errors
+            }
+          }
+        }
+      } catch (e) {
+        // non fatal: DB not configured or import failed in test environments
+      }
+    })();
   }
   resetSessionTimer(sid, entry);
   return entry;
