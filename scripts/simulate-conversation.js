@@ -160,8 +160,7 @@ async function run() {
       }
       if (msg.includes('próxima semana') || msg.includes('miércoles') || msg.includes('4pm') || msg.includes('4:00')) {
         // produce LEAD_JSON block as final confirmation
-        const leadJson = `<<<LEAD_JSON>>>\n{\n  "nombre": "Daniela",\n  "telefono": "999222333",\n  "distrito": "Miraflores",\n  "fecha_hora_texto": "miércoles 12 de agosto, 4:00 PM",\n  "ready_to_notify": true\n}\n<<<END_LEAD_JSON>>>\nPerfecto, Daniela, tu cita queda agendada para miércoles 12 de agosto a las 4:00 PM.`;
-        return { response: { candidates: [{ content: { parts: [{ text: leadJson }] } }] } };
+        const leadJson = `<<<LEAD_JSON>>>\n{\n  "nombre": "Daniela",\n          "telefono": "999444777",\n  "distrito": "Miraflores",\n  "fecha_hora_texto": "miércoles 12 de agosto, 4:00 PM",\n  "ready_to_notify": true\n}\n<<<END_LEAD_JSON>>>\nPerfecto, Daniela, tu cita queda agendada para miércoles 12 de agosto a las 4:00 PM.`;        return { response: { candidates: [{ content: { parts: [{ text: leadJson }] } }] } };
       }
       if (msg.includes('qué requisitos') || msg.includes('requisitos')) {
         return { response: { candidates: [{ content: { parts: [{ text: 'No requiere ayuno. Por favor trae tu DNI y tarjeta de seguro si tienes.' }] } }] } };
@@ -172,7 +171,7 @@ async function run() {
   };
 
   // Simulate conversation messages from Daniela (from phone is remitente)
-  const fromPhone = '999222333';
+  const fromPhone = '999444777';
   const jid = `${fromPhone}@s.whatsapp.net`;
   const userMessages = [
     'Me llasmo Daniela',
