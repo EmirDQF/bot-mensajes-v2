@@ -900,6 +900,21 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
         };
         // Ensure timer respects booked TTL after marking booked
         try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }
+
+        // Persist leadSnapshot to durable store so booked state survives restarts and TTL expiry
+        try {
+          const phoneFromJid = getSessionId(jid);
+          // Dynamic import to avoid circular dependency
+          const { saveLeadSnapshot } = await import('./leadService.js');
+          // persist normalized phone + snapshot
+          try {
+            await saveLeadSnapshot(phoneFromJid, session.leadSnapshot);
+          } catch (err) {
+            console.warn('geminiService: failed to persist leadSnapshot', err && err.message ? err.message : err);
+          }
+        } catch (err) {
+          // non fatal
+        }
       } catch (e) { /* non fatal */ }
     }
 
