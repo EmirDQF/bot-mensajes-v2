@@ -60,20 +60,27 @@ export async function notifyAdminNewLead(lead, options = {}) {
   // If lead has an id, attempt to atomically claim the notification (set notified_at) to prevent duplicates
   let claimedLead = null;
   if (lead.id) {
+    let claimFailed = false;
     try {
       const { tryClaimNotification } = await import('./leadService.js');
       if (typeof tryClaimNotification === 'function') {
         claimedLead = await tryClaimNotification(lead.id);
       }
     } catch (e) {
+      claimFailed = true;
       console.warn('notificationService: could not perform atomic claim for notification', e && e.message ? e.message : e);
-      // fall back to best-effort; we'll continue to attempt sending but risk duplication
+      // fall back if caller provided a markAsNotified function to record notification
     }
 
     if (!claimedLead) {
-      // someone else already claimed or claim failed: skip sending
-      console.warn('notificationService: notification already claimed or could not claim for lead id', lead.id);
-      return false;
+      if (claimFailed && options.leadService && typeof options.leadService.markAsNotified === 'function') {
+        // proceed but note that we couldn't claim atomically; we'll call provided markAsNotified after successful send
+        claimedLead = { id: lead.id };
+      } else {
+        // someone else already claimed or claim failed and no fallback: skip sending
+        console.warn('notificationService: notification already claimed or could not claim for lead id', lead.id);
+        return false;
+      }
     }
   }
 

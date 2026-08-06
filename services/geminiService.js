@@ -971,6 +971,18 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
       texto = sanitizeModelTextOutput(texto);
     }
 
+    // Final safety net: if texto still contains booking claims but we have no confirmed fecha, replace with a neutral follow-up
+    try {
+      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
+      const hasBookingClaim = bookingClaimPattern.test(texto || '');
+      const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
+      if (hasBookingClaim && !hasConfirmedDate) {
+        texto = 'Gracias por tu mensaje. ¿Qué día y a qué hora prefieres para la cita?';
+      }
+    } catch (e) {
+      // ignore
+    }
+
     return { texto, leadData };
   } catch (e) {
     const sid = getSessionId(jid);
