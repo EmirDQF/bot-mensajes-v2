@@ -107,7 +107,7 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     // 1. Intentar obtener si el lead ya existe y si ya fue notificado previamente
     let existingData = null;
     try {
-      const baseQuery = client.from('leads').select('id, ready_to_notify, notified_at, nombre, distrito, fecha_hora_texto, fecha_hora_iso').eq('telefono', normalized);
+      const baseQuery = client.from('leads').select('id, ready_to_notify, notified_at, nombre, distrito, fecha_hora_texto, fecha_hora_iso, lead_snapshot').eq('telefono', normalized);
       if (typeof baseQuery.maybeSingle === 'function') {
         const { data } = await baseQuery.maybeSingle();
         existingData = data || null;
@@ -169,8 +169,36 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
               if (explicit) incomingFechaTexto = explicit;
             } catch (_) { /* ignore */ }
           } else {
-            // parsedIso null => textual fecha is incomplete (e.g., "el martes"), do not treat as incoming
-            incomingFechaTexto = null;
+            // parsedIso null => textual fecha is incomplete (e.g., "el martes").
+            // Attempt to combine a day-only incomingFechaTexto with an existing time from lead_snapshot if available.
+            try {
+              const existingIsoInSnapshot = existingData?.lead_snapshot?.fecha_hora_iso || existingData?.fecha_hora_iso || null;
+              if (existingIsoInSnapshot && isValidISODateString(existingIsoInSnapshot) && typeof gemini.parseTextToLimaDate === 'function') {
+                const targetDate = gemini.parseTextToLimaDate(incomingFechaTexto);
+                if (targetDate) {
+                  // derive local Lima hour/min from existing ISO
+                  const existingDate = new Date(existingIsoInSnapshot);
+                  const localHour = existingDate.getUTCHours() - 5; // reverse earlier +5 adjustment
+                  const minute = existingDate.getUTCMinutes();
+                  // build combined UTC date that represents Lima local time
+                  const limaUtcDate = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate(), localHour + 5, minute, 0));
+                  const combinedIso = limaUtcDate.toISOString().replace(/\.000Z$/, '+00:00');
+                  if (isValidISODateString(combinedIso)) {
+                    incomingFechaIso = combinedIso;
+                    try {
+                      const explicit = gemini.formatLimaFechaHoraText(incomingFechaIso);
+                      if (explicit) incomingFechaTexto = explicit;
+                    } catch (_) { /* ignore */ }
+                  }
+                }
+              } else {
+                // no existing time to combine with — treat as fragment and ignore
+                incomingFechaTexto = null;
+              }
+            } catch (errComb) {
+              // fallback: do not prefer fragment
+              incomingFechaTexto = null;
+            }
           }
         }
       } catch (e) {
@@ -251,12 +279,38 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
 
     // If this lead was already notified previously but the fecha changed (e.g., correction by user), send an update notification to admin
     try {
-      if (existingData?.notified_at && updatedLead && payload.fecha_hora_iso && isValidISODateString(payload.fecha_hora_iso)) {
+      if (existingData?.notified_at && updatedLead) {
         const previousIso = existingData?.fecha_hora_iso || null;
-        if (previousIso && previousIso !== payload.fecha_hora_iso) {
+        const previousNombre = existingData?.nombre || null;
+        const previousDistrito = existingData?.distrito || null;
+
+        // helper to normalize text for comparison (ignore diacritics, case, punctuation, extra spaces)
+        const normalizeTextForCompare = (s) => {
+          if (!s || typeof s !== 'string') return '';
+          return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+        };
+
+        const nameChanged = normalizeTextForCompare(previousNombre) !== normalizeTextForCompare(payload.nombre);
+        const distritoChanged = normalizeTextForCompare(previousDistrito) !== normalizeTextForCompare(payload.distrito);
+
+        let dateChanged = false;
+        try {
+          if (previousIso && payload.fecha_hora_iso && isValidISODateString(previousIso) && isValidISODateString(payload.fecha_hora_iso)) {
+            const prevDt = new Date(previousIso);
+            const newDt = new Date(payload.fecha_hora_iso);
+            const diffMs = Math.abs(newDt.getTime() - prevDt.getTime());
+            if (diffMs > 5 * 60 * 1000) dateChanged = true; // more than 5 minutes difference
+          } else if ((previousIso && !payload.fecha_hora_iso) || (!previousIso && payload.fecha_hora_iso)) {
+            dateChanged = true; // one has date, other doesn't
+          }
+        } catch (errDate) {
+          dateChanged = previousIso !== payload.fecha_hora_iso;
+        }
+
+        // Only notify admin on substantial change to avoid spamming for formatting tweaks
+        if (nameChanged || distritoChanged || dateChanged) {
           try {
             const { notifyAdminUpdatedLead } = await import('./notificationService.js');
-            // Provide previous fecha text where available for clarity
             const prevText = existingData?.fecha_hora_texto || previousIso;
             const leadForNotify = Object.assign({}, updatedLead, { previous_fecha_hora_texto: prevText });
             await notifyAdminUpdatedLead(leadForNotify, previousIso);
@@ -264,6 +318,9 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
           } catch (e) {
             console.error('leadService.saveLead: failed to send admin update notification', e && e.message ? e.message : e);
           }
+        } else {
+          // no substantial change -> skip re-notification
+          console.log('leadService.saveLead: skipping re-notification; no substantial changes detected');
         }
       }
     } catch (e) {

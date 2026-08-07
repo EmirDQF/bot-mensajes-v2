@@ -370,8 +370,27 @@ export function getOrCreateSession(jid) {
           const existing = await getByPhone(sid);
           if (existing && existing.lead_snapshot) {
             try {
+              // Restore atomically the snapshot fields and sanitize distrito to avoid institutional phrases
+              const snap = existing.lead_snapshot || {};
+              const cleanDistrito = (function(d) {
+                if (!d || typeof d !== 'string') return null;
+                const low = d.toLowerCase().trim();
+                const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada'];
+                for (const b of banned) if (low.includes(b)) return null;
+                // Use isLikelyDistrict helper to validate canonical district values
+                if (!isLikelyDistrict(d)) return null;
+                return d;
+              })(snap.distrito);
+
               entry.booked = true;
-              entry.leadSnapshot = existing.lead_snapshot;
+              entry.leadSnapshot = {
+                nombre: snap.nombre || null,
+                telefono: snap.telefono || null,
+                distrito: cleanDistrito || snap.distrito || null,
+                fecha_hora_texto: snap.fecha_hora_texto || null,
+                fecha_hora_iso: snap.fecha_hora_iso || null,
+                confirmedAt: snap.confirmedAt || null
+              };
               // reset timer now that booked state restored
               resetSessionTimer(sid, entry);
             } catch (err) {
@@ -600,6 +619,8 @@ export function buildSystemPromptWithContext(jid, session = null, clinic = null)
  * Ejemplos aceptados: "hoy a las 3pm", "mañana 16:00", "el jueves a las 4pm", "3 de agosto a las 10:30"
  */
 export function parseTextToLimaISO(fechaTexto) {
+  // parseTextToLimaISO kept for backwards compat: tries to parse date+time and returns ISO only when time found
+
   if (!fechaTexto || typeof fechaTexto !== 'string') return null;
   const txt = fechaTexto.toLowerCase();
 
@@ -652,12 +673,21 @@ export function parseTextToLimaISO(fechaTexto) {
     }
   }
 
+  // Expose helper: return just the target date (UTC midnight) for date-only parsing
+  // This will be used by saveLead to combine day-only incoming text with previously stored time.
+  // Note: this function early-returns when there's an explicit time later; here we simply return the computed target date.
+  // (The time-handling code follows after this block.)
+
   // Time parsing
   let hour = 12;
   let minute = 0;
   const timeMatchAmPm = txt.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
   const timeMatch24 = txt.match(/(\d{1,2}):(\d{2})/);
   const timeMatchPlain = txt.match(/(?:a\s*las|a|\bat\b)?\s*(\d{1,2})\s*(?:hm|h|hrs|horas)?\s*(am|pm)?/i);
+
+  // If no explicit time provided, treat as incomplete: do not assume a default time.
+  // Returning null will indicate that fechaHora is incomplete (missing time) and should not be persisted as an ISO datetime.
+  // However, callers might want only the date part — use parseTextToLimaDate for that use-case.
 
   if (timeMatchAmPm) {
     hour = parseInt(timeMatchAmPm[1], 10);
@@ -683,6 +713,52 @@ export function parseTextToLimaISO(fechaTexto) {
   // Build a UTC ISO string from Lima local time by applying the -05:00 offset.
   const limaUtcDate = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate(), hour + 5, minute, 0));
   return limaUtcDate.toISOString().replace(/\.000Z$/, '+00:00');
+}
+
+// Parse a date-only textual expression into a UTC Date representing the target day in Lima (UTC midnight for that local day).
+export function parseTextToLimaDate(fechaTexto) {  if (!fechaTexto || typeof fechaTexto !== 'string') return null;
+  const txt = fechaTexto.toLowerCase();
+
+  const limaDateStr = new Date().toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
+  const [baseYear, baseMonth, baseDay] = limaDateStr.split('-').map((s) => parseInt(s, 10));
+  let target = new Date(Date.UTC(baseYear, baseMonth - 1, baseDay));
+
+  const weekdays = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6 };
+  const months = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
+
+  if (txt.includes('pasado mañana')) {
+    target.setUTCDate(target.getUTCDate() + 2);
+  } else if (txt.includes('mañana')) {
+    target.setUTCDate(target.getUTCDate() + 1);
+  } else if (txt.includes('hoy')) {
+    // no change
+  } else {
+    for (const [name, idx] of Object.entries(weekdays)) {
+      if (txt.includes(name)) {
+        const maxIter = 14;
+        let iter = 0;
+        while (target.getUTCDay() !== idx && iter < maxIter) {
+          target.setUTCDate(target.getUTCDate() + 1);
+          iter += 1;
+        }
+        break;
+      }
+    }
+
+    const explicitDateMatch = txt.match(/(\d{1,2})\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i);
+    if (explicitDateMatch) {
+      const dayNum = parseInt(explicitDateMatch[1], 10);
+      const monthName = explicitDateMatch[2].toLowerCase();
+      const monthNum = months[monthName];
+      if (monthNum) {
+        let year = baseYear;
+        if (monthNum < baseMonth) year = baseYear;
+        target = new Date(Date.UTC(year, monthNum - 1, dayNum));
+      }
+    }
+  }
+
+  return target;
 }
 
 export function formatLimaFechaHoraText(fechaHoraISO) {
@@ -920,31 +996,37 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
       // Mark session as booked and keep a snapshot of the confirmed lead data so follow-up turns do not re-ask core fields.
       try {
-        session.booked = true;
-        session.leadSnapshot = {
-          nombre: leadData.nombre || null,
-          telefono: leadData.telefono || null,
-          distrito: leadData.distrito || null,
-          fecha_hora_texto: leadData.fechaHora || null,
-          fecha_hora_iso: leadData.fechaHoraISO || null,
-          confirmedAt: new Date().toISOString()
-        };
-        // Ensure timer respects booked TTL after marking booked
-        try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }
+        // Only mark as booked and persist snapshot when not explicitly told to skip lead persistence (e.g., admin messages)
+        if (!options || !options.skipLeadPersistence) {
+          session.booked = true;
+          session.leadSnapshot = {
+            nombre: leadData.nombre || null,
+            telefono: leadData.telefono || null,
+            distrito: leadData.distrito || null,
+            fecha_hora_texto: leadData.fechaHora || null,
+            fecha_hora_iso: leadData.fechaHoraISO || null,
+            confirmedAt: new Date().toISOString()
+          };
+          // Ensure timer respects booked TTL after marking booked
+          try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }
 
-        // Persist leadSnapshot to durable store so booked state survives restarts and TTL expiry
-        try {
-          const phoneFromJid = getSessionId(jid);
-          // Dynamic import to avoid circular dependency
-          const { saveLeadSnapshot } = await import('./leadService.js');
-          // persist normalized phone + snapshot
+          // Persist leadSnapshot to durable store so booked state survives restarts and TTL expiry
           try {
-            await saveLeadSnapshot(phoneFromJid, session.leadSnapshot);
+            const phoneFromJid = getSessionId(jid);
+            // Dynamic import to avoid circular dependency
+            const { saveLeadSnapshot } = await import('./leadService.js');
+            // persist normalized phone + snapshot
+            try {
+              await saveLeadSnapshot(phoneFromJid, session.leadSnapshot);
+            } catch (err) {
+              console.warn('geminiService: failed to persist leadSnapshot', err && err.message ? err.message : err);
+            }
           } catch (err) {
-            console.warn('geminiService: failed to persist leadSnapshot', err && err.message ? err.message : err);
+            // non fatal
           }
-        } catch (err) {
-          // non fatal
+        } else {
+          // Skip persistence for this session (e.g., admin sender). Still update in-memory history but do not mark booked or persist.
+          console.log('geminiService: skipLeadPersistence option set for jid', jid);
         }
       } catch (e) { /* non fatal */ }
     }

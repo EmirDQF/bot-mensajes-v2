@@ -166,7 +166,12 @@ export default async function webhookController(req, res, next) {
 
       // call geminiService to obtain reply; pass clinic config for system prompt
       const geminiClient = getGeminiClient();
-      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic: (typeof clinic !== 'undefined' ? clinic : null), maxRetries: 1, maxOutputTokens: 100 });
+      // Detect admin sender to avoid creating/updating leads or initiating scheduling flows for admin messages
+      const ADMIN_WHATSAPP_NUMBER = (process.env.ADMIN_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+      const senderNumberNormalized = contactDigits || (conversation?.id ? String(conversation.id).replace(/\D/g, '') : null);
+      const isAdminSender = senderNumberNormalized && ADMIN_WHATSAPP_NUMBER && senderNumberNormalized === ADMIN_WHATSAPP_NUMBER;
+
+      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic: (typeof clinic !== 'undefined' ? clinic : null), maxRetries: 1, maxOutputTokens: 100, skipLeadPersistence: Boolean(isAdminSender) });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
       let leadData = null;
       try {
@@ -199,7 +204,10 @@ export default async function webhookController(req, res, next) {
       if (leadData) {
         try {
           const telefonoKey = contactDigits || null; // contactDigits is the remitente phone for Chatwoot events
-          if (!telefonoKey) {
+          // If message came from admin, skip any DB lead creation/update and scheduling flows
+          if (isAdminSender) {
+            console.log('webhookController: message from admin detected; skipping lead save and scheduling for this sender');
+          } else if (!telefonoKey) {
             console.warn('webhookController: no remitente phone found for chatwoot message; skipping lead save to avoid using model-extracted phone');
           } else {
             const leadResult = await leadService.saveLead({
