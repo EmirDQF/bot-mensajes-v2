@@ -59,8 +59,8 @@ export async function notifyAdminNewLead(lead, options = {}) {
 
   // If lead has an id, attempt to atomically claim the notification (set notified_at) to prevent duplicates
   let claimedLead = null;
+  let claimFailed = false;
   if (lead.id) {
-    let claimFailed = false;
     try {
       const { tryClaimNotification } = await import('./leadService.js');
       if (typeof tryClaimNotification === 'function') {
