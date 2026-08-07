@@ -850,7 +850,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
           })();
 
           const finalTelefono = messageLead.telefono || rawLead.telefono || historyLead.telefono || null;
-          const finalFecha = messageLead.fechaHora || rawLead.fechaHora || historyLead.fechaHora || null;
+          // Do not accept model-derived fecha (rawLead) as confirmation — prefer message or history
+          const finalFecha = messageLead.fechaHora || historyLead.fechaHora || null;
 
           leadData = {
             nombre: finalNombre,
@@ -865,14 +866,21 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
       } else {
         const rawLead = extractLeadDataFromText(rawText) || {};
         const messageLead = extractLeadDataFromText(mensaje) || {};
+        const historyLead = extractLeadDataFromHistory(session.history) || {};
+
+        // SECURITY: do NOT trust dates extracted from the model's own output (rawLead) as a user confirmation.
+        // Only accept fechaHora if it appears in the user's message (messageLead) or already in the conversation history (historyLead).
+        const fechaFromUserOrHistory = messageLead.fechaHora || historyLead.fechaHora || null;
+
         leadData = {
-          nombre: messageLead.nombre || rawLead.nombre || null,
-          telefono: messageLead.telefono || rawLead.telefono || null,
-          distrito: messageLead.distrito || rawLead.distrito || null,
-          fechaHora: messageLead.fechaHora || rawLead.fechaHora || null,
+          nombre: messageLead.nombre || rawLead.nombre || historyLead.nombre || null,
+          telefono: messageLead.telefono || rawLead.telefono || historyLead.telefono || null,
+          distrito: messageLead.distrito || rawLead.distrito || historyLead.distrito || null,
+          fechaHora: fechaFromUserOrHistory,
         };
+
+        // If any core field missing, enrich from history (but still do NOT accept rawLead.fechaHora as confirmation)
         if (!leadData.telefono || !leadData.nombre || !leadData.distrito || !leadData.fechaHora) {
-          const historyLead = extractLeadDataFromHistory(session.history) || {};
           leadData = {
             nombre: leadData.nombre || historyLead.nombre || null,
             telefono: leadData.telefono || historyLead.telefono || null,

@@ -97,6 +97,15 @@ export async function notifyAdminNewLead(lead, options = {}) {
  
   try {
     await sendWhatsAppMessage(adminDigits, alertMessage, {});
+
+    // If atomic claim wasn't available but caller provided a fallback markAsNotified, call it to record the notification.
+    if (claimFailed && options.leadService && typeof options.leadService.markAsNotified === 'function') {
+      try {
+        await options.leadService.markAsNotified(claimedLead?.id || lead.id);
+      } catch (e) {
+        console.warn('notificationService: fallback markAsNotified failed', e && e.message ? e.message : e);
+      }
+    }
   } catch (e) {
     console.error('notificationService: failed to send admin WhatsApp message', e && e.message ? e.message : e);
     // If we previously claimed the notification but failed to send, attempt to rollback notified_at by setting it back to null (best-effort)
