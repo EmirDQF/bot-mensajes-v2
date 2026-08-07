@@ -51,4 +51,42 @@ describe('regressions: real-conversation bugs', () => {
     // Response should mention the clinic days (we simulated it)
     assert.ok((res.texto || res.text || '').toLowerCase().includes('lunes') || (res.texto || res.text || '').toLowerCase().includes('sábado'));
   });
+
+  it('does not re-ask core booking fields after LEAD_JSON (session.booked)', async () => {
+    // Mock client that returns LEAD_JSON on first call, and on second call verifies the system prompt contains the booked notice
+    let call = 0;
+    const client = {
+      async generate(prompt, opts) {
+        call += 1;
+        if (call === 1) {
+          // Return LEAD_JSON in the model output to simulate booking confirmation
+          const leadJson = `<<<LEAD_JSON>>>\n{\n  "nombre": "Pedro Prueba",\n  "telefono": "999555444",\n  "distrito": "Miraflores",\n  "fecha_hora_texto": "martes 11 de agosto, 3:00 PM",\n  "ready_to_notify": true\n}\n<<<END_LEAD_JSON>>>\nPerfecto, Pedro. Tu cita queda agendada para martes 11 de agosto a las 3:00 PM.`;
+          return { text: leadJson };
+        }
+        // For the second call, assert the prompt contains the booked-session instruction
+        if (call === 2) {
+          // The system prompt should include the AVISO about already booked
+          assert.ok(String(prompt).includes('AVISO: Este usuario ya tiene una cita agendada'), 'system prompt must include booked notice');
+          return { text: 'Sí, tu cita ya está agendada. ¿Deseas cambiar la hora o tienes alguna otra pregunta?' };
+        }
+        return { text: 'OK' };
+      }
+    };
+
+    const { obtenerRespuestaIA } = await import('./geminiService.js');
+    const jid = `51999555444@s.whatsapp.net`;
+
+    // Step 1: model returns LEAD_JSON -> session should be marked booked
+    const r1 = await obtenerRespuestaIA(jid, 'Me gustaría agendar para el próximo martes a las 3pm', { client });
+    assert.ok(r1.leadData && r1.leadData.ready_to_notify, 'first call should return leadData ready_to_notify');
+
+    // Step 2: immediate follow-up question — model should get a prompt that contains the booked notice (asserted inside mock)
+    const r2 = await obtenerRespuestaIA(jid, 'pero no me habías agendado ya?', { client });
+    // ensure r2 did not produce a new incomplete leadData asking for name/phone/district
+    if (r2.leadData) {
+      // If leadData present, it should match the snapshot values
+      assert.equal(r2.leadData.nombre, 'Pedro Prueba');
+      assert.equal(r2.leadData.distrito, 'Miraflores');
+    }
+  });
 });

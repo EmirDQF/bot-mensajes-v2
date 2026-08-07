@@ -17,7 +17,8 @@ function buildWhatsappLink(phone) {
 }
 
 export async function notifyAdminNewLead(lead, options = {}) {
-  if (!lead || !lead.ready_to_notify || lead.notified_at) return false;
+  // allow callers to pass a lead object without ready_to_notify flag (DB may be source of truth)
+  if (!lead || lead.notified_at) return false;
 
   // Basic validation guard: ensure phone and name and distrito appear valid
   const phone = lead.telefono || lead.phone || '';

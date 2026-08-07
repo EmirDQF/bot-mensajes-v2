@@ -23,27 +23,30 @@ function createMockSupabase() {
     if (table !== 'leads') throw new Error('unexpected table ' + table);
     return {
       update(payload) {
-        // simulate conditional update with .is and .eq
-        return {
-          is(field, val) {
-            this._is = { field, val };
-            return this;
-          },
-          eq(field, val) {
-            this._eq = { field, val };
-            // perform the conditional update now
-            const id = this._eq.value || val;
-            // find a lead matching id and is condition
-            const row = [...leads.values()].find(r => r.id === val);
-            if (!row) return { select: async () => ({ data: [], error: null }) };
-            if (this._is && this._is.field === 'notified_at' && row.notified_at !== null) {
-              return { select: async () => ({ data: [], error: null }) };
-            }
-            // perform update
-            Object.assign(row, payload);
-            return { select: async () => ({ data: [row], error: null }) };
+        // build the query chain but only apply at select(). This mirrors real supabase client's lazy chain.
+        const chain = {
+          _is: null,
+          _eq: null,
+          is(field, val) { this._is = { field, val }; return this; },
+          eq(field, val) { this._eq = { field, val }; return this; },
+          select() {
+            const self = this;
+            return {
+              async limit() {
+                const id = self._eq && self._eq.field === 'id' ? self._eq.val : null;
+                const row = id ? leads.get(id) : null;
+                if (!row) return { data: [], error: null };
+                if (self._is && self._is.field === 'notified_at' && row.notified_at !== null) {
+                  return { data: [], error: null };
+                }
+                // perform update
+                Object.assign(row, payload);
+                return { data: [row], error: null };
+              }
+            };
           }
         };
+        return chain;
       },
       select() {
         return {
