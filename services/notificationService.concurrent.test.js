@@ -75,7 +75,7 @@ describe('notificationService idempotency', () => {
     };
 
     // call notifyAdminNewLead twice concurrently
-    const lead = { id: 'lead-1', nombre: 'Test', telefono: '999111222', fecha_hora_texto: 'martes 11 de agosto, 3:00 PM' };
+    const lead = { id: 'lead-1', nombre: 'Test', telefono: '999111222', distrito: 'Lima', fecha_hora_texto: 'martes 11 de agosto, 3:00 PM' };
 
     await Promise.all([
       notificationService.notifyAdminNewLead(lead, { whatsappService }),
