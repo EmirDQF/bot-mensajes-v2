@@ -644,6 +644,14 @@ export function parseTextToLimaISO(fechaTexto) {
   } else if (txt.includes('hoy')) {
     // no change
   } else {
+    // If user says 'próxima semana' explicitly, anchor to next week's Monday before resolving weekday
+    if (/pr[oó]xima\s+semana/i.test(txt)) {
+      const currentWeekday = target.getUTCDay(); // 0=Sun..6=Sat
+      // days until next Monday: (8 - currentWeekday) % 7 (ensure at least 1 week ahead)
+      const daysToNextMonday = ((8 - currentWeekday) % 7) || 7;
+      target.setUTCDate(target.getUTCDate() + daysToNextMonday);
+    }
+
     // Weekday names
     for (const [name, idx] of Object.entries(weekdays)) {
       if (txt.includes(name)) {
@@ -895,49 +903,66 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     const match = leadRegex.exec(rawText);
     if (match && match[1]) {
       const jsonText = match[1].trim();
+      // Extract candidate leads from other sources for fallbacks
+      const rawLead = extractLeadDataFromText(rawText) || {};
+      const messageLead = extractLeadDataFromText(mensaje) || {};
+      const historyLead = extractLeadDataFromHistory(session.history) || {};
+      const existingSnap = session.leadSnapshot || {};
+
       try {
           let parsed = normalizeLeadData(JSON.parse(jsonText));
           if (parsed && parsed.telefono) parsed.telefono = String(parsed.telefono).replace(/\D/g, '');
-          // finalize and validate lead data server-side (compute ISO and readiness)
-          parsed = finalizeLeadData(parsed);
-          leadData = parsed;
-        } catch (e) {          console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
-          const rawLead = extractLeadDataFromText(rawText) || {};
-          const messageLead = extractLeadDataFromText(mensaje) || {};
-          const historyLead = extractLeadDataFromHistory(session.history) || {};
 
-          // Preserve previously captured valid fields from history if new extraction appears to be a district or invalid
-          const finalNombre = (function() {
-            // Prefer explicit messageLead.nombre if it exists and does not look like a district
-            if (messageLead.nombre && !isLikelyDistrict(messageLead.nombre) && messageLead.nombre.length > 1) return messageLead.nombre;
-            // Else prefer rawLead.nombre if valid
-            if (rawLead.nombre && !isLikelyDistrict(rawLead.nombre) && rawLead.nombre.length > 1) return rawLead.nombre;
-            // Else keep historical name
-            if (historyLead.nombre && !isLikelyDistrict(historyLead.nombre)) return historyLead.nombre;
-            return null;
-          })();
+          // SECURITY: Do NOT trust model-provided nombre/telefono/distrito in LEAD_JSON.
+          // Always prefer session.snapshot or historical validated values for these core fields.
+          // Prefer validated snapshot/history/message values, but if none exist fall back to model-provided parsed values
+          const finalNombre = existingSnap.nombre || historyLead.nombre || messageLead.nombre || parsed.nombre || null;
+          const finalTelefono = existingSnap.telefono || historyLead.telefono || messageLead.telefono || parsed.telefono || null;
 
-          const finalDistrito = (function() {
-            // district can come from explicit patterns or history
-            if (messageLead.distrito) return messageLead.distrito;
-            if (rawLead.distrito) return rawLead.distrito;
-            if (historyLead.distrito) return historyLead.distrito;
-            return null;
-          })();
+          // Sanitize district: prefer snapshot, else history, else message, but never accept generic/institutional phrases
+          const candidateDistrito = existingSnap.distrito || historyLead.distrito || messageLead.distrito || parsed.distrito || null;
+          const finalDistrito = (function(d) {
+            if (!d || typeof d !== 'string') return null;
+            const low = d.toLowerCase().trim();
+            const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada', 'el de siempre'];
+            for (const b of banned) if (low.includes(b)) return null;
+            if (!isLikelyDistrict(d)) return null;
+            return d;
+          })(candidateDistrito);
 
-          const finalTelefono = messageLead.telefono || rawLead.telefono || historyLead.telefono || null;
-          // Do not accept model-derived fecha (rawLead) as confirmation — prefer message or history
-          const finalFecha = messageLead.fechaHora || historyLead.fechaHora || null;
+          // Only accept fecha from the model if it is present, but still validate/parse server-side
+          const incomingFechaTexto = parsed.fechaHora || parsed.fecha_hora || parsed.fechaHoraTexto || null;
 
-          leadData = {
-            nombre: finalNombre,
-            telefono: finalTelefono,
-            distrito: finalDistrito,
-            fechaHora: finalFecha,
+          const assembled = {
+            nombre: finalNombre || null,
+            telefono: finalTelefono || null,
+            distrito: finalDistrito || null,
+            fechaHora: incomingFechaTexto || null,
             ready_to_notify: false,
           };
-          // finalize and validate lead data server-side
-          leadData = finalizeLeadData(leadData);
+
+          // finalize and validate lead data server-side (compute ISO and readiness)
+          const finalized = finalizeLeadData(assembled);
+          leadData = finalized;
+        } catch (e) {
+          console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
+
+          // Fallback: if parsing failed, build leadData from safe sources (session/history/message)
+          const finalNombre = session.leadSnapshot?.nombre || historyLead.nombre || messageLead.nombre || null;
+          const candidateDistrito = session.leadSnapshot?.distrito || historyLead.distrito || messageLead.distrito || null;
+          const finalDistrito = (function(d) {
+            if (!d || typeof d !== 'string') return null;
+            const low = d.toLowerCase().trim();
+            const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada', 'el de siempre'];
+            for (const b of banned) if (low.includes(b)) return null;
+            if (!isLikelyDistrict(d)) return null;
+            return d;
+          })(candidateDistrito);
+
+          const finalTelefono = session.leadSnapshot?.telefono || historyLead.telefono || messageLead.telefono || null;
+          const finalFecha = messageLead.fechaHora || historyLead.fechaHora || null;
+
+          leadData = finalizeLeadData({ nombre: finalNombre, telefono: finalTelefono, distrito: finalDistrito, fechaHora: finalFecha, ready_to_notify: false });
         }
       } else {
         const rawLead = extractLeadDataFromText(rawText) || {};

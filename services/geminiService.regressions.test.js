@@ -89,4 +89,57 @@ describe('regressions: real-conversation bugs', () => {
       assert.equal(r2.leadData.distrito, 'Miraflores');
     }
   });
+
+  it('uses session-stored distrito when model LEAD_JSON contains invented distrito and only one notification should be created logically', async () => {
+    // Setup: pre-seed session with confirmed snapshot
+    const { obtenerRespuestaIA, getOrCreateSession } = await import('./geminiService.js');
+    const jid = `51990000001@s.whatsapp.net`;
+    const session = getOrCreateSession(jid);
+    session.leadSnapshot = {
+      nombre: 'Sandra Perez',
+      telefono: '999111222',
+      distrito: 'San Juan de Miraflores',
+      fecha_hora_texto: null,
+      fecha_hora_iso: null,
+      confirmedAt: new Date().toISOString()
+    };
+
+    // Mock client that returns LEAD_JSON with invented distrito and a fecha
+    const client = {
+      async generate(prompt, opts) {
+        const leadJson = `<<<LEAD_JSON>>>
+{
+  "nombre": "Sandra Inventada",
+  "telefono": "999000000",
+  "distrito": "nuestra clínica en lima",
+  "fecha_hora_texto": "martes 11 de agosto a las 6:30 PM",
+  "ready_to_notify": true
+}
+<<<END_LEAD_JSON>>>
+Perfecto, tu cita queda agendada para martes 11 de agosto a las 6:30 PM.`;
+        return { text: leadJson };
+      }
+    };
+
+    const res = await obtenerRespuestaIA(jid, 'Para la próxima semana el martes a las 6:30pm', { client });
+    // The leadData.distrito must be taken from session.leadSnapshot, not from model
+    assert.ok(res.leadData, 'leadData should be present');
+    assert.equal(res.leadData.distrito, 'San Juan de Miraflores');
+  });
+
+  it('resolves "la próxima semana el martes" to Tuesday Aug 11 2026 when today is Fri Aug 7 2026', async () => {
+    // Mock current date to 2026-08-07 (Friday) in Lima
+    const realNow = Date.now;
+    const limaTest = new Date('2026-08-07T12:00:00-05:00').getTime();
+    Date.now = () => limaTest;
+    try {
+      const { parseTextToLimaISO } = await import('./geminiService.js');
+      const iso = parseTextToLimaISO('la próxima semana el martes a las 6:30pm');
+      // Expected Lima local 2026-08-11 18:30 -> UTC 2026-08-11T23:30:00+00:00
+      assert.equal(iso, '2026-08-11T23:30:00+00:00');
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
 });
