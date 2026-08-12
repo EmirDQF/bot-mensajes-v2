@@ -262,19 +262,79 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
             .upsert(payload, { onConflict: 'telefono' })
             .select('*')
             .single();
-          if (upsertErr) throw upsertErr;
-          updatedLead = upserted;
+          if (upsertErr) {
+            // log detailed supabase error
+            console.error('[SUPABASE DB ERROR]:', upsertErr.message, upsertErr.details, upsertErr.hint);
+            // if the error seems related to clinic_id FK, retry without clinic_id
+            const fkRelated = String(upsertErr.message || '') + ' ' + String(upsertErr.details || '');
+            if (/foreign key|constraint|clinic_id|clinic/i.test(fkRelated)) {
+              try {
+                const fallbackPayload = Object.assign({}, payload, { clinic_id: null });
+                const { data: upserted2, error: upsertErr2 } = await client
+                  .from('leads')
+                  .upsert(fallbackPayload, { onConflict: 'telefono' })
+                  .select('*')
+                  .single();
+                if (upsertErr2) {
+                  console.error('[SUPABASE DB ERROR]: retry failed', upsertErr2.message, upsertErr2.details, upsertErr2.hint);
+                  throw upsertErr2;
+                }
+                updatedLead = upserted2;
+              } catch (e2) {
+                throw e2;
+              }
+            } else {
+              throw upsertErr;
+            }
+          } else {
+            updatedLead = upserted;
+          }
         } else {
           // Fallback for mocks that don't implement upsert(): update if existing, else insert
-          if (existingData && existingData.id) {
-            const { data: updatedRows, error: updateErr } = await client.from('leads').update(payload).eq('id', existingData.id).select('*').limit(1);
-            if (updateErr) throw updateErr;
-            updatedLead = Array.isArray(updatedRows) && updatedRows.length ? updatedRows[0] : updatedRows;
-          } else {
-            const newRow = Object.assign({ created_at: now, notified_at: null }, payload);
-            const { data: inserted, error: insertErr } = await client.from('leads').insert([newRow]).select('*').limit(1);
-            if (insertErr) throw insertErr;
-            updatedLead = Array.isArray(inserted) && inserted.length ? inserted[0] : inserted;
+          try {
+            if (existingData && existingData.id) {
+              const { data: updatedRows, error: updateErr } = await client.from('leads').update(payload).eq('id', existingData.id).select('*').limit(1);
+              if (updateErr) {
+                console.error('[SUPABASE DB ERROR]:', updateErr.message, updateErr.details, updateErr.hint);
+                // if foreign key issue, retry with clinic_id null
+                const fkRelated = String(updateErr.message || '') + ' ' + String(updateErr.details || '');
+                if (/foreign key|constraint|clinic_id|clinic/i.test(fkRelated)) {
+                  const fallbackPayload = Object.assign({}, payload, { clinic_id: null });
+                  const { data: updatedRows2, error: updateErr2 } = await client.from('leads').update(fallbackPayload).eq('id', existingData.id).select('*').limit(1);
+                  if (updateErr2) {
+                    console.error('[SUPABASE DB ERROR]: retry failed', updateErr2.message, updateErr2.details, updateErr2.hint);
+                    throw updateErr2;
+                  }
+                  updatedLead = Array.isArray(updatedRows2) && updatedRows2.length ? updatedRows2[0] : updatedRows2;
+                } else {
+                  throw updateErr;
+                }
+              } else {
+                updatedLead = Array.isArray(updatedRows) && updatedRows.length ? updatedRows[0] : updatedRows;
+              }
+            } else {
+              const newRow = Object.assign({ created_at: now, notified_at: null }, payload);
+              const { data: inserted, error: insertErr } = await client.from('leads').insert([newRow]).select('*').limit(1);
+              if (insertErr) {
+                console.error('[SUPABASE DB ERROR]:', insertErr.message, insertErr.details, insertErr.hint);
+                const fkRelated = String(insertErr.message || '') + ' ' + String(insertErr.details || '');
+                if (/foreign key|constraint|clinic_id|clinic/i.test(fkRelated)) {
+                  const fallbackRow = Object.assign({ created_at: now, notified_at: null }, Object.assign({}, newRow, { clinic_id: null }));
+                  const { data: inserted2, error: insertErr2 } = await client.from('leads').insert([fallbackRow]).select('*').limit(1);
+                  if (insertErr2) {
+                    console.error('[SUPABASE DB ERROR]: retry failed', insertErr2.message, insertErr2.details, insertErr2.hint);
+                    throw insertErr2;
+                  }
+                  updatedLead = Array.isArray(inserted2) && inserted2.length ? inserted2[0] : inserted2;
+                } else {
+                  throw insertErr;
+                }
+              } else {
+                updatedLead = Array.isArray(inserted) && inserted.length ? inserted[0] : inserted;
+              }
+            }
+          } catch (e) {
+            throw e;
           }
         }
       } catch (e) {

@@ -209,10 +209,18 @@ export default async function webhookController(req, res, next) {
               distrito: leadData.distrito,
               fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
               fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-              confirmed: shouldConfirm,
+              confirmed: true && shouldConfirm,
               clinicId: (typeof clinic !== 'undefined' && clinic?.id) || null,
               clinic: (typeof clinic !== 'undefined' ? clinic : null),
             });
+            // If user explicitly confirmed, force an admin notify regardless
+            if (shouldConfirm && leadResult && leadResult.lead) {
+              try {
+                await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+              } catch (err) {
+                console.error('webhookController: forced admin notify after explicit confirmation failed', err && err.message ? err.message : err);
+              }
+            }
           }
         } catch (e) {
           console.error('webhookController: error saving lead from chatwoot message', e && e.message ? e.message : e);

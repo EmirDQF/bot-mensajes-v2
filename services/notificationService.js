@@ -41,7 +41,19 @@ export async function notifyAdminNewLead(lead, options = {}) {
   // Prefer clinic's admin number when provided in options
   const adminFromOptions = options.clinic && options.clinic.admin_whatsapp_number ? String(options.clinic.admin_whatsapp_number) : null;
   const raw = adminFromOptions || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
-  const adminDigits = raw ? raw.replace(/\D/g, '') : null;
+  let adminDigits = raw ? String(raw).replace(/\D/g, '') : null;
+
+  // Normalize to Peru country code: if 9 digits assume local and prefix 51
+  if (adminDigits && adminDigits.length === 9) {
+    adminDigits = '51' + adminDigits;
+  }
+  // If starts with +51 or 51 already, ensure no plus and correct length
+  if (adminDigits && adminDigits.startsWith('+')) adminDigits = adminDigits.replace(/\D/g, '');
+
+  // Ensure we have full E.164-like without plus (country code included)
+  if (adminDigits && adminDigits.length === 11 && adminDigits.startsWith('51')) {
+    // good
+  }
 
   // Log resolved admin source for debugging (clinic vs env)
   try {
@@ -97,7 +109,8 @@ export async function notifyAdminNewLead(lead, options = {}) {
   ].join('\n');
  
   try {
-    await sendWhatsAppMessage(adminDigits, alertMessage, {});
+    const sendResult = await sendWhatsAppMessage(adminDigits, alertMessage, {});
+    console.log('[NOTIFICACION EXITO]: Alerta enviada a', adminDigits);
 
     // If atomic claim wasn't available but caller provided a fallback markAsNotified, call it to record the notification.
     if (claimFailed && options.leadService && typeof options.leadService.markAsNotified === 'function') {
@@ -107,7 +120,9 @@ export async function notifyAdminNewLead(lead, options = {}) {
         console.warn('notificationService: fallback markAsNotified failed', e && e.message ? e.message : e);
       }
     }
+
   } catch (e) {
+    console.error('[WHATSAPP ADMIN NOTIFY ERROR]:', e?.response?.data || e?.message || e);
     console.error('[CRITICAL DB/NOTIFY ERROR]: notificationService failed to send admin WhatsApp message', e && e.message ? e.message : e);
     // If we previously claimed the notification but failed to send, attempt to rollback notified_at by setting it back to null (best-effort)
     if (claimedLead && claimedLead.id) {
