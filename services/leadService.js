@@ -460,11 +460,35 @@ export async function markAsNotified(leadId) {
   }
 }
 
+export async function getClinicByWabaPhoneId(phoneNumberId) {
+  if (!phoneNumberId) return null;
+  const client = getSupabaseClient();
+  try {
+    if (typeof client.from === 'function') {
+      // prefer maybeSingle when available
+      if (typeof client.from('clinics').maybeSingle === 'function') {
+        const { data, error } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
+        if (error) throw error;
+        return data || null;
+      }
+      // fallback to select with limit
+      const { data, error } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).limit(1);
+      if (error) throw error;
+      return Array.isArray(data) && data.length ? data[0] : null;
+    }
+    return null;
+  } catch (e) {
+    console.error('leadService.getClinicByWabaPhoneId error', e && e.message ? e.message : e);
+    throw e;
+  }
+}
+
 export default {
   saveLead,
   getByPhone,
   listLeads,
   validateLead,
   initSupabaseClient,
+  getClinicByWabaPhoneId,
   _internals: { normalizePhone },
 };

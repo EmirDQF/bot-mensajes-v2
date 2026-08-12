@@ -1,6 +1,6 @@
 import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
-import leadService, { getSupabaseClient } from '../services/leadService.js';
+import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import chatwootService from '../services/chatwootService.js';
