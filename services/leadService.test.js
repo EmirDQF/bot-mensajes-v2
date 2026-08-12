@@ -31,6 +31,10 @@ function createMockSupabase() {
       this.filters.push({ type: 'eq', field, value });
       return this;
     }
+    is(field, value) {
+      this.filters.push({ type: 'is', field, value });
+      return this;
+    }
     gte(field, value) {
       this.filters.push({ type: 'gte', field, value });
       return this;
@@ -153,22 +157,45 @@ describe('leadService (supabase mock)', () => {
     assert.equal(byPhone?.distrito, 'San Isidro');
   });
 
-  it('returns updated ready_to_notify after update instead of stale existing data', async () => {
+  it('returns updated ready_to_notify after explicit confirmation of completed lead data', async () => {
     const { saveLead, getByPhone } = leadServiceModule;
     const initial = await saveLead({ telefono: '999111222', nombre: 'First Name' });
     assert.equal(initial.isNew, true);
     assert.equal(initial.readyToNotify, false);
-
-    const updated = await saveLead({ telefono: '999111222', nombre: 'First Name', distrito: 'Barranco', fechaHoraISO: '2026-08-09T22:00:00+00:00', fechaHoraTexto: 'viernes a las 5pm' });
+ 
+    const updated = await saveLead({ telefono: '999111222', nombre: 'First Name', distrito: 'Barranco', fechaHoraISO: '2026-08-09T22:00:00+00:00', fechaHoraTexto: 'viernes a las 5pm', confirmed: true });
     assert.equal(updated.isNew, false);
     assert.equal(updated.readyToNotify, true);
     assert.equal(updated.lead.ready_to_notify, true);
     assert.equal(updated.lead.distrito, 'Barranco');
-
+ 
     const byPhone = await getByPhone('999111222');
     assert.ok(byPhone);
     assert.equal(byPhone.ready_to_notify, true);
     assert.equal(byPhone.distrito, 'Barranco');
+  });
+
+  it('does not mark a complete lead ready_to_notify without explicit confirmation when prior partial data existed', async () => {
+    const { saveLead } = leadServiceModule;
+    const initial = await saveLead({ telefono: '999777888', nombre: 'Ana' });
+    assert.equal(initial.readyToNotify, false);
+ 
+    const incompleteUpdate = await saveLead({ telefono: '999777888', distrito: 'Surco', fechaHoraISO: '2026-08-11T15:00:00+00:00', fechaHoraTexto: 'martes a las 10am' });
+    assert.equal(incompleteUpdate.readyToNotify, false);
+ 
+    const confirmedUpdate = await saveLead({ telefono: '999777888', nombre: 'Ana', distrito: 'Surco', fechaHoraISO: '2026-08-11T15:00:00+00:00', fechaHoraTexto: 'martes a las 10am', confirmed: true });
+    assert.equal(confirmedUpdate.readyToNotify, true);
+  });
+
+  it('rejects clinic-related phrases as distrito and preserves existing valid distrito', async () => {
+    const { saveLead, getByPhone } = leadServiceModule;
+    const initial = await saveLead({ telefono: '999666777', nombre: 'María', distrito: 'Miraflores', fechaHoraISO: '2026-08-11T16:00:00+00:00', fechaHoraTexto: 'martes 11 de agosto a las 11:00 AM', confirmed: true });
+    assert.equal(initial.readyToNotify, true);
+
+    const updated = await saveLead({ telefono: '999666777', distrito: 'nuestra clínica en lima' });
+    assert.equal(updated.lead.distrito, 'Miraflores');
+    const byPhone = await getByPhone('999666777');
+    assert.equal(byPhone.distrito, 'Miraflores');
   });
 
   it('sets ready_to_notify true when fecha_hora_iso valida is provided along with nombre and distrito', async () => {
@@ -191,13 +218,17 @@ describe('leadService (supabase mock)', () => {
     assert.equal(r1.isNew, true);
     assert.equal(r1.readyToNotify, false);
 
-    // complete data -> should signal readyToNotify true
+    // complete data without explicit confirmation should not yet signal readyToNotify
     const r2 = await saveLead({ telefono: '999222333', nombre: 'Ana', distrito: 'Surco', fechaHoraISO: '2026-08-10T15:00:00+00:00', fechaHoraTexto: 'lunes 10am' });
     assert.equal(r2.isNew, false);
-    assert.equal(r2.readyToNotify, true);
+    assert.equal(r2.readyToNotify, false);
+
+    // explicit confirmation should now mark the lead ready_to_notify
+    const r2Confirmed = await saveLead({ telefono: '999222333', nombre: 'Ana', distrito: 'Surco', fechaHoraISO: '2026-08-10T15:00:00+00:00', fechaHoraTexto: 'lunes 10am', confirmed: true });
+    assert.equal(r2Confirmed.readyToNotify, true);
 
     // mark as notified
-    const marked = await markAsNotified(r2.lead.id);
+    const marked = await markAsNotified(r2Confirmed.lead.id);
     assert.ok(marked);
     assert.ok(marked.notified_at);
 

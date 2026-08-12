@@ -39,6 +39,7 @@ REGLA DE FECHA/HORA
 BLOQUE DE DATOS (LEAD_JSON)
 - Genera el bloque <<<LEAD_JSON>>>...<<<END_LEAD_JSON>>> SOLO en el turno donde por primera vez tengas los 4 datos completos y validados.
 - CRÍTICO: en ese bloque incluye SIEMPRE los 4 campos completos (nombre, telefono, distrito, fecha_hora), aunque algunos hayan sido capturados en turnos anteriores. Nunca dejes un campo vacío o null en el JSON si ya fue confirmado antes en la conversación — repítelo explícitamente.
+- Si tienes los 4 datos completos, primero resume los datos y pide confirmación explícita del usuario: "¿confirmas estos datos? sí/no". No digas que la cita ya está agendada hasta que el usuario confirme con un "sí".
 - Formato exacto:
 <<<LEAD_JSON>>>
 {
@@ -115,6 +116,43 @@ function resetSessionTimer(sessionId, entry) {
     // console.log(`Gemini: cleared session ${sessionId} due to inactivity`);
   }, delay);
   entry.timer.unref && entry.timer.unref();
+}
+
+async function restoreSessionFromDb(sessionId, entry) {
+  try {
+    const { getByPhone } = await import('./leadService.js');
+    if (typeof getByPhone !== 'function') return;
+    const existing = await getByPhone(sessionId);
+    if (!existing) return;
+
+    const snap = existing.lead_snapshot || {};
+    const cleanDistrito = (function(d) {
+      if (!d || typeof d !== 'string') return null;
+      const low = d.toLowerCase().trim();
+      const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada'];
+      for (const b of banned) if (low.includes(b)) return null;
+      if (!isLikelyDistrict(d)) return null;
+      return d;
+    })(snap.distrito || existing.distrito);
+
+    entry.booked = Boolean(existing.ready_to_notify);
+    entry.leadSnapshot = {
+      nombre: snap.nombre || existing.nombre || null,
+      telefono: snap.telefono || existing.telefono || null,
+      distrito: cleanDistrito || snap.distrito || existing.distrito || null,
+      fecha_hora_texto: snap.fecha_hora_texto || existing.fecha_hora_texto || null,
+      fecha_hora_iso: snap.fecha_hora_iso || existing.fecha_hora_iso || null,
+      confirmedAt: snap.confirmedAt || existing.confirmed_at || null
+    };
+
+    if (!entry.booked && entry.leadSnapshot && entry.leadSnapshot.nombre && entry.leadSnapshot.distrito && entry.leadSnapshot.fecha_hora_iso) {
+      entry.awaitingConfirmation = true;
+    }
+
+    resetSessionTimer(sessionId, entry);
+  } catch (e) {
+    // non fatal: DB not configured or import failed in test environments
+  }
 }
 
 function cleanupSessions() {
@@ -280,6 +318,14 @@ function isValidDistrictName(distrito) {
   }
 }
 
+export function isExplicitConfirmation(text) {
+  if (!text || typeof text !== 'string') return false;
+  const normalized = text.trim().toLowerCase();
+  const disqualifiers = /\b(pero|aunque|sin embargo|cambiar|cambio|reprogramar|reagendar|mover|posponer|adelantar|otra hora|otro horario|otra fecha|mejor el|mejor|no puedo|no quiero|prefiero|prefiero otro|espera|esperame|un segundo|segundo|más tarde|mas tarde|después|despues|luego|quizás|quizas|si,? pero)\b/i;
+  if (disqualifiers.test(normalized)) return false;
+  return /^(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias)(?:[.,!]?\s*(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias|todo bien|la cita|la hora|lo confirmo|confirmo la cita|confirmo la hora))*$/i.test(normalized);
+}
+
 function finalizeLeadData(lead) {
   if (!lead || typeof lead !== 'object') return null;
   // normalize phone
@@ -347,64 +393,36 @@ function finalizeLeadData(lead) {
 
 function extractLeadDataFromHistory(history) {
   if (!Array.isArray(history) || !history.length) return null;
-  const fullText = history.map((h) => {
-    const role = h.role === 'user' ? 'Cliente:' : 'Camila:';
-    const text = (h.parts || []).map((p) => p.text || '').join(' ').trim();
-    return text ? `${role} ${text}` : '';
-  }).filter(Boolean).join('\n');
-  return extractLeadDataFromText(fullText);
+  const userText = history
+    .filter((h) => h.role === 'user')
+    .map((h) => (h.parts || []).map((p) => p.text || '').join(' ').trim())
+    .filter(Boolean)
+    .join('\n');
+  return extractLeadDataFromText(userText);
 }
 
 export function getOrCreateSession(jid) {
   const sid = getSessionId(jid);
   let entry = chatSessions.get(sid);
   if (!entry) {
-    entry = { history: [], timer: null, lastUserMessageAt: 0, booked: false, leadSnapshot: null };
+    entry = { history: [], timer: null, lastUserMessageAt: 0, booked: false, leadSnapshot: null, awaitingConfirmation: false };
+    entry.restorePromise = restoreSessionFromDb(sid, entry);
     chatSessions.set(sid, entry);
-
-    // Attempt to restore persisted lead_snapshot if present so booked state survives restarts
-    (async () => {
-      try {
-        const { getByPhone } = await import('./leadService.js');
-        if (typeof getByPhone === 'function') {
-          const existing = await getByPhone(sid);
-          if (existing && existing.lead_snapshot) {
-            try {
-              // Restore atomically the snapshot fields and sanitize distrito to avoid institutional phrases
-              const snap = existing.lead_snapshot || {};
-              const cleanDistrito = (function(d) {
-                if (!d || typeof d !== 'string') return null;
-                const low = d.toLowerCase().trim();
-                const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada'];
-                for (const b of banned) if (low.includes(b)) return null;
-                // Use isLikelyDistrict helper to validate canonical district values
-                if (!isLikelyDistrict(d)) return null;
-                return d;
-              })(snap.distrito);
-
-              entry.booked = true;
-              entry.leadSnapshot = {
-                nombre: snap.nombre || null,
-                telefono: snap.telefono || null,
-                distrito: cleanDistrito || snap.distrito || null,
-                fecha_hora_texto: snap.fecha_hora_texto || null,
-                fecha_hora_iso: snap.fecha_hora_iso || null,
-                confirmedAt: snap.confirmedAt || null
-              };
-              // reset timer now that booked state restored
-              resetSessionTimer(sid, entry);
-            } catch (err) {
-              // ignore any restore errors
-            }
-          }
-        }
-      } catch (e) {
-        // non fatal: DB not configured or import failed in test environments
-      }
-    })();
   }
   resetSessionTimer(sid, entry);
   return entry;
+}
+
+export async function ensureSessionLoaded(session) {
+  if (session && session.restorePromise) {
+    try {
+      await session.restorePromise;
+    } catch (e) {
+      // ignore restore failures
+    }
+    session.restorePromise = null;
+  }
+  return session;
 }
 
 function isStructuredGeminiClient(client) {
@@ -550,6 +568,7 @@ function getCurrentPhoneHint(jid) {
  * Obtiene la fecha y hora actual formateada explícitamente para el huso horario de Lima.
  */
 function getLimaCurrentDateTime() {
+  const now = new Date(Date.now());
   const options = {
     timeZone: 'America/Lima',
     year: 'numeric',
@@ -560,7 +579,7 @@ function getLimaCurrentDateTime() {
     minute: '2-digit',
     hour12: true
   };
-  return new Intl.DateTimeFormat('es-PE', options).format(new Date());
+  return new Intl.DateTimeFormat('es-PE', options).format(now);
 }
 
 /**
@@ -574,7 +593,9 @@ export function buildSystemPromptWithContext(jid, session = null, clinic = null)
   const clinicName = (clinic && clinic.name) ? clinic.name : (config.clinicNameFallback || 'nuestra clínica dental');
   let patientName = null;
   try {
-    if (session && Array.isArray(session.history)) {
+    if (session && session.leadSnapshot && isValidName(session.leadSnapshot.nombre)) {
+      patientName = session.leadSnapshot.nombre;
+    } else if (session && Array.isArray(session.history)) {
       const hist = session.history.slice().reverse();
       for (const h of hist) {
         if (h.role === 'user') {
@@ -595,19 +616,25 @@ export function buildSystemPromptWithContext(jid, session = null, clinic = null)
   let promptBase = CAMILA_SYSTEM_PROMPT.replace(/\[NOMBRE_CLINICA\]/g, clinicName);
   if (patientName) {
     promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
-    // Add a short explicit confirmation line so the model has the confirmed patient name in context
     promptBase = promptBase + `\n- PACIENTE CONFIRMADO: ${patientName}`;
   } else {
-    // ensure literal placeholder is removed if no patientName
     promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
   }
 
-  // If this session already has a booked appointment, instruct the model to NOT ask for core booking fields again.
-  if (session && session.booked) {
+  if (session && session.leadSnapshot) {
     try {
-      const snap = session.leadSnapshot || {};
-      const snapText = `Nombre: ${snap.nombre || 'N/A'}, Distrito: ${snap.distrito || 'N/A'}, Fecha/Hora: ${snap.fecha_hora_texto || 'N/A'}`;
-      promptBase = promptBase + `\n\n- AVISO: Este usuario ya tiene una cita agendada: ${snapText}. No vuelvas a pedir nombre, teléfono, distrito ni fecha. Responde dudas post-agendamiento o procesa reprogramaciones solo si el usuario lo solicita explícitamente.`;
+      const snap = session.leadSnapshot;
+      const confirmedValues = [];
+      if (snap.nombre) confirmedValues.push(`Nombre: ${snap.nombre}`);
+      if (snap.telefono) confirmedValues.push(`Teléfono: ${snap.telefono}`);
+      if (snap.distrito) confirmedValues.push(`Distrito: ${snap.distrito}`);
+      if (snap.fecha_hora_texto) confirmedValues.push(`Fecha/Hora: ${snap.fecha_hora_texto}`);
+      if (confirmedValues.length) {
+        promptBase = promptBase + `\n\n- AVISO: Estos datos ya están confirmados en la sesión: ${confirmedValues.join(', ')}. No vuelvas a pedirlos ni los reemplaces a menos que el usuario los corrija explícitamente.`;
+      }
+      if (session.booked) {
+        promptBase = promptBase + `\n- AVISO ADICIONAL: Este usuario ya tiene una cita agendada. Responde dudas post-agendamiento o procesa reprogramaciones solo si el usuario lo solicita explícitamente.`;
+      }
     } catch (e) { /* ignore */ }
   }
 
@@ -625,7 +652,8 @@ export function parseTextToLimaISO(fechaTexto) {
   const txt = fechaTexto.toLowerCase();
 
   // Obtener fecha base en Lima (YYYY-MM-DD)
-  const limaDateStr = new Date().toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
+  const now = new Date(Date.now());
+  const limaDateStr = now.toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
   const [baseYear, baseMonth, baseDay] = limaDateStr.split('-').map((s) => parseInt(s, 10));
   let target = new Date(Date.UTC(baseYear, baseMonth - 1, baseDay)); // use UTC date arithmetic
 
@@ -727,7 +755,8 @@ export function parseTextToLimaISO(fechaTexto) {
 export function parseTextToLimaDate(fechaTexto) {  if (!fechaTexto || typeof fechaTexto !== 'string') return null;
   const txt = fechaTexto.toLowerCase();
 
-  const limaDateStr = new Date().toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
+  const now = new Date(Date.now());
+  const limaDateStr = now.toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
   const [baseYear, baseMonth, baseDay] = limaDateStr.split('-').map((s) => parseInt(s, 10));
   let target = new Date(Date.UTC(baseYear, baseMonth - 1, baseDay));
 
@@ -807,7 +836,7 @@ function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
   const userText = `${historyText ? historyText + '\n' : ''}Cliente: ${mensaje}`;
   
   // Se obtiene el prompt enriquecido dinámicamente con Fecha de Lima, WhatsApp Hint y posibles placeholders inyectados
-  const effectiveSystemPrompt = buildSystemPromptWithContext(jid, getOrCreateSession(jid), options.clinic);
+  const effectiveSystemPrompt = buildSystemPromptWithContext(jid, options.session || getOrCreateSession(jid), options.clinic);
 
   if (isStructuredGeminiClient(client)) {
     return {
@@ -877,6 +906,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const skipDebounce = Boolean(options.skipDebounce);
   const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 1;
   const session = getOrCreateSession(jid);
+  await ensureSessionLoaded(session);
   const now = Date.now();
   const sid = getSessionId(jid);
   const priorFailures = failureCounts.get(sid) || 0;
@@ -889,7 +919,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.history.push({ role: 'user', parts: [{ text: mensaje }] });
   session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
 
-  const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid, options);
+  const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid, { ...options, session });
 
   try {
     const result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
@@ -900,6 +930,37 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
     let leadData = null;
     const leadRegex = /<<<LEAD_JSON>>>\s*([\s\S]*?)\s*<<<END_LEAD_JSON>>>/i;
+
+    // If session already booked with a confirmed snapshot, do NOT re-parse or re-derive the fecha from history
+    // unless the user explicitly expresses a reprogramming intent (cambiar, reprogramar, mover, posponer, reagendar, etc.).
+    const reprogramPattern = /\b(cambiar|reprogramar|reagendar|mover|posponer|adelantar|cambio|cambiarlo|quiero cambiar|otro horario|otra hora|otra fecha|prefiero|mejor el|no puedo|no quiero|espera|esperame|después|despues|luego)\b/i;
+    if (session && session.booked && session.leadSnapshot && session.leadSnapshot.fecha_hora_iso) {
+      const alreadySnapshot = session.leadSnapshot;
+      // If neither the user's message nor the model's raw text contains reprogram intent, return snapshot as the canonical leadData.
+      if (!reprogramPattern.test(mensaje) && !reprogramPattern.test(rawText)) {
+        try {
+          leadData = finalizeLeadData({
+            nombre: alreadySnapshot.nombre || null,
+            telefono: alreadySnapshot.telefono || null,
+            distrito: alreadySnapshot.distrito || null,
+            fechaHora: alreadySnapshot.fecha_hora_texto || null,
+            fechaHoraISO: alreadySnapshot.fecha_hora_iso || null,
+            ready_to_notify: true
+          });
+        } catch (e) {
+          leadData = null;
+        }
+
+        // Push the model text into history and return early to avoid any re-persistence or re-notification.
+        session.history.push({ role: 'model', parts: [{ text: rawText }] });
+        session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
+        const sid = getSessionId(jid);
+        failureCounts.set(sid, 0);
+        const texto = sanitizeModelTextOutput(rawText);
+        return { texto, leadData, skipLeadPersistence: true };
+      }
+    }
+
     const match = leadRegex.exec(rawText);
     if (match && match[1]) {
       const jsonText = match[1].trim();
@@ -1098,7 +1159,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
       // ignore
     }
 
-    return { texto, leadData };
+    return { texto, leadData, skipLeadPersistence: Boolean(options?.skipLeadPersistence) };
   } catch (e) {
     const sid = getSessionId(jid);
     const prev = failureCounts.get(sid) || 0;
@@ -1113,4 +1174,4 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   }
 }
 
-export default { obtenerRespuestaIA, sanitizeModelTextOutput };
+export default { obtenerRespuestaIA, sanitizeModelTextOutput, isExplicitConfirmation };

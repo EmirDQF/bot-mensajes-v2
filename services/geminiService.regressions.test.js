@@ -90,6 +90,34 @@ describe('regressions: real-conversation bugs', () => {
     }
   });
 
+  it('does not persist or re-notify on casual post-booking follow-ups like gracias', async () => {
+    const { obtenerRespuestaIA, getOrCreateSession } = await import('./geminiService.js');
+    const jid = `51990001102@s.whatsapp.net`;
+    const session = getOrCreateSession(jid);
+    session.booked = true;
+    session.leadSnapshot = {
+      nombre: 'Sandra Perez',
+      telefono: '999111222',
+      distrito: 'San Juan de Miraflores',
+      fecha_hora_texto: 'martes 11 de agosto a las 6:30 PM',
+      fecha_hora_iso: '2026-08-11T23:30:00+00:00',
+      confirmedAt: new Date().toISOString()
+    };
+
+    const client = {
+      async generate(prompt, opts) {
+        return { text: 'Gracias por la información.' };
+      }
+    };
+
+    const res = await obtenerRespuestaIA(jid, 'gracias', { client, skipDebounce: true });
+    assert.ok(res.leadData, 'leadData should still be returned from snapshot');
+    assert.equal(res.leadData.nombre, 'Sandra Perez');
+    assert.equal(res.leadData.distrito, 'San Juan de Miraflores');
+    assert.equal(res.leadData.fechaHoraISO, '2026-08-11T23:30:00+00:00');
+    assert.equal(res.skipLeadPersistence, true, 'booked sessions should skip lead persistence for casual follow-ups');
+  });
+
   it('uses session-stored distrito when model LEAD_JSON contains invented distrito and only one notification should be created logically', async () => {
     // Setup: pre-seed session with confirmed snapshot
     const { obtenerRespuestaIA, getOrCreateSession } = await import('./geminiService.js');
@@ -133,9 +161,32 @@ Perfecto, tu cita queda agendada para martes 11 de agosto a las 6:30 PM.`;
     const limaTest = new Date('2026-08-07T12:00:00-05:00').getTime();
     Date.now = () => limaTest;
     try {
-      const { parseTextToLimaISO } = await import('./geminiService.js');
+      const { parseTextToLimaISO, getOrCreateSession, obtenerRespuestaIA } = await import('./geminiService.js');
+      // Seed a session that will be booked with a specific fecha
+      const jid = `51990001111@s.whatsapp.net`;
+      const session = getOrCreateSession(jid);
+      session.booked = true;
+      session.leadSnapshot = {
+        nombre: 'Test User',
+        telefono: '999000111',
+        distrito: 'Miraflores',
+        fecha_hora_texto: 'martes 11 de agosto a las 6:30 PM',
+        fecha_hora_iso: '2026-08-11T23:30:00+00:00',
+        confirmedAt: new Date().toISOString()
+      };
+
+      // Send follow-up messages that should NOT change the fecha
+      const client = { async generate(prompt, opts) { return { text: 'Perfecto, gracias' }; } };
+      const r1 = await obtenerRespuestaIA(jid, 'gracias', { client, skipDebounce: true });
+      assert.ok(r1.leadData, 'leadData should exist from snapshot');
+      assert.equal(r1.leadData.fechaHoraISO, '2026-08-11T23:30:00+00:00');
+
+      const r2 = await obtenerRespuestaIA(jid, '¿necesito llevar algo?', { client, skipDebounce: true });
+      assert.ok(r2.leadData, 'leadData should persist across followups');
+      assert.equal(r2.leadData.fechaHoraISO, '2026-08-11T23:30:00+00:00');
+
+      // Also verify parseTextToLimaISO still resolves phrase to the same ISO when used directly
       const iso = parseTextToLimaISO('la próxima semana el martes a las 6:30pm');
-      // Expected Lima local 2026-08-11 18:30 -> UTC 2026-08-11T23:30:00+00:00
       assert.equal(iso, '2026-08-11T23:30:00+00:00');
     } finally {
       Date.now = realNow;

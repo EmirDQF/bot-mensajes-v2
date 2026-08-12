@@ -168,10 +168,16 @@ export default async function webhookController(req, res, next) {
       const geminiClient = getGeminiClient();
       // Detect admin sender to avoid creating/updating leads or initiating scheduling flows for admin messages
       const ADMIN_WHATSAPP_NUMBER = (process.env.ADMIN_WHATSAPP_NUMBER || '').replace(/\D/g, '');
-      const senderNumberNormalized = contactDigits || (conversation?.id ? String(conversation.id).replace(/\D/g, '') : null);
+      const senderNumberNormalized = contactDigits ? String(contactDigits).replace(/\D/g, '') : (conversation?.id ? String(conversation.id).replace(/\D/g, '') : null);
       const isAdminSender = senderNumberNormalized && ADMIN_WHATSAPP_NUMBER && senderNumberNormalized === ADMIN_WHATSAPP_NUMBER;
 
-      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', { client: geminiClient, clinic: (typeof clinic !== 'undefined' ? clinic : null), maxRetries: 1, maxOutputTokens: 100, skipLeadPersistence: Boolean(isAdminSender) });
+      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', {
+        client: geminiClient,
+        clinic: (typeof clinic !== 'undefined' ? clinic : null),
+        maxRetries: 1,
+        maxOutputTokens: 100,
+        skipLeadPersistence: Boolean(isAdminSender)
+      });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
       let leadData = null;
       try {
@@ -210,14 +216,16 @@ export default async function webhookController(req, res, next) {
           } else if (!telefonoKey) {
             console.warn('webhookController: no remitente phone found for chatwoot message; skipping lead save to avoid using model-extracted phone');
           } else {
-            const leadResult = await leadService.saveLead({
-              telefono: telefonoKey,
-              nombre: leadData.nombre,
-              distrito: leadData.distrito,
-              fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
-              fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-              clinic_id: (typeof clinic !== 'undefined' && clinic?.id) || null,
-            });
+              const shouldConfirm = typeof text === 'string' && geminiService.isExplicitConfirmation(text);
+              const leadResult = await leadService.saveLead({
+                telefono: telefonoKey,
+                nombre: leadData.nombre,
+                distrito: leadData.distrito,
+                fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+                fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+                confirmed: shouldConfirm,
+                clinic_id: (typeof clinic !== 'undefined' && clinic?.id) || null,
+              });
 
             if (leadResult && leadResult.readyToNotify && leadResult.lead) {
               console.log('[NOTIFICACION] lead marked readyToNotify; notification will be handled by leadService/notificationService atomically');
@@ -325,13 +333,17 @@ export default async function webhookController(req, res, next) {
             if (!telefonoKey) {
               console.warn('webhookController: no remitente phone available in WhatsApp event; skipping lead save to avoid using model-extracted phone');
             } else {
-              leadResult = await leadService.saveLead({
-                telefono: telefonoKey,
-                nombre: leadData.nombre,
-                distrito: leadData.distrito,
-                fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
-                fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-              });
+              const shouldConfirm = typeof messageText === 'string' && geminiService.isExplicitConfirmation(messageText);
+              if (!result.skipLeadPersistence) {
+                leadResult = await leadService.saveLead({
+                  telefono: telefonoKey,
+                  nombre: leadData.nombre,
+                  distrito: leadData.distrito,
+                  fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+                  fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+                  confirmed: shouldConfirm,
+                });
+              }
             }
           } catch (e) {
             console.error('webhookController: error saving lead', e && e.message ? e.message : e);

@@ -50,7 +50,15 @@ describe('geminiService refinements', () => {
     // Simulate leadData with ready_to_notify true and fechaHora present
     const reply = 'Perfecto, tu cita queda agendada el martes 10 de agosto a las 3:00 PM.';
     const pruned = geminiService.sanitizeModelTextOutput(reply);
-    // Since we do not have an explicit pruning function implemented, we at least ensure sanitizeModelTextOutput keeps text but tests to ensure no duplication rely on model obeying prompt rule
     assert.ok(typeof pruned === 'string' && pruned.length > 0);
+  });
+
+  it('does not treat qualifiers like "vale, pero" or "ok, otra hora" as explicit confirmation', async () => {
+    assert.equal(geminiService.isExplicitConfirmation('vale, pero prefiero a las 4pm'), false);
+    assert.equal(geminiService.isExplicitConfirmation('ok, otra hora'), false);
+    assert.equal(geminiService.isExplicitConfirmation('ok, dame un segundo'), false);
+    assert.equal(geminiService.isExplicitConfirmation('sí'), true);
+    assert.equal(geminiService.isExplicitConfirmation('OK'), true);
+    assert.equal(geminiService.isExplicitConfirmation('sí, confirmo'), true);
   });
 });

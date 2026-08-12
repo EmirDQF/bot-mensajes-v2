@@ -35,6 +35,17 @@ function normalizePhone(telefono) {
 
 import { isValidDistrict } from './districts.js';
 
+function sanitizeDistrict(value) {
+  if (!value || typeof value !== 'string') return null;
+  const normalized = value.trim();
+  const low = normalized.toLowerCase();
+  const banned = ['nuestra clínica', 'nuestra clinica', 'nuestra clínica dental', 'nuestra clinica dental', 'en lima', 'lima', 'no proporcionado', 'no proporcionada', 'el de siempre'];
+  for (const bad of banned) {
+    if (low.includes(bad)) return null;
+  }
+  return isLikelyDistrict(normalized) ? normalized : null;
+}
+
 function isLikelyDistrict(text) {
   if (!text || typeof text !== 'string') return false;
   // Delegate to canonical validator with fuzzy matching
@@ -94,7 +105,7 @@ export async function listLeads() {
   return Array.isArray(data) ? data : [];
 }
 
-export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fechaHoraTexto } = {}) {
+export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fechaHoraTexto, confirmed = false } = {}) {
   const client = getSupabaseClient();
   try {
     if (!telefono && telefono !== 0) {
@@ -134,7 +145,7 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     // 2. Construir el payload manteniendo datos previos si los nuevos vienen nulos
     // Preserve valid existing fields: do not overwrite nombre with a value that looks like a distrito
     const incomingNombre = typeof nombre === 'string' ? nombre.trim() : null;
-    const incomingDistrito = typeof distrito === 'string' ? distrito.trim() : null;
+    const incomingDistrito = sanitizeDistrict(typeof distrito === 'string' ? distrito.trim() : null);
 
     const finalNombre = (function() {
       // Prefer incoming name when provided and not clearly the assistant name
@@ -145,8 +156,10 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     })();
 
     const finalDistrito = (function() {
-      if (incomingDistrito) return incomingDistrito;
-      if (existingData?.distrito) return existingData.distrito;
+      const normalizedIncomingDistrict = incomingDistrito ? incomingDistrito.trim() : null;
+      if (normalizedIncomingDistrict) return normalizedIncomingDistrict;
+      const existingDistrict = sanitizeDistrict(existingData?.distrito ? existingData.distrito.trim() : null);
+      if (existingDistrict) return existingDistrict;
       return null;
     })();
 
@@ -217,7 +230,7 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       fecha_hora_iso: incomingFechaIso || (existingData?.fecha_hora_iso || null),
       updated_at: now,
     };
-
+ 
     // Calcular estado ready_to_notify solo cuando ya contamos con una fecha/hora ISO válida y datos validados.
     const isNowReady = Boolean(
       payload.nombre && isValidNameForNotify(payload.nombre) &&
@@ -225,8 +238,14 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       payload.fecha_hora_iso && isValidISODateString(payload.fecha_hora_iso) &&
       isValidNormalizedPhone(normalized)
     );
-
-    payload.ready_to_notify = isNowReady;
+ 
+    const hasExistingDataFields = Boolean(existingData && (existingData.nombre || existingData.distrito || existingData.fecha_hora_iso));
+    const incomingIsFirstCompleteSave = !hasExistingDataFields && isNowReady;
+    payload.ready_to_notify = Boolean(
+      (confirmed && isNowReady) ||
+      (existingData?.ready_to_notify && isNowReady) ||
+      incomingIsFirstCompleteSave
+    );
 
     // 3. Ejecutar UPSERT atómico en Supabase para evitar Race Conditions (si está disponible)
     let updatedLead = null;
@@ -262,7 +281,7 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     }
 
     // 4. Evaluar si se debe disparar la notificación al administrador
-    const shouldNotify = isNowReady && !wasReady && !wasNotified;
+    const shouldNotify = Boolean(payload.ready_to_notify && !wasReady && !wasNotified);
 
     // If we must notify now (we recovered a previously incomplete but now-complete lead), attempt to notify admin immediately (best-effort).
     if (shouldNotify && updatedLead) {
