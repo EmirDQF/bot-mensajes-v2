@@ -105,7 +105,7 @@ export async function listLeads() {
   return Array.isArray(data) ? data : [];
 }
 
-export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fechaHoraTexto, confirmed = false } = {}) {
+export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fechaHoraTexto, confirmed = false, clinicId = null, clinic = null } = {}) {
   const client = getSupabaseClient();
   try {
     if (!telefono && telefono !== 0) {
@@ -162,6 +162,9 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       if (existingDistrict) return existingDistrict;
       return null;
     })();
+
+    const normalizedClinicId = typeof clinicId === 'string' && clinicId.trim() ? clinicId.trim() : null;
+    const finalClinicId = normalizedClinicId || existingData?.clinic_id || null;
 
     // Explicitly prefer incoming confirmed fecha values when present and valid.
     let incomingFechaTexto = (typeof fechaHoraTexto === 'string' && fechaHoraTexto.trim().length > 0) ? fechaHoraTexto.trim() : null;
@@ -224,6 +227,7 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       telefono: normalized,
       nombre: finalNombre,
       distrito: finalDistrito,
+      clinic_id: finalClinicId,
       // Only prefer incoming textual fecha if it produced a valid ISO (complete date+time). Otherwise preserve existing textual value.
       fecha_hora_texto: incomingFechaTexto || (existingData?.fecha_hora_texto || null),
       // If incoming ISO is present and valid, always prefer it. Else preserve existing ISO if any.
@@ -288,8 +292,10 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
       try {
         // Dynamic import to avoid potential circular deps at top-level
         const { notifyAdminNewLead } = await import('./notificationService.js');
+        const notifyOptions = {};
+        if (clinic) notifyOptions.clinic = clinic;
         // Fire and forget but await best-effort call to catch errors here
-        await notifyAdminNewLead(updatedLead);
+        await notifyAdminNewLead(updatedLead, notifyOptions);
         console.log('leadService.saveLead: triggered admin notification for recovered lead', updatedLead?.id || updatedLead?.telefono);
       } catch (e) {
         console.error('leadService.saveLead: failed to notify admin for recovered lead', e && e.message ? e.message : e);
@@ -332,7 +338,9 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
             const { notifyAdminUpdatedLead } = await import('./notificationService.js');
             const prevText = existingData?.fecha_hora_texto || previousIso;
             const leadForNotify = Object.assign({}, updatedLead, { previous_fecha_hora_texto: prevText });
-            await notifyAdminUpdatedLead(leadForNotify, previousIso);
+            const notifyOptions = {};
+            if (clinic) notifyOptions.clinic = clinic;
+            await notifyAdminUpdatedLead(leadForNotify, previousIso, notifyOptions);
             console.log('leadService.saveLead: triggered admin UPDATE notification for lead', updatedLead?.id || updatedLead?.telefono);
           } catch (e) {
             console.error('leadService.saveLead: failed to send admin update notification', e && e.message ? e.message : e);

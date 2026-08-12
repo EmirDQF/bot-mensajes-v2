@@ -55,7 +55,39 @@ describe('notificationService', () => {
     assert.equal(notifiedId, 'lead-123');
   });
 
-  it('does not send admin alert if lead is already notified', async () => {
+  it('uses clinic admin_whatsapp_number when provided', async () => {
+    let sentTo = null;
+    let sentText = null;
+    const result = await notificationService.notifyAdminNewLead({
+      id: 'lead-999',
+      ready_to_notify: true,
+      notified_at: null,
+      nombre: 'Paciente',
+      telefono: '987654321',
+      distrito: 'Barranco',
+      fecha_hora_texto: 'viernes 14 de agosto a las 3pm',
+    }, {
+      whatsappService: {
+        async sendWhatsAppMessage(toPhone, text) {
+          sentTo = toPhone;
+          sentText = text;
+          return { success: true };
+        },
+      },
+      leadService: {
+        async markAsNotified(id) { return { id, notified_at: new Date().toISOString() }; },
+      },
+      clinic: {
+        admin_whatsapp_number: '51911122233',
+      },
+    });
+
+    assert.equal(result, true);
+    assert.equal(sentTo, '51911122233');
+    assert.ok(sentText.includes('🚨 ¡NUEVO PACIENTE AGENDADO!'));
+   });
+
+   it('does not send admin alert if lead is already notified', async () => {
     let sent = false;
     const result = await notificationService.notifyAdminNewLead({
       id: 'lead-456',

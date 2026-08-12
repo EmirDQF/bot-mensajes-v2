@@ -1,6 +1,6 @@
 import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
-import leadService from '../services/leadService.js';
+import leadService, { getSupabaseClient } from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import chatwootService from '../services/chatwootService.js';
@@ -210,7 +210,8 @@ export default async function webhookController(req, res, next) {
               fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
               fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
               confirmed: shouldConfirm,
-              clinic_id: (typeof clinic !== 'undefined' && clinic?.id) || null,
+              clinicId: (typeof clinic !== 'undefined' && clinic?.id) || null,
+              clinic: (typeof clinic !== 'undefined' ? clinic : null),
             });
           }
         } catch (e) {
@@ -236,7 +237,7 @@ export default async function webhookController(req, res, next) {
       if (leadResult && leadResult.readyToNotify && leadResult.lead) {
         try {
           console.log('[NOTIFICACION] lead marked readyToNotify; notifying admin now');
-          await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService });
+          await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
         } catch (e) {
           console.error('webhookController: error notifying admin after lead save', e && e.message ? e.message : e);
         }
@@ -307,7 +308,19 @@ export default async function webhookController(req, res, next) {
           // ensure timer doesn't keep process alive
           t.unref && t.unref();
         });
-
+ 
+        const phoneNumberId = value?.metadata?.phone_number_id ? String(value.metadata.phone_number_id).trim() : (process.env.WHATSAPP_PHONE_NUMBER_ID ? String(process.env.WHATSAPP_PHONE_NUMBER_ID).trim() : null);
+        let clinic = null;
+        if (phoneNumberId) {
+          try {
+            const client = getSupabaseClient();
+            const { data } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
+            clinic = data || null;
+          } catch (e) {
+            console.error('webhookController: error looking up clinic by waba_phone_number_id', e && e.message ? e.message : e);
+          }
+        }
+ 
         let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
         let leadData = null;
         let skipResponse = false;
@@ -348,6 +361,8 @@ export default async function webhookController(req, res, next) {
                   fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
                   fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
                   confirmed: shouldConfirm,
+                  clinicId: clinic?.id || null,
+                  clinic: clinic || null,
                 });
               }
             }
@@ -405,7 +420,7 @@ export default async function webhookController(req, res, next) {
           if (leadResult && leadResult.readyToNotify && leadResult.lead) {
             const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone || 'unknown';
             console.log('[NOTIFICACION ENVIADA A ADMIN]:', adminNumber);
-            await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService });
+            await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
           }
         } catch (e) {
           console.error('webhookController: error in admin notify flow', e && e.message ? e.message : e);

@@ -130,6 +130,23 @@ describe('leadService (supabase mock)', () => {
     assert.ok(byPhone && byPhone.telefono === '987654321');
   });
 
+  it('persists clinic_id when provided', async () => {
+    const { saveLead, getByPhone } = leadServiceModule;
+    const res = await saveLead({
+      telefono: '999555666',
+      nombre: 'Paciente',
+      distrito: 'Barranco',
+      fechaHoraISO: '2026-08-15T14:00:00-05:00',
+      fechaHoraTexto: 'sábado 15 de agosto a las 9am',
+      confirmed: true,
+      clinicId: 'clinic-uuid-123',
+    });
+    assert.equal(res.isNew, true);
+    assert.equal(res.lead.clinic_id, 'clinic-uuid-123');
+    const byPhone = await getByPhone('999555666');
+    assert.equal(byPhone.clinic_id, 'clinic-uuid-123');
+  });
+
   it('validateLead strict mode throws when required fields missing', async () => {
     const { validateLead } = leadServiceModule;
     let threw = false;
