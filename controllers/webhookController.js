@@ -191,6 +191,33 @@ export default async function webhookController(req, res, next) {
         if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
       }
 
+      // If leadData present, attempt to save lead using the contact's WhatsApp number as source-of-truth
+      let leadResult = null;
+      if (leadData) {
+        try {
+          const telefonoKey = contactDigits || null; // contactDigits is the remitente phone for Chatwoot events
+          // If message came from admin, skip any DB lead creation/update and scheduling flows
+          if (isAdminSender) {
+            console.log('webhookController: message from admin detected; skipping lead save and scheduling for this sender');
+          } else if (!telefonoKey) {
+            console.warn('webhookController: no remitente phone found for chatwoot message; skipping lead save to avoid using model-extracted phone');
+          } else {
+            const shouldConfirm = typeof text === 'string' && geminiService.isExplicitConfirmation(text);
+            leadResult = await leadService.saveLead({
+              telefono: telefonoKey,
+              nombre: leadData.nombre,
+              distrito: leadData.distrito,
+              fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+              fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+              confirmed: shouldConfirm,
+              clinic_id: (typeof clinic !== 'undefined' && clinic?.id) || null,
+            });
+          }
+        } catch (e) {
+          console.error('webhookController: error saving lead from chatwoot message', e && e.message ? e.message : e);
+        }
+      }
+ 
       // Send response back via Chatwoot so it's recorded in inbox
       try {
         const accountId = (typeof clinic !== 'undefined' && clinic?.chatwoot_account_id) || payload.account_id || null;
@@ -205,34 +232,13 @@ export default async function webhookController(req, res, next) {
       } catch (e) {
         console.error('webhookController: failed to send reply via chatwoot/whatsapp', e && e.message ? e.message : e);
       }
-
-      // If leadData present, attempt to save lead using the contact's WhatsApp number as source-of-truth
-      if (leadData) {
+ 
+      if (leadResult && leadResult.readyToNotify && leadResult.lead) {
         try {
-          const telefonoKey = contactDigits || null; // contactDigits is the remitente phone for Chatwoot events
-          // If message came from admin, skip any DB lead creation/update and scheduling flows
-          if (isAdminSender) {
-            console.log('webhookController: message from admin detected; skipping lead save and scheduling for this sender');
-          } else if (!telefonoKey) {
-            console.warn('webhookController: no remitente phone found for chatwoot message; skipping lead save to avoid using model-extracted phone');
-          } else {
-              const shouldConfirm = typeof text === 'string' && geminiService.isExplicitConfirmation(text);
-              const leadResult = await leadService.saveLead({
-                telefono: telefonoKey,
-                nombre: leadData.nombre,
-                distrito: leadData.distrito,
-                fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
-                fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-                confirmed: shouldConfirm,
-                clinic_id: (typeof clinic !== 'undefined' && clinic?.id) || null,
-              });
-
-            if (leadResult && leadResult.readyToNotify && leadResult.lead) {
-              console.log('[NOTIFICACION] lead marked readyToNotify; notification will be handled by leadService/notificationService atomically');
-            }
-          }
+          console.log('[NOTIFICACION] lead marked readyToNotify; notifying admin now');
+          await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService });
         } catch (e) {
-          console.error('webhookController: error saving lead from chatwoot message', e && e.message ? e.message : e);
+          console.error('webhookController: error notifying admin after lead save', e && e.message ? e.message : e);
         }
       }
 

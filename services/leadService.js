@@ -371,7 +371,7 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     };
 
   } catch (error) {
-    console.error('leadService.saveLead error:', error?.message || error);
+    console.error('[CRITICAL DB/NOTIFY ERROR]: leadService.saveLead error:', error?.message || error);
     throw error;
   }
 }

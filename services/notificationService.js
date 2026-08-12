@@ -108,7 +108,7 @@ export async function notifyAdminNewLead(lead, options = {}) {
       }
     }
   } catch (e) {
-    console.error('notificationService: failed to send admin WhatsApp message', e && e.message ? e.message : e);
+    console.error('[CRITICAL DB/NOTIFY ERROR]: notificationService failed to send admin WhatsApp message', e && e.message ? e.message : e);
     // If we previously claimed the notification but failed to send, attempt to rollback notified_at by setting it back to null (best-effort)
     if (claimedLead && claimedLead.id) {
       try {
