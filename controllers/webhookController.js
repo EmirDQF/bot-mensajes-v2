@@ -434,7 +434,7 @@ export default async function webhookController(req, res, next) {
               console.warn('webhookController: no remitente phone available in WhatsApp event; skipping lead save to avoid using model-extracted phone');
             } else {
               const shouldConfirm = typeof messageText === 'string' && geminiService.isExplicitConfirmation(messageText);
-              if (!result.skipLeadPersistence) {
+              if (!(typeof result !== 'undefined' && result && result.skipLeadPersistence)) {
                 leadResult = await leadService.saveLead({
                   telefono: telefonoKey,
                   nombre: leadData.nombre,
