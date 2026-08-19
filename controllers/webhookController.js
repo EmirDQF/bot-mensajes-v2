@@ -111,9 +111,35 @@ export default async function webhookController(req, res, next) {
 
       // Update clinicName from clinic if available
       clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
+      // If this is a Chatwoot outgoing message (human agent sent a reply), mark conversation as intervened and pause Gemini
+      const messageType = message?.message_type || message?.messageType || null;
+      if (messageType && String(messageType).toLowerCase() === 'outgoing') {
+        try {
+          const pauseId = contactDigits || (conversation?.id ? `cw-${conversation.id}` : null);
+          if (pauseId) geminiService.pauseSessionById(pauseId);
+        } catch (e) {
+          console.error('webhookController: failed to pause session for outgoing chatwoot message', e && e.message ? e.message : e);
+        }
+        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'human_outgoing' });
+        return;
+      }
+
       // If conversation is assigned to a human agent and open, skip bot
       const convStatus = conversation?.status || (p?.conversation?.status);
       const assigneeId = conversation?.meta?.assignee_id || conversation?.assignee_id || null;
+
+      // If conversation was resolved, resume AI for future messages
+      if (convStatus === 'resolved') {
+        try {
+          const resumeId = contactDigits || (conversation?.id ? `cw-${conversation.id}` : null);
+          if (resumeId) geminiService.resumeSessionById(resumeId);
+        } catch (e) {
+          console.error('webhookController: failed to resume session for resolved conversation', e && e.message ? e.message : e);
+        }
+        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'conversation_resolved' });
+        return;
+      }
+
       if (convStatus === 'open' && assigneeId) {
         // Human in the loop — do not bot-respond
         if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'human_assigned' });
