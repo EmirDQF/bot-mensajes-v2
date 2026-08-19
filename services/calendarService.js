@@ -9,8 +9,9 @@ function loadServiceAccountCredentials() {
 
   let privateKey = null;
   if (privateKeyEnv) {
-    // Support escaped newlines
-    privateKey = privateKeyEnv.replace(/\\n/g, '\n');
+    // Support escaped newlines and remove surrounding quotes if the value was stringified
+    const rawKey = privateKeyEnv;
+    privateKey = rawKey.replace(/\\n/g, '\n').replace(/^['"]|['"]$/g, '');
   }
 
   return { calendarId, clientEmail, privateKey, privateKeyPath };
