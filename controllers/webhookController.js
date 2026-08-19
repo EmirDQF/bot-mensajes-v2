@@ -250,14 +250,12 @@ export default async function webhookController(req, res, next) {
 
                   // If imageKey present, send image to user immediately (do not rely on Chatwoot for media)
                   if (imageKey && contactDigits) {
-                    (async () => {
-                      try {
-                        await whatsappService.sendWhatsAppImageMessage(contactDigits, imageKey, '', { fetchImpl: globalThis.fetch });
-                      } catch (err) {
-                        console.error('webhookController: failed to send image via WhatsApp API', err && err.message ? err.message : err);
-              }
-            })();
-          }
+                    try {
+                      await whatsappService.sendWhatsAppImageMessage(contactDigits, imageKey, '', { fetchImpl: globalThis.fetch });
+                    } catch (err) {
+                      console.error('webhookController: failed to send image via WhatsApp API', err && err.message ? err.message : err);
+                    }
+                  }
 
           // If appointment present, process booking in background: create calendar event and notify admin immediately
           if (appt) {
@@ -266,36 +264,36 @@ export default async function webhookController(req, res, next) {
                 const adminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
                 const alertMessage = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
 
-                // Send admin alert regardless of calendar insertion outcome
+                // Normalize admin phone and send admin alert regardless of calendar insertion outcome
                 try {
-                  await whatsappService.sendWhatsAppMessage(adminPhone, alertMessage, {});
+                const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
+                let adminPhoneNorm = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
+                if (adminPhoneNorm.length === 9) adminPhoneNorm = '51' + adminPhoneNorm;
+
+                try {
+                   await whatsappService.sendWhatsAppMessage(adminPhoneNorm, alertMessage, {});
                 } catch (warnErr) {
-                  console.error('webhookController: failed to send admin WhatsApp alert', warnErr && warnErr.message ? warnErr.message : warnErr);
+                   console.error('webhookController: failed to send admin WhatsApp alert', warnErr && warnErr.message ? warnErr.message : warnErr);
                 }
 
                 // Try to insert event into Google Calendar, but do not block admin alert
                 const start = appt.datetime;
                 const startDate = new Date(start);
-                const endDate = new Date(startDate.getTime() + (appt.duration_minutes ? Number(appt.duration_minutes) * 60000 : 30 * 60000));
                 try {
-                  const created = await calendarService.createCalendarEvent({
-                    patientName: appt.name,
-                    phone: appt.phone,
-                    service: appt.service,
-                    startDateTime: startDate.toISOString(),
-                    endDateTime: endDate.toISOString(),
-                    notes: appt.notes || ''
-                  });
-                  if (created) {
-                    try {
-                      await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
-                    } catch (err) {
-                      console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
-                    }
-                  }
+                   const created = await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: startDate.toISOString() });
+                   if (created) {
+                     try {
+                       await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
+                     } catch (err) {
+                       console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
+                     }
+                   }
                 } catch (err) {
-                  // Log calendar insertion failure but do not stop processing
-                  console.error('webhookController: BOOK_APPOINTMENT calendar insertion failed', err && err.message ? err.message : err);
+                   // Log calendar insertion failure but do not stop processing
+                   console.error('❌ [Calendar Insert Error]:', err && err.message ? err.message : err);
+                }
+                } catch (err) {
+                console.error('webhookController: error processing BOOK_APPOINTMENT', err && err.message ? err.message : err);
                 }
               } catch (err) {
                 console.error('webhookController: error processing BOOK_APPOINTMENT', err && err.message ? err.message : err);
@@ -474,32 +472,33 @@ export default async function webhookController(req, res, next) {
                     const alertMessage = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
 
                     try {
-                      await whatsappService.sendWhatsAppMessage(adminPhone, alertMessage, {});
-                    } catch (warnErr) {
-                      console.error('webhookController: failed to send admin WhatsApp alert', warnErr && warnErr.message ? warnErr.message : warnErr);
-                    }
+                      const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
+                      let adminPhoneNorm = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
+                      if (adminPhoneNorm.length === 9) adminPhoneNorm = '51' + adminPhoneNorm;
 
-                    const start = appt.datetime;
-                    const startDate = new Date(start);
-                    const endDate = new Date(startDate.getTime() + (appt.duration_minutes ? Number(appt.duration_minutes) * 60000 : 30 * 60000));
-                    const created = await calendarService.createCalendarEvent({
-                      patientName: appt.name,
-                      phone: appt.phone,
-                      service: appt.service,
-                      startDateTime: startDate.toISOString(),
-                      endDateTime: endDate.toISOString(),
-                      notes: appt.notes || ''
-                    });
-                    if (created) {
                       try {
-                        await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
-                      } catch (err) {
-                        console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
+                        await whatsappService.sendWhatsAppMessage(adminPhoneNorm, alertMessage, {});
+                      } catch (warnErr) {
+                        console.error('webhookController: failed to send admin WhatsApp alert', warnErr && warnErr.message ? warnErr.message : warnErr);
                       }
+
+                      const start = appt.datetime;
+                      const startDate = new Date(start);
+                      try {
+                        const created = await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: startDate.toISOString() });
+                        if (created) {
+                          try {
+                            await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
+                          } catch (err) {
+                            console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
+                          }
+                        }
+                      } catch (err) {
+                        console.error('❌ [Calendar Insert Error]:', err && err.message ? err.message : err);
+                      }
+                    } catch (err) {
+                      console.error('webhookController: BOOK_APPOINTMENT calendar insertion failed', err && err.message ? err.message : err);
                     }
-                  } catch (err) {
-                    console.error('webhookController: BOOK_APPOINTMENT calendar insertion failed', err && err.message ? err.message : err);
-                  }
                 })();
 
               } catch (err) {

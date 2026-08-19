@@ -1,112 +1,95 @@
 import { google } from 'googleapis';
-import fs from 'fs/promises';
 
-function loadServiceAccountCredentials() {
-  const calendarId = process.env.GOOGLE_CALENDAR_ID || null;
-  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || null;
-  const privateKeyEnv = process.env.GOOGLE_PRIVATE_KEY || null;
-  const privateKeyPath = process.env.GOOGLE_PRIVATE_KEY_PATH || null;
+/**
+ * Obtiene el cliente autenticado de Google Calendar
+ */
+let _testCalendarClient = null;
+export function __setTestCalendarClient(client) { _testCalendarClient = client; }
 
-  let privateKey = null;
-  if (privateKeyEnv) {
-    // Support escaped newlines and remove surrounding quotes if the value was stringified
-    const rawKey = privateKeyEnv;
-    privateKey = rawKey.replace(/\\n/g, '\n').replace(/^['"]|['"]$/g, '');
+export function getCalendarClient() {
+  if (_testCalendarClient) return _testCalendarClient;
+
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+
+  if (!clientEmail || !privateKey) {
+    throw new Error(`Credenciales incompletas de Google: clientEmail=${Boolean(clientEmail)}, privateKey=${Boolean(privateKey)}`);
   }
 
-  return { calendarId, clientEmail, privateKey, privateKeyPath };
-}
+  // Normalizar saltos de línea y remover comillas envolventes
+  privateKey = privateKey.replace(/\\n/g, '\n').replace(/^['"]|['"]$/g, '');
 
-async function getJwtClient() {
-  const creds = loadServiceAccountCredentials();
-  if (!creds.clientEmail && !creds.privateKey && !creds.privateKeyPath) {
-    throw new Error('Google service account credentials not configured (GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY)');
-  }
-
-  let key = creds.privateKey;
-  if (!key && creds.privateKeyPath) {
-    // read file if path provided
-    try {
-      key = await fs.readFile(creds.privateKeyPath, 'utf8');
-    } catch (e) {
-      throw new Error('Failed to read GOOGLE_PRIVATE_KEY_PATH: ' + e.message);
-    }
-  }
-
-  const jwt = new google.auth.JWT(
-    creds.clientEmail,
-    null,
-    key,
-    ['https://www.googleapis.com/auth/calendar']
-  );
-  await jwt.authorize();
-  return jwt;
-}
-
-export async function createCalendarEvent({ patientName, phone, service, startDateTime, endDateTime, notes = '' }, options = {}) {
-  if (!patientName || !startDateTime || !endDateTime) {
-    throw new Error('Missing required fields for createCalendarEvent');
-  }
-
-  // Allow dependency injection for tests: options.calendarClient (mock) and options.calendarId
-  const creds = loadServiceAccountCredentials();
-  const calendarId = options.calendarId || creds.calendarId;
-  if (!calendarId) throw new Error('GOOGLE_CALENDAR_ID not set in environment');
-
-  // In deployment we expect the clinic calendar to be the configured one
-  if (process.env.GOOGLE_CALENDAR_ID && process.env.GOOGLE_CALENDAR_ID !== calendarId) {
-    console.log('[calendarService] using overridden calendarId:', calendarId);
-  }
-
-  const calendarClient = options.calendarClient;
-  let calendar;
-  if (calendarClient) {
-    calendar = calendarClient;
-  } else {
-    const auth = await getJwtClient();
-    calendar = google.calendar({ version: 'v3', auth });
-  }
-
-  // Validate availability: list events overlapping the proposed window
-  const timeMin = new Date(startDateTime).toISOString();
-  const timeMax = new Date(endDateTime).toISOString();
-
-  const existing = await calendar.events.list({
-    calendarId,
-    timeMin,
-    timeMax,
-    singleEvents: true,
-    maxResults: 10,
-    orderBy: 'startTime',
+  const auth = new google.auth.JWT({
+    email: clientEmail,
+    key: privateKey,
+    scopes: [
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/calendar.readonly'
+    ]
   });
 
-  if (existing && existing.data && Array.isArray(existing.data.items) && existing.data.items.length > 0) {
-    // There is at least one event in the requested range -> conflict
-    return false;
+  return google.calendar({ version: 'v3', auth });
+}
+
+/**
+ * Verifica si hay conflicto de horario en el calendario
+ */
+export async function checkAvailability(datetime) {
+  try {
+    const calendar = getCalendarClient();
+    const calendarId = process.env.GOOGLE_CALENDAR_ID || 'quispefernandezdiego79@gmail.com';
+
+    const target = new Date(datetime);
+    if (isNaN(target.getTime())) return true;
+
+    // Rango de búsqueda: 30 minutos antes y después
+    const timeMin = new Date(target.getTime() - 30 * 60 * 1000).toISOString();
+    const timeMax = new Date(target.getTime() + 30 * 60 * 1000).toISOString();
+
+    const response = await calendar.events.list({
+      calendarId,
+      timeMin,
+      timeMax,
+      singleEvents: true,
+    });
+
+    const hasConflict = response.data.items && response.data.items.length > 0;
+    console.log(`📅 [Calendar Check]: Disponibilidad para ${datetime} -> ${!hasConflict ? 'LIBRE' : 'OCUPADO'}`);
+    return !hasConflict;
+  } catch (e) {
+    console.warn('⚠️ [Calendar Check Warning]: No se pudo verificar disponibilidad, continuando:', e.message);
+    return true;
+  }
+}
+
+/**
+ * Inserta la cita confirmada en Google Calendar
+ */
+export async function createCalendarEvent({ name, phone, service, datetime }) {
+  const calendar = getCalendarClient();
+  const calendarId = process.env.GOOGLE_CALENDAR_ID || 'quispefernandezdiego79@gmail.com';
+
+  const startDateTime = new Date(datetime);
+  if (isNaN(startDateTime.getTime())) {
+    throw new Error(`Fecha/hora inválida provista para la cita: ${datetime}`);
   }
 
-  // Build event
-  const summary = `Cita Dental: ${patientName} - ${service || 'Evaluación'}`;
-  const descriptionParts = [];
-  if (phone) descriptionParts.push(`Teléfono paciente: ${phone}`);
-  if (notes) descriptionParts.push(`Notas: ${notes}`);
-  const description = descriptionParts.join('\n');
+  // Duración estimada: 45 minutos
+  const endDateTime = new Date(startDateTime.getTime() + 45 * 60 * 1000);
 
   const event = {
-    summary,
-    description,
-    start: { dateTime: new Date(startDateTime).toISOString() },
-    end: { dateTime: new Date(endDateTime).toISOString() },
+    summary: `🦷 Cita: ${name} - ${service || 'Evaluación'}`,
+    description: `👤 Paciente: ${name}\n📱 Teléfono: ${phone}\n🦷 Tratamiento: ${service || 'Evaluación General'}\n📍 Sede: Av. Alameda de la República 286 - Huánuco`,
+    start: { dateTime: startDateTime.toISOString(), timeZone: 'America/Lima' },
+    end: { dateTime: endDateTime.toISOString(), timeZone: 'America/Lima' },
   };
 
-  const created = await calendar.events.insert({
-    calendarId,
-    resource: event,
+  const res = await calendar.events.insert({
+    calendarId: calendarId,
+    requestBody: event,
   });
 
-  if (created && created.status === 200) return true;
-  // Some clients return data object; treat presence as success
-  if (created && created.data && created.data.id) return true;
-
-  return false;
+  console.log('✅ [Google Calendar] Evento creado con éxito. ID:', res.data.id);
+  return res.data;
 }

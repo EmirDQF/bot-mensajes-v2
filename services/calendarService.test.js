@@ -18,59 +18,53 @@ function makeMockCalendar({ existingEvents = [], insertSucceeds = true, insertTh
   };
 }
 
-describe('calendarService.createCalendarEvent', () => {
-  it('creates event when no overlap', async () => {
-    const mockCal = makeMockCalendar({ existingEvents: [], insertSucceeds: true });
-    const res = await cs.createCalendarEvent({
-      patientName: 'Test Paciente',
-      phone: '51987654321',
-      service: 'Limpieza',
-      startDateTime: '2026-08-20T10:00:00Z',
-      endDateTime: '2026-08-20T10:30:00Z'
-    }, { calendarClient: mockCal, calendarId: 'quispefernandezdiego79@gmail.com' });
-
-    assert.equal(res, true);
-  });
-
-  it('returns false when overlapping events exist', async () => {
-    const mockCal = makeMockCalendar({ existingEvents: [{ id: 'e1' }] });
-    const res = await cs.createCalendarEvent({
-      patientName: 'Test Paciente',
-      phone: '51987654321',
-      service: 'Limpieza',
-      startDateTime: '2026-08-20T10:00:00Z',
-      endDateTime: '2026-08-20T10:30:00Z'
-    }, { calendarClient: mockCal, calendarId: 'quispefernandezdiego79@gmail.com' });
-
-    assert.equal(res, false);
-  });
-
-  it('throws or returns false when API insert fails', async () => {
-    const mockCal = makeMockCalendar({ existingEvents: [], insertSucceeds: false });
-    const res = await cs.createCalendarEvent({
-      patientName: 'Test Paciente',
-      phone: '51987654321',
-      service: 'Limpieza',
-      startDateTime: '2026-08-20T10:00:00Z',
-      endDateTime: '2026-08-20T10:30:00Z'
-    }, { calendarClient: mockCal, calendarId: 'quispefernandezdiego79@gmail.com' });
-
-    assert.equal(res, false);
-  });
-
-  it('propagates exceptions from API', async () => {
-    const mockCal = makeMockCalendar({ existingEvents: [], insertThrows: true });
+describe('calendarService', () => {
+  it('checkAvailability returns true when no conflicting events', async () => {
+    const mockCal = makeMockCalendar({ existingEvents: [] });
+    // Monkeypatch getCalendarClient for test
+    cs.__setTestCalendarClient({ events: mockCal.events });
     try {
-      await cs.createCalendarEvent({
-        patientName: 'Test Paciente',
-        phone: '51987654321',
-        service: 'Limpieza',
-        startDateTime: '2026-08-20T10:00:00Z',
-        endDateTime: '2026-08-20T10:30:00Z'
-      }, { calendarClient: mockCal, calendarId: 'quispefernandezdiego79@gmail.com' });
-      assert.fail('Expected to throw');
-    } catch (e) {
-      assert.ok(e && e.message && e.message.includes('Google API failure'));
+      const ok = await cs.checkAvailability('2026-08-20T10:00:00Z');
+      assert.equal(ok, true);
+    } finally {
+      cs.__setTestCalendarClient(null);
+    }
+  });
+
+  it('checkAvailability returns false when conflicting events exist', async () => {
+    const mockCal = makeMockCalendar({ existingEvents: [{ id: 'e1' }] });
+    cs.__setTestCalendarClient({ events: mockCal.events });
+    try {
+      const ok = await cs.checkAvailability('2026-08-20T10:00:00Z');
+      assert.equal(ok, false);
+    } finally {
+      cs.__setTestCalendarClient(null);
+    }
+  });
+
+  it('createCalendarEvent returns event data on success', async () => {
+    const mockCal = makeMockCalendar({ existingEvents: [], insertSucceeds: true });
+    cs.__setTestCalendarClient({ events: mockCal.events });
+    try {
+      const res = await cs.createCalendarEvent({ name: 'Test Paciente', phone: '51987654321', service: 'Limpieza', datetime: '2026-08-20T10:00:00Z' });
+      assert.equal(res && res.id, 'mock-event-id');
+    } finally {
+      cs.__setTestCalendarClient(null);
+    }
+  });
+
+  it('createCalendarEvent propagates insert exceptions', async () => {
+    const mockCal = makeMockCalendar({ existingEvents: [], insertThrows: true });
+    cs.__setTestCalendarClient({ events: mockCal.events });
+    try {
+      try {
+        await cs.createCalendarEvent({ name: 'Test Paciente', phone: '51987654321', service: 'Limpieza', datetime: '2026-08-20T10:00:00Z' });
+        assert.fail('Expected to throw');
+      } catch (e) {
+        assert.ok(e && e.message && e.message.includes('Google API failure'));
+      }
+    } finally {
+      cs.__setTestCalendarClient(null);
     }
   });
 });
