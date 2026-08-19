@@ -73,7 +73,7 @@ export async function checkAvailability(datetime) {
 /**
  * Inserta la cita confirmada en Google Calendar
  */
-export async function createCalendarEvent({ name, phone, service, datetime }) {
+export async function createCalendarEvent({ name, phone, service, datetime, summary }) {
   const calendar = getCalendarClient();
   const calendarId = process.env.GOOGLE_CALENDAR_ID || 'quispefernandezdiego79@gmail.com';
 
@@ -86,7 +86,7 @@ export async function createCalendarEvent({ name, phone, service, datetime }) {
   const endDateTime = new Date(startDateTime.getTime() + 45 * 60 * 1000);
 
   const event = {
-    summary: `🦷 Cita: ${name} - ${service || 'Evaluación'}`,
+    summary: summary || `🦷 Cita: ${name} - ${service || 'Evaluación'}`,
     description: `👤 Paciente: ${name}\n📱 Teléfono: ${phone}\n🦷 Tratamiento: ${service || 'Evaluación General'}\n📍 Sede: Av. Alameda de la República 286 - Huánuco`,
     start: { dateTime: startDateTime.toISOString(), timeZone: 'America/Lima' },
     end: { dateTime: endDateTime.toISOString(), timeZone: 'America/Lima' },

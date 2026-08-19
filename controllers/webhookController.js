@@ -454,14 +454,23 @@ export default async function webhookController(req, res, next) {
                 // Background: create event and notify admin
                 (async () => {
                   try {
-                    const adminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
-                    const alertMessage = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
+                    const defaultAdmin = '51949737257';
+                    const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || defaultAdmin;
+                    let adminPhoneNorm = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
+                    if (adminPhoneNorm.length === 9) adminPhoneNorm = '51' + adminPhoneNorm;
+
+                    const modalityLabel = (appt && appt.type && String(appt.type).toUpperCase() === 'LLAMADA_5MIN') ? 'Llamada de Asesoría 5 min' : 'Cita Presencial';
+                    const readableDate = (() => {
+                      try {
+                        const d = new Date(appt.datetime);
+                        if (isNaN(d.getTime())) return appt.datetime || 'Sin fecha legible';
+                        return d.toLocaleString('es-PE', { timeZone: 'America/Lima' });
+                      } catch (e) { return appt.datetime || ''; }
+                    })();
+
+                    const alertMessage = `🚨 *NUEVO REGISTRO EN LUMINZU DENT* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Motivo / Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha y Hora solicitada:* ${readableDate}\n📌 *Modalidad:* ${modalityLabel}\n📍 *Sede:* Av. Alameda de la República 286, Huánuco\n\nℹ️ *Acción requerida:* Si el paciente agendó fuera de horario comercial (noche/madrugada), realizar la llamada de 5 minutos a primera hora de la mañana para coordinar detalles.`;
 
                     try {
-                      const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
-                      let adminPhoneNorm = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
-                      if (adminPhoneNorm.length === 9) adminPhoneNorm = '51' + adminPhoneNorm;
-
                       try {
                         await whatsappService.sendWhatsAppMessage(adminPhoneNorm, alertMessage, {});
                       } catch (warnErr) {
@@ -470,8 +479,11 @@ export default async function webhookController(req, res, next) {
 
                       const start = appt.datetime;
                       const startDate = new Date(start);
+                      const isCall = appt && appt.type && String(appt.type).toUpperCase() === 'LLAMADA_5MIN';
+                      const eventSummary = isCall ? `📞 Asesoría 5min: ${appt.name} - ${appt.service || 'Evaluación'}` : `🦷 Cita Presencial: ${appt.name} - ${appt.service || 'Evaluación'}`;
+
                       try {
-                        const created = await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: startDate.toISOString() });
+                        const created = await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: startDate.toISOString(), summary: eventSummary });
                         if (created) {
                           try {
                             await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
@@ -482,6 +494,20 @@ export default async function webhookController(req, res, next) {
                       } catch (err) {
                         console.error('❌ [Calendar Insert Error]:', err && err.message ? err.message : err);
                       }
+
+                      // If presencial, send fachada image to patient (await to avoid race conditions)
+                      try {
+                        if (!isCall) {
+                          let contactDigits = appt && appt.phone ? String(appt.phone).replace(/\D/g, '') : '';
+                          if (contactDigits.length === 9) contactDigits = '51' + contactDigits;
+                          if (contactDigits) {
+                            await whatsappService.sendWhatsAppImageMessage(contactDigits, 'fachada', '', { fetchImpl: globalThis.fetch });
+                          }
+                        }
+                      } catch (imgErr) {
+                        console.error('webhookController: failed to send fachada image', imgErr && imgErr.message ? imgErr.message : imgErr);
+                      }
+
                     } catch (err) {
                       console.error('webhookController: BOOK_APPOINTMENT calendar insertion failed', err && err.message ? err.message : err);
                     }

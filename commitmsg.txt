@@ -1,0 +1,1 @@
+fix(webhook): ensure BOOK_APPOINTMENT background try/catch is balanced and avoids syntax error\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
