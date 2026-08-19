@@ -56,7 +56,7 @@ export default {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
     model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
-    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 110),
+    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 2048),
   },
   clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || process.env.CLINIC_NAME || 'LUMINZU Dent',
   clinicProfile: {

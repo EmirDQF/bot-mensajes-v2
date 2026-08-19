@@ -1,12 +1,12 @@
 import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
-import leadService from '../services/leadService.js';
+import * as leadService from '../services/leadService.js';
+import { getSupabaseClient } from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import chatwootService from '../services/chatwootService.js';
 import * as calendarService from '../services/calendarService.js';
 import { getGeminiClient } from '../src/geminiClient.js';
-import { createClient } from '@supabase/supabase-js';
 
 function extractPlainText(input) {
   let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
@@ -96,9 +96,7 @@ export default async function webhookController(req, res, next) {
       const phoneNumberId = String(inbox?.id || payload?.account_id || '').trim();
       let clinic = null;
       try {
-        const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
-        const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-        const supabase = createClient(rawUrl, key);
+        const supabase = getSupabaseClient();
         if (inbox?.id) {
           const { data } = await supabase.from('clinics').select('*').eq('chatwoot_inbox_id', inbox.id).maybeSingle();
           clinic = data || null;
@@ -176,7 +174,7 @@ export default async function webhookController(req, res, next) {
         client: geminiClient,
         clinic: (typeof clinic !== 'undefined' ? clinic : null),
         maxRetries: 1,
-        maxOutputTokens: 100,
+                    maxOutputTokens: 2048,
         skipLeadPersistence: Boolean(isAdminSender)
       });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
@@ -234,49 +232,56 @@ export default async function webhookController(req, res, next) {
         const convId = conversation?.id || p?.conversation?.id;
         const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
 
-        // Extract and remove BOOK_APPOINTMENT tag if present and process in background
+        // Extract SEND_IMAGE and BOOK_APPOINTMENT tags (flexible parsing) and remove them from visible texto
         try {
-          const bookRegex = /\[BOOK_APPOINTMENT:\s*({[\s\S]*?})\s*\]/i;
-          const m = bookRegex.exec(texto || '');
-          if (m && m[1]) {
-            const jsonText = m[1];
-            try {
-              const appt = JSON.parse(jsonText);
-              // Remove the tag from visible texto
-              texto = String(texto).replace(m[0], '').trim();
+          const originalTexto = String(texto || '');
+          const appt = whatsappService.parseBookAppointmentTag(originalTexto);
+          const imageKey = whatsappService.parseSendImageTag(originalTexto);
 
-              // Background processing: create calendar event and notify admin (no AI calls)
-              (async () => {
-                try {
-                  const start = appt.datetime;
-                  const startDate = new Date(start);
-                  const endDate = new Date(startDate.getTime() + (appt.duration_minutes ? Number(appt.duration_minutes) * 60000 : 30 * 60000));
-                  const created = await calendarService.createCalendarEvent({
-                    patientName: appt.name,
-                    phone: appt.phone,
-                    service: appt.service,
-                    startDateTime: startDate.toISOString(),
-                    endDateTime: endDate.toISOString(),
-                    notes: appt.notes || ''
-                  });
-                  if (created) {
-                    try {
-                      await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
-                    } catch (err) {
-                      console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
-                    }
+          // Remove both tags from visible texto (order-insensitive)
+          if (appt) texto = whatsappService.stripBookAppointmentTag(String(texto || ''));
+          if (imageKey) texto = whatsappService.stripSendImageTag(String(texto || ''));
+
+          // If imageKey present, send image to user immediately (do not rely on Chatwoot for media)
+          if (imageKey && contactDigits) {
+            (async () => {
+              try {
+                await whatsappService.sendWhatsAppImageMessage(contactDigits, imageKey, '', { fetchImpl: globalThis.fetch });
+              } catch (err) {
+                console.error('webhookController: failed to send image via WhatsApp API', err && err.message ? err.message : err);
+              }
+            })();
+          }
+
+          // If appointment present, process booking in background: create calendar event and notify admin
+          if (appt) {
+            (async () => {
+              try {
+                const start = appt.datetime;
+                const startDate = new Date(start);
+                const endDate = new Date(startDate.getTime() + (appt.duration_minutes ? Number(appt.duration_minutes) * 60000 : 30 * 60000));
+                const created = await calendarService.createCalendarEvent({
+                  patientName: appt.name,
+                  phone: appt.phone,
+                  service: appt.service,
+                  startDateTime: startDate.toISOString(),
+                  endDateTime: endDate.toISOString(),
+                  notes: appt.notes || ''
+                });
+                if (created) {
+                  try {
+                    await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
+                  } catch (err) {
+                    console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
                   }
-                } catch (err) {
-                  console.error('webhookController: BOOK_APPOINTMENT processing failed', err && err.message ? err.message : err);
                 }
-              })();
-
-            } catch (err) {
-              console.warn('webhookController: failed to parse BOOK_APPOINTMENT JSON', err && err.message ? err.message : err);
-            }
+              } catch (err) {
+                console.error('webhookController: BOOK_APPOINTMENT processing failed', err && err.message ? err.message : err);
+              }
+            })();
           }
         } catch (e) {
-          console.warn('webhookController: error extracting BOOK_APPOINTMENT tag', e && e.message ? e.message : e);
+          console.warn('webhookController: error extracting SEND_IMAGE/BOOK_APPOINTMENT tags', e && e.message ? e.message : e);
         }
 
         if (accountId && convId && apiToken) {
@@ -356,7 +361,7 @@ export default async function webhookController(req, res, next) {
 
         // Apply a 15s timeout to the Gemini call (requirement).
         const geminiClient = getGeminiClient();
-        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 100 });
+        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 2048 });
         const timeoutMs = 25_000;
         const timeoutPromise = new Promise((_, reject) => {
           const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);

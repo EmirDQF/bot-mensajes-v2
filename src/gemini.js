@@ -25,7 +25,7 @@ function getModel() {
       model: geminiModel,
       systemInstruction: SYSTEM_PROMPT,
       generationConfig: {
-        maxOutputTokens: 150,
+        maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 2048),
         temperature: 0.7,
       },
     });

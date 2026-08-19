@@ -47,7 +47,8 @@ export function resolveImageAssetPath(key) {
 
 export function parseSendImageTag(text) {
   if (!text || typeof text !== 'string') return null;
-  const match = text.match(/\[SEND_IMAGE:\s*([a-z0-9_\-]+)\]/i);
+  // allow spaces/newlines between token and key
+  const match = text.match(/\[\s*SEND_IMAGE\s*:\s*([a-z0-9_\-]+)\s*\]/is);
   if (!match || !match[1]) return null;
   const normalizedKey = resolveImageAssetKey(match[1]);
   return normalizedKey;
@@ -55,7 +56,30 @@ export function parseSendImageTag(text) {
 
 export function stripSendImageTag(text) {
   if (!text || typeof text !== 'string') return text;
-  return text.replace(/\s*\[SEND_IMAGE:\s*[a-z0-9_\-]+\]\s*/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+  return text.replace(/\s*\[\s*SEND_IMAGE\s*:\s*[a-z0-9_\-]+\s*\]\s*/gis, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
+// Parse and strip BOOK_APPOINTMENT tag (flexible spaces/newlines)
+export function parseBookAppointmentTag(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/\[\s*BOOK_APPOINTMENT\s*:\s*({[\s\S]*?})\s*\]/is);
+  if (!match || !match[1]) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch (e) {
+    try {
+      // attempt to clean common trailing commas or single quotes
+      const cleaned = match[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/'/g, '"').replace(/,\s*}/g, '}');
+      return JSON.parse(cleaned);
+    } catch (err) {
+      return null;
+    }
+  }
+}
+
+export function stripBookAppointmentTag(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text.replace(/\s*\[\s*BOOK_APPOINTMENT\s*:\s*({[\s\S]*?})\s*\]\s*/gis, ' ').replace(/\s{2,}/g, ' ').trim();
 }
 
 async function uploadWhatsAppImage(filePath, options = {}) {
