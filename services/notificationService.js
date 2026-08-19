@@ -191,4 +191,40 @@ export async function notifyAdminUpdatedLead(lead, previousFechaIso = null, opti
   return true;
 }
 
-export default { notifyAdminNewLead, notifyAdminUpdatedLead };
+// New: notify admin specifically for calendar-booked appointments
+export async function notifyAdminAppointment({ patientName, patientPhone, serviceName, dateTime }, options = {}) {
+  if (!patientName || !patientPhone || !dateTime) return false;
+
+  const raw = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
+  // sanitize: remove spaces, dashes, parentheses, plus signs and any non-digit
+  let adminDigits = raw ? String(raw).replace(/[^0-9]/g, '') : null;
+  if (!adminDigits) {
+    console.warn('notificationService: ADMIN_NOTIFICATION_PHONE not configured');
+    return false;
+  }
+
+  // Normalize: if 9 digit local Peruvian number, prefix with 51, else if it starts with country code ensure no leading zeros
+  if (adminDigits.length === 9) adminDigits = '51' + adminDigits;
+  if (adminDigits.startsWith('0')) adminDigits = adminDigits.replace(/^0+/, '');
+
+  const sendWhatsAppMessage = options.whatsappService?.sendWhatsAppMessage || whatsappService.sendWhatsAppMessage;
+
+  const message = [
+    '🚨 *NUEVA CITA AGENDADA EN CALENDAR* 🗓️',
+    `👤 *Paciente:* ${patientName}`,
+    `📱 *WhatsApp:* ${patientPhone}`,
+    `🦷 *Tratamiento:* ${serviceName || 'Evaluación'}`,
+    `📅 *Fecha y Hora:* ${dateTime}`,
+    `📍 *Sede:* LUMINZU Dent (Huánuco)`,
+  ].join('\n');
+
+  try {
+    await sendWhatsAppMessage(adminDigits, message, {});
+    return true;
+  } catch (e) {
+    console.error('notificationService.notifyAdminAppointment failed', e && e.message ? e.message : e);
+    return false;
+  }
+}
+
+export default { notifyAdminNewLead, notifyAdminUpdatedLead, notifyAdminAppointment };

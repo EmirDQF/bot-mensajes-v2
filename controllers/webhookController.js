@@ -4,6 +4,7 @@ import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import chatwootService from '../services/chatwootService.js';
+import * as calendarService from '../services/calendarService.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
 
@@ -232,6 +233,52 @@ export default async function webhookController(req, res, next) {
         const accountId = (typeof clinic !== 'undefined' && clinic?.chatwoot_account_id) || payload.account_id || null;
         const convId = conversation?.id || p?.conversation?.id;
         const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
+
+        // Extract and remove BOOK_APPOINTMENT tag if present and process in background
+        try {
+          const bookRegex = /\[BOOK_APPOINTMENT:\s*({[\s\S]*?})\s*\]/i;
+          const m = bookRegex.exec(texto || '');
+          if (m && m[1]) {
+            const jsonText = m[1];
+            try {
+              const appt = JSON.parse(jsonText);
+              // Remove the tag from visible texto
+              texto = String(texto).replace(m[0], '').trim();
+
+              // Background processing: create calendar event and notify admin (no AI calls)
+              (async () => {
+                try {
+                  const start = appt.datetime;
+                  const startDate = new Date(start);
+                  const endDate = new Date(startDate.getTime() + (appt.duration_minutes ? Number(appt.duration_minutes) * 60000 : 30 * 60000));
+                  const created = await calendarService.createCalendarEvent({
+                    patientName: appt.name,
+                    phone: appt.phone,
+                    service: appt.service,
+                    startDateTime: startDate.toISOString(),
+                    endDateTime: endDate.toISOString(),
+                    notes: appt.notes || ''
+                  });
+                  if (created) {
+                    try {
+                      await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
+                    } catch (err) {
+                      console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
+                    }
+                  }
+                } catch (err) {
+                  console.error('webhookController: BOOK_APPOINTMENT processing failed', err && err.message ? err.message : err);
+                }
+              })();
+
+            } catch (err) {
+              console.warn('webhookController: failed to parse BOOK_APPOINTMENT JSON', err && err.message ? err.message : err);
+            }
+          }
+        } catch (e) {
+          console.warn('webhookController: error extracting BOOK_APPOINTMENT tag', e && e.message ? e.message : e);
+        }
+
         if (accountId && convId && apiToken) {
           await chatwootService.sendMessageToConversation(accountId, convId, apiToken, texto);
         } else {
@@ -382,6 +429,51 @@ export default async function webhookController(req, res, next) {
         // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
         try {
           // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
+          // First, extract and remove BOOK_APPOINTMENT tag if present so it is not shown to the patient,
+          // and process scheduling in background (no AI calls).
+          try {
+            const bookRegex = /\[BOOK_APPOINTMENT:\s*({[\s\S]*?})\s*\]/i;
+            const m = bookRegex.exec(texto || '');
+            if (m && m[1]) {
+              try {
+                const appt = JSON.parse(m[1]);
+                // remove tag from visible texto
+                texto = String(texto).replace(m[0], '').trim();
+
+                // Background: create event and notify admin
+                (async () => {
+                  try {
+                    const start = appt.datetime;
+                    const startDate = new Date(start);
+                    const endDate = new Date(startDate.getTime() + (appt.duration_minutes ? Number(appt.duration_minutes) * 60000 : 30 * 60000));
+                    const created = await calendarService.createCalendarEvent({
+                      patientName: appt.name,
+                      phone: appt.phone,
+                      service: appt.service,
+                      startDateTime: startDate.toISOString(),
+                      endDateTime: endDate.toISOString(),
+                      notes: appt.notes || ''
+                    });
+                    if (created) {
+                      try {
+                        await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
+                      } catch (err) {
+                        console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('webhookController: BOOK_APPOINTMENT processing failed', err && err.message ? err.message : err);
+                  }
+                })();
+
+              } catch (err) {
+                console.warn('webhookController: failed to parse BOOK_APPOINTMENT JSON', err && err.message ? err.message : err);
+              }
+            }
+          } catch (e) {
+            console.warn('webhookController: error extracting BOOK_APPOINTMENT tag', e && e.message ? e.message : e);
+          }
+
           let textoFinal = extractPlainText(texto);
  
           textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
@@ -417,7 +509,12 @@ export default async function webhookController(req, res, next) {
           }
 
           if (textoFinal && textoFinal.length > 0 && !skipResponse) {
-            await whatsappService.sendWhatsAppMessage(from, textoFinal, {});
+            const imageKey = whatsappService.parseSendImageTag ? whatsappService.parseSendImageTag(textoFinal) : null;
+            if (imageKey) {
+              await whatsappService.sendWhatsAppReplyWithOptionalImage(from, textoFinal, { session });
+            } else {
+              await whatsappService.sendWhatsAppMessage(from, textoFinal, {});
+            }
           }
         } catch (e) {
           console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);

@@ -12,6 +12,11 @@ Colocar un archivo .env en la raíz con al menos las siguientes variables (NO su
 - GEMINI_API_KEY=tu_clave
 - GEMINI_MODEL=gemini-3.5-flash-lite
 - ADMIN_WHATSAPP_NUMBER=+51XXXXXXXXX
+- CLINIC_NAME=LUMINZU Dent
+- CLINIC_ADDRESS=📍 Av. Alameda de la República 286 - Huánuco
+- CLINIC_HOURS=Lunes a Sábado: 9:00 a. m. – 8:00 p. m. | Domingo: CERRADO
+- CLINIC_CONTACT_PHONE=
+- CLINIC_DOCTOR_NAME=equipo de LUMINZU Dent
 - PORT=3000
 
 Este proyecto utiliza un loader propio (src/envLoader.js) que lee .env y asigna variables a process.env solo si no existen ya (respeta variables definidas por PM2/host). No se usa dotenv.
