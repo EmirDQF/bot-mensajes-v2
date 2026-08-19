@@ -174,21 +174,22 @@ export default async function webhookController(req, res, next) {
         client: geminiClient,
         clinic: (typeof clinic !== 'undefined' ? clinic : null),
         maxRetries: 1,
-                    maxOutputTokens: 2048,
+                    maxOutputTokens: 4096,
         skipLeadPersistence: Boolean(isAdminSender)
       });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
       let leadData = null;
       try {
         const result = await geminiPromise;
-        if (result) {
-          texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
-          leadData = result.leadData || null;
-        }
-      } catch (e) {
-        console.error('webhookController: gemini call failed for chatwoot message', e && e.stack ? e.stack : e);
-        if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
-      }
+              console.log('🤖 [Gemini Raw Output]:', result && (result.texto || result.text || result));
+              if (result) {
+                texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
+                leadData = result.leadData || null;
+              }
+            } catch (e) {
+              console.error('webhookController: gemini call failed for chatwoot message', e && e.stack ? e.stack : e);
+              if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
+            }
 
       // If leadData present, attempt to save lead using the contact's WhatsApp number as source-of-truth
       let leadResult = null;
@@ -238,17 +239,22 @@ export default async function webhookController(req, res, next) {
           const appt = whatsappService.parseBookAppointmentTag(originalTexto);
           const imageKey = whatsappService.parseSendImageTag(originalTexto);
 
-          // Remove both tags from visible texto (order-insensitive)
-          if (appt) texto = whatsappService.stripBookAppointmentTag(String(texto || ''));
-          if (imageKey) texto = whatsappService.stripSendImageTag(String(texto || ''));
+                  // Diagnostic logs for extracted tags and admin target
+                  console.log('📅 [BOOK_APPOINTMENT Detectado]:', appt);
+                  console.log('🖼️ [SEND_IMAGE Detectado]:', imageKey);
+                  console.log('📲 [Notificando Admin a]:', process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone);
 
-          // If imageKey present, send image to user immediately (do not rely on Chatwoot for media)
-          if (imageKey && contactDigits) {
-            (async () => {
-              try {
-                await whatsappService.sendWhatsAppImageMessage(contactDigits, imageKey, '', { fetchImpl: globalThis.fetch });
-              } catch (err) {
-                console.error('webhookController: failed to send image via WhatsApp API', err && err.message ? err.message : err);
+                  // Remove both tags from visible texto (order-insensitive)
+                  if (appt) texto = whatsappService.stripBookAppointmentTag(String(texto || ''));
+                  if (imageKey) texto = whatsappService.stripSendImageTag(String(texto || ''));
+
+                  // If imageKey present, send image to user immediately (do not rely on Chatwoot for media)
+                  if (imageKey && contactDigits) {
+                    (async () => {
+                      try {
+                        await whatsappService.sendWhatsAppImageMessage(contactDigits, imageKey, '', { fetchImpl: globalThis.fetch });
+                      } catch (err) {
+                        console.error('webhookController: failed to send image via WhatsApp API', err && err.message ? err.message : err);
               }
             })();
           }
@@ -276,10 +282,25 @@ export default async function webhookController(req, res, next) {
                   }
                 }
               } catch (err) {
-                console.error('webhookController: BOOK_APPOINTMENT processing failed', err && err.message ? err.message : err);
-              }
-            })();
-          }
+                          // Detailed error logging and proactive admin alert when calendar insertion fails
+                          console.error('webhookController: BOOK_APPOINTMENT processing failed', err && err.message ? err.message : err);
+                          try {
+                            // Resolve admin digits similarly to notificationService
+                            const rawAdmin = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone || process.env.ADMIN_NOTIFICATION_PHONE || null;
+                            let adminDigits = rawAdmin ? String(rawAdmin).replace(/\D/g, '') : null;
+                            if (adminDigits && adminDigits.length === 9) adminDigits = '51' + adminDigits;
+                            if (adminDigits) {
+                              const alertMsg = `⚠️ Intento de reserva fallido para *${appt.name}* (${appt.phone}) - ${appt.datetime}. Error: ${err && err.message ? err.message : String(err)}`;
+                              await whatsappService.sendWhatsAppMessage(adminDigits, alertMsg, {});
+                            } else {
+                              console.warn('webhookController: no ADMIN_WHATSAPP_NUMBER configurado, no se pudo notificar admin sobre fallo en reserva');
+                            }
+                          } catch (notifyErr) {
+                            console.error('webhookController: failed to notify admin about booking failure', notifyErr && notifyErr.message ? notifyErr.message : notifyErr);
+                          }
+                        }
+                      })();
+                    }
         } catch (e) {
           console.warn('webhookController: error extracting SEND_IMAGE/BOOK_APPOINTMENT tags', e && e.message ? e.message : e);
         }

@@ -11,7 +11,7 @@ TONO Y PERSONALIDAD
 - Cercana, amable, profesional y resolutiva.
 - Habla en español latino natural.
 - Usa emojis acordes al contexto dental y médico (🦷, ✨, 📍, 🗓️, 💙, 😊) de forma moderada y estética (1 a 3 por mensaje, no exagerar).
-- Respuestas cortas y directas al grano (máximo 2 a 3 párrafos breves por mensaje). Evita bloques gigantes de texto.
+- Mantén tus respuestas breves y directas (máximo 1 a 2 párrafos cortos de 3 líneas cada uno). Evita bloques gigantes de texto.
 
 INFORMACIÓN BASE DE LA CLÍNICA
 - Nombre de la clínica: [NOMBRE_CLINICA]
@@ -70,11 +70,9 @@ INFORMACIÓN DE CONTEXTO DE CITA Y WHATSAPP
 - Si el usuario te pide un servicio específico, responde brevemente y vuelve al siguiente paso: agendar.
 
 OPTIMIZACIÓN PARA RESERVAS (ETIQUETA COMPACTA)
-- Cuando el paciente confirme su nombre completo, teléfono y fecha/hora exacta, añade al final de tu respuesta UNA SÓLA VEZ la etiqueta compacta EXACTA en este formato (sin texto adicional dentro de la etiqueta) y en una sola línea:
-  [BOOK_APPOINTMENT: {"name":"...","phone":"...","service":"...","datetime":"YYYY-MM-DDTHH:mm:ss"}]
-- Después de la etiqueta de reserva, agrega inmediatamente la etiqueta de fachada en la misma respuesta (ejemplo):
-  [BOOK_APPOINTMENT: {"name":"...","phone":"...","service":"...","datetime":"YYYY-MM-DDTHH:mm:ss"}][SEND_IMAGE: fachada]
-- Esta etiqueta será leída y procesada por el sistema para crear la cita en Google Calendar y notificar al personal administrativo. No repitas la etiqueta ni incluyas otra información sensible dentro de ella.
+- Cuando el paciente confirme día y hora, emite SIEMPRE y OBLIGATORIAMENTE al final del mensaje la etiqueta de cita y la de imagen en una sola línea completa:
+  [BOOK_APPOINTMENT: {"name":"Carlos Ruiz","phone":"51999888777","service":"Carillas","datetime":"2026-08-22T11:00:00"}] [SEND_IMAGE: carillas]
+- Usa exactamente ese formato: la etiqueta BOOK_APPOINTMENT debe contener JSON con dobles comillas y las claves name, phone, service y datetime en ese orden. La etiqueta SEND_IMAGE debe ir inmediatamente después y en la misma línea, separada por un espacio. No añadas texto dentro de las etiquetas y no repitas las etiquetas en mensajes posteriores.
 
 MAPEO COMPLETO DE IMÁGENES (DISPARO OBLIGATORIO)
 - Preguntas de carillas / diseño de sonrisa: EMITE al final [SEND_IMAGE: carillas]
@@ -919,7 +917,7 @@ function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
         ],
         systemInstruction: effectiveSystemPrompt,
         generationConfig: {
-          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100
+          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 4096
         },
       },
     };
@@ -949,7 +947,7 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1, opti
       }
 
       if (typeof client.generate === 'function') {
-        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 2048 });
+        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 4096 });
       }
 
       if (typeof client.generateContent === 'function' && geminiRequest?.type === 'structured') {

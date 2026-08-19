@@ -27,11 +27,11 @@ describe('geminiService refinements', () => {
     assert.ok(prompt.includes('Manuel'));
   });
 
-  it('getGeminiClient uses config.gemini.maxOutputTokens default 2048', async () => {
+  it('getGeminiClient uses config.gemini.maxOutputTokens default 4096', async () => {
     const clientModule = await import('../src/geminiClient.js');
     const config = await import('../config/env.js');
     const maxTokens = config.default.gemini.maxOutputTokens;
-      assert.equal(maxTokens, 2048);
+      assert.equal(maxTokens, 4096);
     // we cannot easily assert internal client generationConfig without making a real client, but config is the source
   });
 
