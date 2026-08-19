@@ -10,18 +10,25 @@ export function getCalendarClient() {
   if (_testCalendarClient) return _testCalendarClient;
 
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GOOGLE_KEY;
 
   if (!clientEmail || !privateKey) {
-    throw new Error(`Credenciales incompletas de Google: clientEmail=${Boolean(clientEmail)}, privateKey=${Boolean(privateKey)}`);
+    console.error('❌ [Calendar Auth] Faltan credenciales:', {
+      hasEmail: Boolean(clientEmail),
+      hasKey: Boolean(privateKey),
+      emailValue: clientEmail
+    });
+    throw new Error(`Credenciales incompletas: clientEmail=${Boolean(clientEmail)}, privateKey=${Boolean(privateKey)}`);
   }
 
-  // Normalizar saltos de línea y remover comillas envolventes
+  // Normalizar saltos de línea literales \n y comillas envolventes
   privateKey = privateKey.replace(/\\n/g, '\n').replace(/^['"]|['"]$/g, '');
 
-  const auth = new google.auth.JWT({
-    email: clientEmail,
-    key: privateKey,
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: clientEmail,
+      private_key: privateKey,
+    },
     scopes: [
       'https://www.googleapis.com/auth/calendar',
       'https://www.googleapis.com/auth/calendar.events',
