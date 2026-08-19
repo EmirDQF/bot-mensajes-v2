@@ -261,42 +261,28 @@ export default async function webhookController(req, res, next) {
           if (appt) {
             (async () => {
               try {
-                const adminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
-                const alertMessage = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
-
-                // Normalize admin phone and send admin alert regardless of calendar insertion outcome
-                try {
                 const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
-                let adminPhoneNorm = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
-                if (adminPhoneNorm.length === 9) adminPhoneNorm = '51' + adminPhoneNorm;
+                let adminPhone = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
+                if (adminPhone.length === 9) adminPhone = '51' + adminPhone;
+
+                const alertMsg = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
 
                 try {
-                   await whatsappService.sendWhatsAppMessage(adminPhoneNorm, alertMessage, {});
+                  await whatsappService.sendWhatsAppMessage(adminPhone, alertMsg, {});
+                  console.log('✅ [Admin Alert] Alerta enviada a WhatsApp:', adminPhone);
                 } catch (warnErr) {
-                   console.error('webhookController: failed to send admin WhatsApp alert', warnErr && warnErr.message ? warnErr.message : warnErr);
+                  console.error('❌ [Admin Alert Error]:', warnErr && warnErr.message ? warnErr.message : warnErr);
                 }
 
-                // Try to insert event into Google Calendar, but do not block admin alert
-                const start = appt.datetime;
-                const startDate = new Date(start);
+                // Attempt to insert into Google Calendar but handle failures locally
                 try {
-                   const created = await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: startDate.toISOString() });
-                   if (created) {
-                     try {
-                       await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
-                     } catch (err) {
-                       console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
-                     }
-                   }
-                } catch (err) {
-                   // Log calendar insertion failure but do not stop processing
-                   console.error('❌ [Calendar Insert Error]:', err && err.message ? err.message : err);
-                }
-                } catch (err) {
-                console.error('webhookController: error processing BOOK_APPOINTMENT', err && err.message ? err.message : err);
+                  await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: appt.datetime });
+                  console.log('✅ [Google Calendar] Cita agendada correctamente');
+                } catch (calErr) {
+                  console.error('❌ [Calendar Insert Error]:', calErr && calErr.message ? calErr.message : calErr);
                 }
               } catch (err) {
-                console.error('webhookController: error processing BOOK_APPOINTMENT', err && err.message ? err.message : err);
+                console.error('❌ [Appointment Background Error]:', err && err.message ? err.message : err);
               }
             })();
           }
@@ -499,6 +485,9 @@ export default async function webhookController(req, res, next) {
                     } catch (err) {
                       console.error('webhookController: BOOK_APPOINTMENT calendar insertion failed', err && err.message ? err.message : err);
                     }
+                  } catch (err) {
+                    console.error('❌ [Appointment Background Error]:', err && err.message ? err.message : err);
+                  }
                 })();
 
               } catch (err) {
