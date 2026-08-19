@@ -530,6 +530,19 @@ export default async function webhookController(req, res, next) {
           // Ensure admin-only alert text is never forwarded to the patient.
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
+          // === MEDIA tag processing: detect [MEDIA:clave] tags, strip them from visible text,
+          // and dispatch images immediately after sending the explanatory text to the patient.
+          const mediaRegex = /\[MEDIA:\s*([a-z0-9_\-]+)\]/ig;
+          const mediaKeys = [];
+          let mm;
+          while ((mm = mediaRegex.exec(textoFinal)) !== null) {
+            if (mm[1]) mediaKeys.push(mm[1].toLowerCase());
+          }
+          // remove media tags from textoFinal
+          if (mediaKeys.length > 0) {
+            textoFinal = textoFinal.replace(mediaRegex, '').trim();
+          }
+
           // Defensive placeholder cleanup before sending to user
           // Use shared clinicName declared earlier (already contains env/default fallback); prefer clinic.name when available
           clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
@@ -559,11 +572,36 @@ export default async function webhookController(req, res, next) {
           }
 
           if (textoFinal && textoFinal.length > 0 && !skipResponse) {
-            const imageKey = whatsappService.parseSendImageTag ? whatsappService.parseSendImageTag(textoFinal) : null;
-            if (imageKey) {
-              await whatsappService.sendWhatsAppReplyWithOptionalImage(from, textoFinal, { session });
-            } else {
+            // First, send the explanatory text to the patient
+            try {
               await whatsappService.sendWhatsAppMessage(from, textoFinal, {});
+            } catch (sendErr) {
+              console.error('webhookController: failed to send text to patient', sendErr && sendErr.message ? sendErr.message : sendErr);
+            }
+
+            // Then, dispatch any MEDIA images that the prompt requested (in order). Use await to preserve order.
+            if (Array.isArray(mediaKeys) && mediaKeys.length > 0) {
+              try {
+                // derive numeric contact digits from "from"
+                let contactDigits = String(from || '').replace(/\D/g, '');
+                if (contactDigits.length === 9) contactDigits = '51' + contactDigits;
+                for (const mk of mediaKeys) {
+                  try {
+                    const resolved = whatsappService.resolveImageAssetKey ? whatsappService.resolveImageAssetKey(mk) : null;
+                    const keyToSend = resolved || mk;
+                    if (contactDigits) {
+                      await whatsappService.sendWhatsAppImageMessage(contactDigits, keyToSend, '', { fetchImpl: globalThis.fetch });
+                    } else {
+                      // fallback: try sending using the raw 'from' identifier
+                      await whatsappService.sendWhatsAppImageMessage(from, keyToSend, '', { fetchImpl: globalThis.fetch });
+                    }
+                  } catch (imgErr) {
+                    console.error('webhookController: failed to send media', mk, imgErr && imgErr.message ? imgErr.message : imgErr);
+                  }
+                }
+              } catch (e) {
+                console.error('webhookController: error dispatching media images', e && e.message ? e.message : e);
+              }
             }
           }
         } catch (e) {

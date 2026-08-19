@@ -31,7 +31,10 @@ const IMAGE_MAP = {
   'mapa': 'LUMINZU/ubicacion.jpeg',
   'croquis': 'LUMINZU/ubicacion.jpeg',
   'fachada': 'LUMINZU/fachada.jpeg',
-  'local': 'LUMINZU/fachada.jpeg'
+  'local': 'LUMINZU/fachada.jpeg',
+  // Before/after ortodoncia assets (visual showcase)
+  'ortodoncia_general': 'LUMINZU/ortodoncia_antes_despues.jpeg',
+  'ortodoncia_kids': 'LUMINZU/ortodoncia_antes_despues1.jpeg'
 };
 
 function maskPhone(phone) {
