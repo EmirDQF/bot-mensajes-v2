@@ -6,6 +6,7 @@ import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import chatwootService from '../services/chatwootService.js';
 import * as calendarService from '../services/calendarService.js';
+import antiCollision from '../services/antiCollision.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 
 function extractPlainText(input) {
@@ -291,13 +292,47 @@ export default async function webhookController(req, res, next) {
                 let adminPhone = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
                 if (adminPhone.length === 9) adminPhone = '51' + adminPhone;
 
+                const slotKey = String(appt.datetime || '').trim();
+                const acquired = antiCollision.acquireSlot(slotKey, 60 * 1000);
+                if (!acquired) {
+                  console.warn('webhookController: slot already locked locally, skipping duplicate calendar insertion for', slotKey);
+                  try {
+                    const warnMsg = `⚠️ *INTENTO DUPLICADO DE RESERVA*\n\nSe detectó un intento concurrente de agendar la misma fecha/hora: ${slotKey}. Por favor revisar.`;
+                    if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, warnMsg, {});
+                  } catch (warnErr) {
+                    console.error('webhookController: failed to notify admin about duplicate booking attempt', warnErr && warnErr.message ? warnErr.message : warnErr);
+                  }
+                  return;
+                }
+
+                // Send admin alert of booking attempt (still useful to notify immediately)
                 const alertMsg = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
 
                 try {
-                  await whatsappService.sendWhatsAppMessage(adminPhone, alertMsg, {});
+                  if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, alertMsg, {});
                   console.log('✅ [Admin Alert] Alerta enviada a WhatsApp:', adminPhone);
                 } catch (warnErr) {
                   console.error('❌ [Admin Alert Error]:', warnErr && warnErr.message ? warnErr.message : warnErr);
+                }
+
+                // Check availability in Google Calendar before inserting
+                try {
+                  const duration = (appt.type === 'LLAMADA_5MIN') ? 10 : 30;
+                  const available = await calendarService.checkSlotAvailable(appt.datetime, duration);
+                  if (!available) {
+                    console.warn('webhookController: detected conflict in Google Calendar for', appt.datetime);
+                    try {
+                      const conflictMsg = `⚠️ *CONFLICTO EN CALENDARIO*\n\nEl horario ${appt.datetime} ya aparece ocupado en Google Calendar. No se creó un evento duplicado.`;
+                      if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, conflictMsg, {});
+                    } catch (notifyErr) {
+                      console.error('webhookController: failed to notify admin about calendar conflict', notifyErr && notifyErr.message ? notifyErr.message : notifyErr);
+                    }
+                    antiCollision.releaseSlot(slotKey);
+                    return;
+                  }
+                } catch (checkErr) {
+                  console.error('webhookController: error checking slot availability', checkErr && checkErr.message ? checkErr.message : checkErr);
+                  // proceed cautiously to attempt insertion
                 }
 
                 // Attempt to insert into Google Calendar but handle failures locally
@@ -306,6 +341,9 @@ export default async function webhookController(req, res, next) {
                   console.log('✅ [Google Calendar] Cita agendada correctamente');
                 } catch (calErr) {
                   console.error('❌ [Calendar Insert Error]:', calErr && calErr.message ? calErr.message : calErr);
+                } finally {
+                  // release local lock
+                  try { antiCollision.releaseSlot(slotKey); } catch (e) { /* ignore */ }
                 }
               } catch (err) {
                 console.error('❌ [Appointment Background Error]:', err && err.message ? err.message : err);

@@ -100,3 +100,60 @@ export async function createCalendarEvent({ name, phone, service, datetime, summ
   console.log('✅ [Google Calendar] Evento creado con éxito. ID:', res.data.id);
   return res.data;
 }
+
+// Wrapper: obtener slots reservados en una fecha (ISO yyyy-mm-dd)
+export async function getBookedSlots(dateStr) {
+  try {
+    const calendar = getCalendarClient();
+    const calendarId = process.env.GOOGLE_CALENDAR_ID || 'quispefernandezdiego79@gmail.com';
+
+    const timeMin = new Date(`${dateStr}T00:00:00-05:00`).toISOString();
+    const timeMax = new Date(`${dateStr}T23:59:59-05:00`).toISOString();
+
+    const response = await calendar.events.list({
+      calendarId,
+      timeMin,
+      timeMax,
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    return (response.data.items || []).map(event => {
+      const start = new Date(event.start.dateTime || event.start.date);
+      const end = new Date(event.end.dateTime || event.end.date);
+      return {
+        summary: event.summary,
+        startStr: start.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Lima' }),
+        endStr: end.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Lima' }),
+        start,
+        end,
+      };
+    });
+  } catch (error) {
+    console.error('Error al consultar Google Calendar:', error && error.message ? error.message : error);
+    return [];
+  }
+}
+
+// Wrapper: comprobar disponibilidad para un slot concreto
+export async function checkSlotAvailable(startDateTime, durationMinutes = 30) {
+  try {
+    const calendar = getCalendarClient();
+    const calendarId = process.env.GOOGLE_CALENDAR_ID || 'quispefernandezdiego79@gmail.com';
+    const start = new Date(startDateTime);
+    if (isNaN(start.getTime())) return false;
+    const end = new Date(start.getTime() + durationMinutes * 60000);
+
+    const response = await calendar.events.list({
+      calendarId,
+      timeMin: start.toISOString(),
+      timeMax: end.toISOString(),
+      singleEvents: true,
+    });
+
+    return (response.data.items || []).length === 0;
+  } catch (error) {
+    console.error('Error validando disponibilidad de slot:', error && error.message ? error.message : error);
+    return false;
+  }
+}
