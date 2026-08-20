@@ -332,7 +332,14 @@ export default async function webhookController(req, res, next) {
                 }
 
                 try {
-                  await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: appt.datetime });
+                  await calendarService.createCalendarEvent({
+                    patientName: appt.name,
+                    phone: appt.phone,
+                    service: appt.service || 'Ortodoncia',
+                    startDateTime: new Date(appt.datetime).toISOString(),
+                    durationMinutes: 45,
+                    notes: 'Agendado automáticamente por BotDental'
+                  });
                   console.log('✅ [Google Calendar] Cita agendada correctamente');
                   return { success: true };
                 } catch (calErr) {
@@ -554,7 +561,14 @@ export default async function webhookController(req, res, next) {
                       const eventSummary = isCall ? `📞 Asesoría 5min: ${appt.name} - ${appt.service || 'Evaluación'}` : `🦷 Cita Presencial: ${appt.name} - ${appt.service || 'Evaluación'}`;
 
                       try {
-                        const created = await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: startDate.toISOString(), summary: eventSummary });
+                        const created = await calendarService.createCalendarEvent({
+                          patientName: appt.name,
+                          phone: appt.phone,
+                          service: appt.service || 'Ortodoncia',
+                          startDateTime: startDate.toISOString(),
+                          durationMinutes: 45,
+                          notes: isCall ? 'Llamada de asesoría 5 min' : 'Agendado automáticamente por BotDental'
+                        });
                         if (created) {
                           try {
                             await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });

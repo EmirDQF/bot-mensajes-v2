@@ -12,9 +12,9 @@ before(async () => {
 describe('webhookController Chatwoot handover', () => {
   it('pauses session, updates chatwoot and notifies admin when user requests human', async () => {
     // spy/override services
-    const chatwootService = await import('../services/chatwootService.js');
-    const geminiService = await import('../services/geminiService.js');
-    const notificationService = await import('../services/notificationService.js');
+    const chatwootService = (await import('../services/chatwootService.js')).default;
+    const geminiService = (await import('../services/geminiService.js')).default;
+    const notificationService = (await import('../services/notificationService.js')).default;
 
     let updated = null;
     chatwootService.updateConversation = async (acct, convId, token, attrs) => { updated = { acct, convId, token, attrs }; return {}; };
