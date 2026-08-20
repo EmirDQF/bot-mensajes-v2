@@ -67,4 +67,24 @@ describe('calendarService', () => {
       cs.__setTestCalendarClient(null);
     }
   });
+
+  it('treats invalid_grant as a credential failure and blocks booking', async () => {
+    const mockCal = {
+      events: {
+        list: async () => { throw Object.assign(new Error('invalid_grant: account not found'), { message: 'invalid_grant: account not found' }); },
+        insert: async () => { throw Object.assign(new Error('invalid_grant: account not found'), { message: 'invalid_grant: account not found' }); }
+      }
+    };
+    cs.__setTestCalendarClient(mockCal);
+    try {
+      const available = await cs.checkSlotAvailable('2026-08-20T10:00:00Z', 30);
+      assert.equal(available, false);
+      await assert.rejects(
+        () => cs.createCalendarEvent({ name: 'Test Paciente', phone: '51987654321', service: 'Limpieza', datetime: '2026-08-20T10:00:00Z' }),
+        /invalid_grant|account not found/i
+      );
+    } finally {
+      cs.__setTestCalendarClient(null);
+    }
+  });
 });

@@ -14,10 +14,8 @@ function normalizeSupabaseUrl(url) {
 
 export function getSupabaseClient() {
   if (supabase) return supabase;
-  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
-  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  const { rawUrl, key } = validateSupabaseRuntimeConfig();
   const url = normalizeSupabaseUrl(rawUrl);
-  if (!url || !key) throw new Error('Supabase not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required)');
   supabase = createClient(url, key, {
     auth: {
       persistSession: false,
@@ -45,11 +43,51 @@ function sanitizeDistrict(value) {
   if (!value || typeof value !== 'string') return null;
   const normalized = value.trim();
   const low = normalized.toLowerCase();
-  const banned = ['nuestra clínica', 'nuestra clinica', 'nuestra clínica dental', 'nuestra clinica dental', 'en lima', 'lima', 'no proporcionado', 'no proporcionada', 'el de siempre'];
+  const banned = [
+    'nuestra clínica', 'nuestra clinica', 'nuestra clínica dental', 'nuestra clinica dental',
+    'nuestra sede', 'sede para brindarte la mejor atención', 'para brindarte la mejor atención',
+    'la mejor atención', 'mejor atención', 'en lima', 'lima', 'no proporcionado', 'no proporcionada',
+    'el de siempre', 'elige el mejor para ti', 'sede', 'atención', 'consulta', 'agendación', 'agendar cita'
+  ];
   for (const bad of banned) {
     if (low.includes(bad)) return null;
   }
-  return isLikelyDistrict(normalized) ? normalized : null;
+
+  // Reject obvious bot conversational phrases that are not district names.
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  if (wordCount > 4) return null;
+  if (/^(nuestra|este|esta|nuestro|el|la)\b/i.test(normalized) && !isLikelyDistrict(normalized)) return null;
+
+  const valid = isLikelyDistrict(normalized);
+  if (!valid) {
+    console.warn('[leadService.sanitizeDistrict] Distrito inválido rechazado:', normalized);
+    return null;
+  }
+  return normalized;
+}
+
+export function validateSupabaseRuntimeConfig() {
+  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+
+  if (!rawUrl || !key) {
+    throw new Error('Supabase not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required)');
+  }
+
+  try {
+    const parsed = new URL(rawUrl.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, ''));
+    if (!parsed.hostname.includes('supabase.co') && !parsed.hostname.includes('supabase.com')) {
+      throw new Error('SUPABASE_URL does not look like a valid Supabase project URL');
+    }
+  } catch (e) {
+    throw new Error(`Invalid SUPABASE_URL: ${rawUrl}`);
+  }
+
+  if (String(key).length < 30) {
+    throw new Error('Supabase service role key looks invalid or truncated; verify SUPABASE_SERVICE_ROLE_KEY in Render.');
+  }
+
+  return { rawUrl, key };
 }
 
 function isLikelyDistrict(text) {
@@ -99,7 +137,13 @@ export async function getByPhone(phone) {
     }
     return null;
   } catch (e) {
-    console.error('leadService.getByPhone error', e && e.message ? e.message : e);
+    const message = e && e.message ? e.message : String(e);
+    if (/jwt issued at future|issued at future|invalid_grant|supabase.*jwt/i.test(message)) {
+      console.error('[leadService.getByPhone] Supabase auth failed. This is usually caused by wrong/expired service role key, wrong project URL, or Render server clock skew. Verify SUPABASE_SERVICE_ROLE_KEY and clock sync on Render.');
+      console.error('[leadService.getByPhone] Raw error:', message);
+    } else {
+      console.error('leadService.getByPhone error', message);
+    }
     throw e;
   }
 }
@@ -152,6 +196,9 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
     // Preserve valid existing fields: do not overwrite nombre with a value that looks like a distrito
     const incomingNombre = typeof nombre === 'string' ? nombre.trim() : null;
     const incomingDistrito = sanitizeDistrict(typeof distrito === 'string' ? distrito.trim() : null);
+    if (typeof distrito === 'string' && distrito.trim() && !incomingDistrito) {
+      console.warn('[leadService.saveLead] Distrito inválido rechazado antes del upsert:', distrito.trim());
+    }
 
     const finalNombre = (function() {
       // Prefer incoming name when provided and not clearly the assistant name
@@ -470,9 +517,17 @@ export async function saveLeadSnapshot(telefono, snapshot) {
   if (!telefono) throw new Error('telefono is required to save snapshot');
   const normalized = normalizePhone(telefono);
   const now = new Date().toISOString();
+  const snapshotWithCanonicalPhone = snapshot && typeof snapshot === 'object'
+    ? { ...snapshot, telefono: normalized, updated_at: now }
+    : { telefono: normalized, updated_at: now };
+
+  if (snapshot && typeof snapshot === 'object' && snapshot.telefono && String(snapshot.telefono).replace(/\D/g, '') !== String(normalized || '').replace(/\D/g, '')) {
+    console.warn('[leadService.saveLeadSnapshot] Corrigiendo lead_snapshot.telefono inconsistente. Fuente de verdad:', normalized, 'vs snapshot:', snapshot.telefono);
+  }
+
   const payload = {
     telefono: normalized,
-    lead_snapshot: snapshot || null,
+    lead_snapshot: snapshotWithCanonicalPhone,
     updated_at: now
   };
 

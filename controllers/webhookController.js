@@ -284,9 +284,8 @@ export default async function webhookController(req, res, next) {
                     }
                   }
 
-          // If appointment present, process booking in background: create calendar event and notify admin immediately
           if (appt) {
-            (async () => {
+            const bookingResult = await (async () => {
               try {
                 const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
                 let adminPhone = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
@@ -302,10 +301,9 @@ export default async function webhookController(req, res, next) {
                   } catch (warnErr) {
                     console.error('webhookController: failed to notify admin about duplicate booking attempt', warnErr && warnErr.message ? warnErr.message : warnErr);
                   }
-                  return;
+                  return { success: false, reason: 'duplicate_slot' };
                 }
 
-                // Send admin alert of booking attempt (still useful to notify immediately)
                 const alertMsg = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
 
                 try {
@@ -315,40 +313,49 @@ export default async function webhookController(req, res, next) {
                   console.error('❌ [Admin Alert Error]:', warnErr && warnErr.message ? warnErr.message : warnErr);
                 }
 
-                // Check availability in Google Calendar before inserting
                 try {
                   const duration = (appt.type === 'LLAMADA_5MIN') ? 10 : 30;
                   const available = await calendarService.checkSlotAvailable(appt.datetime, duration);
                   if (!available) {
-                    console.warn('webhookController: detected conflict in Google Calendar for', appt.datetime);
+                    console.warn('webhookController: detected conflict or credential issue in Google Calendar for', appt.datetime);
                     try {
-                      const conflictMsg = `⚠️ *CONFLICTO EN CALENDARIO*\n\nEl horario ${appt.datetime} ya aparece ocupado en Google Calendar. No se creó un evento duplicado.`;
+                      const conflictMsg = `⚠️ *CONFLICTO EN CALENDARIO*\n\nEl horario ${appt.datetime} ya aparece ocupado en Google Calendar o la credencial no está activa. No se creó un evento duplicado.`;
                       if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, conflictMsg, {});
                     } catch (notifyErr) {
                       console.error('webhookController: failed to notify admin about calendar conflict', notifyErr && notifyErr.message ? notifyErr.message : notifyErr);
                     }
-                    antiCollision.releaseSlot(slotKey);
-                    return;
+                    return { success: false, reason: 'calendar_unavailable' };
                   }
                 } catch (checkErr) {
                   console.error('webhookController: error checking slot availability', checkErr && checkErr.message ? checkErr.message : checkErr);
-                  // proceed cautiously to attempt insertion
+                  return { success: false, reason: 'calendar_check_failed' };
                 }
 
-                // Attempt to insert into Google Calendar but handle failures locally
                 try {
                   await calendarService.createCalendarEvent({ name: appt.name, phone: appt.phone, service: appt.service, datetime: appt.datetime });
                   console.log('✅ [Google Calendar] Cita agendada correctamente');
+                  return { success: true };
                 } catch (calErr) {
                   console.error('❌ [Calendar Insert Error]:', calErr && calErr.message ? calErr.message : calErr);
+                  try {
+                    const fixMsg = `🚨 *ERROR EN CALENDARIO*\n\nNo se pudo crear la cita en Google Calendar. Requiere revisión manual del token/credenciales de Google. Paciente: ${appt.name}. Horario: ${appt.datetime}.`;
+                    if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, fixMsg, {});
+                  } catch (notifyErr) {
+                    console.error('webhookController: failed to notify admin about failed calendar insert', notifyErr && notifyErr.message ? notifyErr.message : notifyErr);
+                  }
+                  return { success: false, reason: 'calendar_insert_failed' };
                 } finally {
-                  // release local lock
                   try { antiCollision.releaseSlot(slotKey); } catch (e) { /* ignore */ }
                 }
               } catch (err) {
                 console.error('❌ [Appointment Background Error]:', err && err.message ? err.message : err);
+                return { success: false, reason: 'booking_exception' };
               }
             })();
+
+            if (!bookingResult.success) {
+              texto = 'Gracias por tu interés. Estoy revisando tu solicitud de cita y te confirmaré la disponibilidad lo antes posible.';
+            }
           }
         } catch (e) {
           console.warn('webhookController: error extracting SEND_IMAGE/BOOK_APPOINTMENT tags', e && e.message ? e.message : e);

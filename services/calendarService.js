@@ -39,6 +39,12 @@ export function getCalendarClient() {
   return google.calendar({ version: 'v3', auth });
 }
 
+function isGoogleAccountCredentialFailure(error) {
+  const message = String(error && (error.message || error.code || error.status || ''));
+  const details = String(error && error.errors ? JSON.stringify(error.errors) : '');
+  return /invalid_grant|account not found|not found.*account|refresh token.*revoked|token has been revoked|unauthorized_client/i.test(`${message} ${details}`);
+}
+
 /**
  * Verifica si hay conflicto de horario en el calendario
  */
@@ -65,6 +71,11 @@ export async function checkAvailability(datetime) {
     console.log(`📅 [Calendar Check]: Disponibilidad para ${datetime} -> ${!hasConflict ? 'LIBRE' : 'OCUPADO'}`);
     return !hasConflict;
   } catch (e) {
+    if (isGoogleAccountCredentialFailure(e)) {
+      console.error('[Calendar Check Warning] Google Calendar credentials invalid or revoked. This blocks booking until Render env is fixed.');
+      console.error('[Calendar Check Warning] Details:', e && e.message ? e.message : e);
+      return false;
+    }
     console.warn('⚠️ [Calendar Check Warning]: No se pudo verificar disponibilidad, continuando:', e.message);
     return true;
   }
@@ -74,31 +85,42 @@ export async function checkAvailability(datetime) {
  * Inserta la cita confirmada en Google Calendar
  */
 export async function createCalendarEvent({ name, phone, service, datetime, summary }) {
-  const calendar = getCalendarClient();
-  const calendarId = process.env.GOOGLE_CALENDAR_ID || 'quispefernandezdiego79@gmail.com';
+  try {
+    const calendar = getCalendarClient();
+    const calendarId = process.env.GOOGLE_CALENDAR_ID || 'quispefernandezdiego79@gmail.com';
 
-  const startDateTime = new Date(datetime);
-  if (isNaN(startDateTime.getTime())) {
-    throw new Error(`Fecha/hora inválida provista para la cita: ${datetime}`);
+    const startDateTime = new Date(datetime);
+    if (isNaN(startDateTime.getTime())) {
+      throw new Error(`Fecha/hora inválida provista para la cita: ${datetime}`);
+    }
+
+    // Duración estimada: 45 minutos
+    const endDateTime = new Date(startDateTime.getTime() + 45 * 60 * 1000);
+
+    const event = {
+      summary: summary || `🦷 Cita: ${name} - ${service || 'Evaluación'}`,
+      description: `👤 Paciente: ${name}\n📱 Teléfono: ${phone}\n🦷 Tratamiento: ${service || 'Evaluación General'}\n📍 Sede: Av. Alameda de la República 286 - Huánuco`,
+      start: { dateTime: startDateTime.toISOString(), timeZone: 'America/Lima' },
+      end: { dateTime: endDateTime.toISOString(), timeZone: 'America/Lima' },
+    };
+
+    const res = await calendar.events.insert({
+      calendarId: calendarId,
+      requestBody: event,
+    });
+
+    console.log('✅ [Google Calendar] Evento creado con éxito. ID:', res.data.id);
+    return res.data;
+  } catch (error) {
+    const details = error && error.response && error.response.data ? error.response.data : (error && error.message ? error.message : error);
+    if (isGoogleAccountCredentialFailure(error)) {
+      console.error('[Google Calendar] invalid_grant/account not found detected. The stored Google OAuth/service-account credentials are invalid or revoked. Check Render env vars: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN or the Google service account and regenerate the token if needed.');
+      console.error('[Google Calendar] Details:', details);
+    } else {
+      console.error('❌ [Calendar Insert Error]', details);
+    }
+    throw error;
   }
-
-  // Duración estimada: 45 minutos
-  const endDateTime = new Date(startDateTime.getTime() + 45 * 60 * 1000);
-
-  const event = {
-    summary: summary || `🦷 Cita: ${name} - ${service || 'Evaluación'}`,
-    description: `👤 Paciente: ${name}\n📱 Teléfono: ${phone}\n🦷 Tratamiento: ${service || 'Evaluación General'}\n📍 Sede: Av. Alameda de la República 286 - Huánuco`,
-    start: { dateTime: startDateTime.toISOString(), timeZone: 'America/Lima' },
-    end: { dateTime: endDateTime.toISOString(), timeZone: 'America/Lima' },
-  };
-
-  const res = await calendar.events.insert({
-    calendarId: calendarId,
-    requestBody: event,
-  });
-
-  console.log('✅ [Google Calendar] Evento creado con éxito. ID:', res.data.id);
-  return res.data;
 }
 
 // Wrapper: obtener slots reservados en una fecha (ISO yyyy-mm-dd)
@@ -153,7 +175,12 @@ export async function checkSlotAvailable(startDateTime, durationMinutes = 30) {
 
     return (response.data.items || []).length === 0;
   } catch (error) {
-    console.error('Error validando disponibilidad de slot:', error && error.message ? error.message : error);
+    if (isGoogleAccountCredentialFailure(error)) {
+      console.error('[Calendar Slot Check] Google Calendar credentials invalid or revoked. Booking is blocked until credentials are fixed.');
+      console.error('[Calendar Slot Check] Details:', error && error.message ? error.message : error);
+    } else {
+      console.error('Error validando disponibilidad de slot:', error && error.message ? error.message : error);
+    }
     return false;
   }
 }

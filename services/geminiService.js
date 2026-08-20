@@ -436,9 +436,21 @@ function isStructuredGeminiClient(client) {
 }
  
 function extractTextFromCandidate(candidate) {
-  if (!candidate?.content?.parts) return '';
-  return candidate.content.parts
-    .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+  const candidateContent = candidate?.content || candidate;
+  const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : [];
+  return parts
+    .map((part) => {
+      if (typeof part?.text === 'string') return part.text;
+      if (typeof part?.text === 'function') {
+        try {
+          const value = part.text();
+          return typeof value === 'string' ? value : '';
+        } catch (e) {
+          return '';
+        }
+      }
+      return '';
+    })
     .filter(Boolean)
     .join(' ')
     .trim();
@@ -447,12 +459,44 @@ function extractTextFromCandidate(candidate) {
 function extractTextFromResult(result) {
   if (!result) return '';
   if (typeof result === 'string') return result;
+
   if (typeof result.text === 'string') return result.text;
-  if (result.response) {
-    if (typeof result.response.text === 'string') return result.response.text;
-    const candidate = Array.isArray(result.response.candidates) ? result.response.candidates[0] : null;
-    return extractTextFromCandidate(candidate);
+  if (typeof result.text === 'function') {
+    try {
+      const value = result.text();
+      if (typeof value === 'string') return value;
+    } catch (e) {
+      // continue to structured extraction below
+    }
   }
+
+  const response = result.response || result;
+  if (response) {
+    if (typeof response.text === 'string') return response.text;
+    if (typeof response.text === 'function') {
+      try {
+        const value = response.text();
+        if (typeof value === 'string') return value;
+      } catch (e) {
+        // continue to candidates fallback
+      }
+    }
+
+    const candidates = Array.isArray(response.candidates)
+      ? response.candidates
+      : Array.isArray(result.candidates)
+        ? result.candidates
+        : [];
+
+    const joined = candidates.map(extractTextFromCandidate).filter(Boolean).join(' ').trim();
+    if (joined) return joined;
+  }
+
+  if (Array.isArray(result.candidates)) {
+    const joined = result.candidates.map(extractTextFromCandidate).filter(Boolean).join(' ').trim();
+    if (joined) return joined;
+  }
+
   return '';
 }
 
@@ -1165,13 +1209,12 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     // Protect against model hallucinations: if the model claims a booking ("ya quedó agendada", "tu cita quedó...", etc.)
     // but we do NOT have a confirmed fecha (neither in leadData nor in session.leadSnapshot), remove those assertions aggressively.
     try {
-      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
+      const bookingClaimPattern = /\b(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está|ha\s+quedado)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b|\b(?:tu\s+cita|la\s+cita)\s+(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b/i;
       const hasBookingClaim = bookingClaimPattern.test(texto || '');
       const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
       if (hasBookingClaim && !hasConfirmedDate) {
-        // Remove any sentence that mentions 'cita' or booking verbs to be conservative
         const sentences = (texto || '').split(/[\.\?!]+/).map(s => s.trim()).filter(Boolean);
-        const filtered = sentences.filter(s => !/\b(cita|qued[oó]|agendad|agendar|reservad|programad)\b/i.test(s));
+        const filtered = sentences.filter(s => !/\b(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está|ha\s+quedado)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b|\b(?:tu\s+cita|la\s+cita)\s+(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b/i.test(s));
         texto = (filtered.join('. ') || '').trim();
         if (!texto) texto = 'Gracias por tu mensaje. ¿Qué día y a qué hora prefieres para la cita?';
       }
@@ -1185,9 +1228,9 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
       texto = sanitizeModelTextOutput(texto);
     }
 
-    // Final safety net: if texto still contains booking claims but we have no confirmed fecha, replace with a neutral follow-up
+    // Final safety net: if texto still contains explicit booking confirmation claims but we have no confirmed fecha, replace with a neutral follow-up
     try {
-      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
+      const bookingClaimPattern = /\b(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está|ha\s+quedado)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b|\b(?:tu\s+cita|la\s+cita)\s+(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b/i;
       const hasBookingClaim = bookingClaimPattern.test(texto || '');
       const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
       if (hasBookingClaim && !hasConfirmedDate) {
