@@ -21,15 +21,25 @@ router.get('/webhook', (req, res) => {
 
 // POST /webhook: Respond 200 immediately to Meta, then process asynchronously.
 router.post('/webhook', express.raw({ type: 'application/json' }), rateLimiter(), async (req, res, next) => {
-  // Send immediate ACK to Meta to avoid retries/timeouts
   try {
-    res.status(200).send('EVENT_RECEIVED');
+    const rawBody = req.body && Buffer.isBuffer(req.body) ? req.body.toString('utf8') : (req.body || '');
+    let parsedBody = null;
+    if (rawBody) {
+      try {
+        parsedBody = JSON.parse(rawBody);
+      } catch (err) {
+        parsedBody = rawBody;
+      }
+    }
+    console.log('[WEBHOOK BODY]:', JSON.stringify(parsedBody ?? rawBody ?? {}, null, 2));
   } catch (e) {
-    console.error('webhook route: failed to send immediate 200:', e && e.message ? e.message : e);
+    console.error('webhook route: failed to log body:', e && e.message ? e.message : e);
   }
 
+  // Send immediate ACK to Meta to avoid retries/timeouts.
+  res.sendStatus(200);
+
   // Continue processing in background without blocking the response.
-  // Use a safe mock response object so background processing cannot send headers after ACK.
   const safeRes = {
     headersSent: true,
     status() { return this; },
@@ -42,7 +52,6 @@ router.post('/webhook', express.raw({ type: 'application/json' }), rateLimiter()
 
   (async () => {
     try {
-      // Pass safeRes so the controller's attempts to write headers are no-ops.
       await webhookController(req, safeRes, next);
     } catch (err) {
       console.error('webhook route: background processing error', err && err.message ? err.message : err);
