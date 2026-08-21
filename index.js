@@ -6,6 +6,21 @@ import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 
+app.use('/webhook', (req, res, next) => {
+  const ts = new Date().toISOString();
+  console.log(`[${ts}] WEBHOOK INBOUND ${req.method} ${req.originalUrl}`);
+  if (req.query && Object.keys(req.query).length) {
+    console.log(`[${ts}] WEBHOOK QUERY`, JSON.stringify(req.query, null, 2));
+  }
+  if (req.body !== undefined) {
+    const rawBody = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : req.body;
+    console.log(`[${ts}] WEBHOOK BODY`, typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody, null, 2));
+  }
+  next();
+});
+
+app.use('/webhook', express.raw({ type: 'application/json' }));
+
 // Limpieza de archivos temporales huérfanos relacionados con leads.
 // Esto elimina archivos como leads.json.tmp o leads.test.json.tmp que podrían haber quedado si el proceso
 // se cayó mientras se escribía el archivo temporal. Se ejecuta al inicio y no bloquea el arranque en caso de error.
@@ -50,6 +65,10 @@ app.get('/', (req, res) => {
 // Health endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
+
+app.get('/ping', (req, res) => {
+  res.json({ ok: true, message: 'pong', timestamp: new Date().toISOString() });
 });
 
 app.listen(port, () => {
