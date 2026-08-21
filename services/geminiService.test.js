@@ -105,7 +105,7 @@ Perfecto, tu cita queda agendada.`);
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
     const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
     assert.ok(capturedRequest, 'generateContent should be called');
-    assert.equal(capturedRequest.systemInstruction.includes('Eres "Camila"'), true);
+    assert.equal(capturedRequest.systemInstruction.includes('Eres LUMINZU'), true);
     assert.ok(res.texto.includes('Hola'));
   });
 

@@ -69,7 +69,7 @@ function formatConversationHistory(history) {
         .join(' ')
         .trim();
 
-      const roleLabel = entry.role === 'user' ? 'Cliente' : 'Camila';
+      const roleLabel = entry.role === 'user' ? 'Cliente' : 'LUMINZU';
       return text ? `${roleLabel}: ${text}` : null;
     })
     .filter(Boolean)
