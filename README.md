@@ -18,8 +18,22 @@ Colocar un archivo .env en la raíz con al menos las siguientes variables (NO su
 - CLINIC_CONTACT_PHONE=
 - CLINIC_DOCTOR_NAME=equipo de LUMINZU Dent
 - PORT=3000
+- WHATSAPP_TOKEN=tu_token_de_meta_whatsapp  # token con scope whatsapp_business_management
+- WHATSAPP_WEBHOOK_VERIFY_TOKEN=tu_token_de_verificacion_del_webhook
 
 Este proyecto utiliza un loader propio (src/envLoader.js) que lee .env y asigna variables a process.env solo si no existen ya (respeta variables definidas por PM2/host). No se usa dotenv.
+
+Se incluye un script auxiliar para registrar (override) el webhook de la WABA contra una URL de callback. Instrucciones rápidas:
+
+1. Exportar las variables necesarias (o ponerlas en .env) antes de ejecutar:
+   - WHATSAPP_TOKEN
+   - WHATSAPP_WEBHOOK_VERIFY_TOKEN
+   - (Opcional) WABA_ID, CALLBACK_URL, GRAPH_VERSION
+
+2. Ejecutar desde la raíz del proyecto:
+   node override-webhook.mjs
+
+El script intentará conectar la callback URL directamente en la WABA y luego verificará el estado. Revisa las respuestas en consola para corregir permisos o scopes si Meta responde con errores (ej. falta whatsapp_business_management o permisos de Business Manager).
 
 Cómo correr el bot
 ------------------
