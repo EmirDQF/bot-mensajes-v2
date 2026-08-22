@@ -72,6 +72,53 @@ app.get('/ping', (req, res) => {
   res.json({ ok: true, message: 'pong', timestamp: new Date().toISOString() });
 });
 
+// One-time endpoint to restore WABA subscription from production (use with caution).
+// Optional protection: set RESTORE_WABA_KEY in env and call /api/restore-waba?key=<RESTORE_WABA_KEY>
+app.get('/api/restore-waba', async (req, res) => {
+  try {
+    const secret = process.env.RESTORE_WABA_KEY;
+    if (secret && req.query.key !== secret) {
+      return res.status(403).json({ error: 'Forbidden - invalid key' });
+    }
+
+    const wabaId = process.env.WABA_ID || '1363917525928617';
+    const token = process.env.WHATSAPP_TOKEN;
+    if (!token) {
+      console.error('[RESTORE WABA] Missing WHATSAPP_TOKEN');
+      return res.status(500).json({ error: 'WHATSAPP_TOKEN not set' });
+    }
+
+    console.log(`[RESTORE WABA] Triggering subscription POST for WABA ${wabaId}`);
+    const postRes = await fetch(`https://graph.facebook.com/v20.0/${wabaId}/subscribed_apps`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    });
+    const postText = await postRes.text();
+    let postJson = null;
+    try { postJson = JSON.parse(postText); } catch (e) { postJson = postText; }
+    console.log('[RESTORE WABA POST]:', postRes.status, postJson);
+
+    console.log('[RESTORE WABA] Verifying subscription with GET');
+    const getRes = await fetch(`https://graph.facebook.com/v20.0/${wabaId}/subscribed_apps`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const getText = await getRes.text();
+    let getJson = null;
+    try { getJson = JSON.parse(getText); } catch (e) { getJson = getText; }
+    console.log('[RESTORE WABA GET]:', getRes.status, getJson);
+
+    return res.status(200).json({ post: postJson, get: getJson });
+  } catch (error) {
+    console.error('[RESTORE WABA ERROR]:', error && error.message ? error.message : error);
+    return res.status(500).json({ error: error && error.message ? error.message : String(error) });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Express server listening on http://localhost:${port}`);
 });
