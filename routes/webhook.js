@@ -6,6 +6,24 @@ import whatsappService from '../services/whatsappService.js';
 
 const router = express.Router();
 
+const IMAGE_TAG_RE = /\[(?:ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*([^\]]+)\]/i;
+
+function extractImageTag(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(IMAGE_TAG_RE);
+  return match && match[1] ? match[1].trim() : null;
+}
+
+function stripImageTag(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text.replace(IMAGE_TAG_RE, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+function buildImageUrl(filename) {
+  const baseUrl = (process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/$/, '');
+  return `${baseUrl}/images/${encodeURIComponent(filename)}`;
+}
+
 router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -56,20 +74,35 @@ router.post('/', rateLimiter(), async (req, res) => {
     const remoteJid = `${from}@s.whatsapp.net`;
     const { texto } = await obtenerRespuestaIA(remoteJid, text);
     const replyText = texto || 'Gracias por tu mensaje.';
+    const imageName = extractImageTag(replyText);
+    const cleanedText = stripImageTag(replyText);
 
     try {
+      const payload = imageName
+        ? {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: from,
+            type: 'image',
+            image: {
+              link: buildImageUrl(imageName),
+              caption: cleanedText || 'Aquí tienes la imagen que pediste.',
+            },
+          }
+        : {
+            messaging_product: 'whatsapp',
+            to: from,
+            type: 'text',
+            text: { body: cleanedText || replyText },
+          };
+
       const apiRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${process.env.WHATSAPP_TOKEN || config.whatsapp?.token || ''}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: from,
-          type: 'text',
-          text: { body: replyText },
-        }),
+        body: JSON.stringify(payload),
       });
 
       const responseText = await apiRes.text();
@@ -81,12 +114,7 @@ router.post('/', rateLimiter(), async (req, res) => {
           phone_number_id: phoneNumberId,
           to: from,
           body: responseText,
-          payload: {
-            messaging_product: 'whatsapp',
-            to: from,
-            type: 'text',
-            text: { body: replyText },
-          },
+          payload,
         });
       }
     } catch (sendErr) {

@@ -5,6 +5,10 @@ import path from 'path';
 import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
+const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL || 'https://bot-mensajes-dental.onrender.com';
+
+app.use('/images', express.static(path.join(process.cwd(), 'LUMINZU')));
+app.locals.baseUrl = baseUrl.replace(/\/$/, '');
 
 app.use((req, res, next) => {
   const now = new Date().toISOString();
