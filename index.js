@@ -119,6 +119,55 @@ app.get('/api/restore-waba', async (req, res) => {
   }
 });
 
+// One-time endpoint to register a Phone Number ID with Meta Cloud API (use with caution).
+// Optional protection: set REGISTER_PHONE_KEY in env and call /api/register-phone?key=<REGISTER_PHONE_KEY>
+app.get('/api/register-phone', async (req, res) => {
+  try {
+    const secret = process.env.REGISTER_PHONE_KEY;
+    if (secret && req.query.key !== secret) {
+      return res.status(403).json({ error: 'Forbidden - invalid key' });
+    }
+
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || '1337494962770981';
+    const token = process.env.WHATSAPP_TOKEN;
+    if (!token) {
+      console.error('[REGISTER PHONE] Missing WHATSAPP_TOKEN');
+      return res.status(500).json({ error: 'WHATSAPP_TOKEN not set' });
+    }
+
+    const pin = process.env.WHATSAPP_REGISTER_PIN; // optional
+
+    console.log(`[REGISTER PHONE] Triggering register POST for phone ${phoneId}`);
+    const postRes = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/register`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ messaging_product: 'whatsapp', ...(pin ? { pin } : {}) })
+    });
+    const postText = await postRes.text();
+    let postJson = null;
+    try { postJson = JSON.parse(postText); } catch (e) { postJson = postText; }
+    console.log('[REGISTER PHONE POST]:', postRes.status, postJson);
+
+    console.log('[REGISTER PHONE] Fetching phone status with GET');
+    const getRes = await fetch(`https://graph.facebook.com/v20.0/${phoneId}?fields=verified_name,code_verification_status,status`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const getText = await getRes.text();
+    let getJson = null;
+    try { getJson = JSON.parse(getText); } catch (e) { getJson = getText; }
+    console.log('[REGISTER PHONE GET]:', getRes.status, getJson);
+
+    return res.status(200).json({ post: postJson, get: getJson });
+  } catch (error) {
+    console.error('[REGISTER PHONE ERROR]:', error && error.message ? error.message : error);
+    return res.status(500).json({ error: error && error.message ? error.message : String(error) });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Express server listening on http://localhost:${port}`);
 });
