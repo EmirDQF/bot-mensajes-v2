@@ -173,6 +173,29 @@ app.get('/api/register-phone', async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Express server listening on http://localhost:${port}`);
+
+  // List registered routes for debugging (will appear in Render logs)
+  try {
+    const routes = [];
+    app._router.stack.forEach((middleware) => {
+      if (middleware.route) {
+        // routes registered directly on the app
+        const methods = Object.keys(middleware.route.methods).join(',').toUpperCase();
+        routes.push(`${methods} ${middleware.route.path}`);
+      } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
+        // router middleware
+        middleware.handle.stack.forEach((handler) => {
+          if (handler.route) {
+            const methods = Object.keys(handler.route.methods).join(',').toUpperCase();
+            routes.push(`${methods} ${handler.route.path}`);
+          }
+        });
+      }
+    });
+    console.log('[ROUTES REGISTERED]:\n' + routes.join('\n'));
+  } catch (e) {
+    console.warn('Could not list routes:', e && e.message ? e.message : e);
+  }
 });
 
 process.on('uncaughtException', (error) => {
