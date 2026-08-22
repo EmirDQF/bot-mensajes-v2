@@ -27,14 +27,25 @@ const IMAGE_MAP = {
   'ninos': 'LUMINZU/odontopediatria.jpeg',
   'kids': 'LUMINZU/odontopediatria.jpeg',
   'resinas_kids': 'LUMINZU/odontopediatria.jpeg',
-  'ubicacion': 'LUMINZU/ubicacion.jpeg',
-  'mapa': 'LUMINZU/ubicacion.jpeg',
-  'croquis': 'LUMINZU/ubicacion.jpeg',
-  'fachada': 'LUMINZU/fachada.jpeg',
-  'local': 'LUMINZU/fachada.jpeg',
-  // Before/after ortodoncia assets (visual showcase)
-  'ortodoncia_general': 'LUMINZU/ortodoncia_antes_despues.jpeg',
-  'ortodoncia_kids': 'LUMINZU/ortodoncia_antes_despues1.jpeg'
+  'ubicacion': 'public/ubicacion.jpg',
+  'ubicacion.jpg': 'public/ubicacion.jpg',
+  'mapa': 'public/ubicacion.jpg',
+  'croquis': 'public/ubicacion.jpg',
+  'fachada': 'public/ubicacion.jpg',
+  'local': 'public/ubicacion.jpg',
+  'antes_despues_ortodoncia': 'public/antes_despues_ortodoncia.jpg',
+  'antes_despues_ortodoncia.jpg': 'public/antes_despues_ortodoncia.jpg',
+  'ortodoncia_general': 'public/antes_despues_ortodoncia.jpg',
+  'ortodoncia_kids': 'public/antes_despues_ortodoncia.jpg',
+  'antes_despues_implantes': 'public/antes_despues_implantes.jpg',
+  'antes_despues_implantes.jpg': 'public/antes_despues_implantes.jpg',
+  'antes_despues_carillas': 'public/antes_despues_carillas.jpg',
+  'antes_despues_carillas.jpg': 'public/antes_despues_carillas.jpg',
+  'promociones': 'public/promociones.jpg',
+  'promociones.jpg': 'public/promociones.jpg',
+  // Legacy clinic assets
+  'ortodoncia_antes_despues': 'public/antes_despues_ortodoncia.jpg',
+  'carillas_antes_despues': 'public/antes_despues_carillas.jpg'
 };
 
 function maskPhone(phone) {
@@ -65,8 +76,10 @@ export function resolveImageAssetPath(key) {
 
 export function parseSendImageTag(text) {
   if (!text || typeof text !== 'string') return null;
-  // allow spaces/newlines between token and key
-  const match = text.match(/\[SEND_IMAGE:\s*([a-z0-9_\-]+)\]/i);
+
+  const match = text.match(/\[(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*:\s*([a-z0-9_\.\-]+)\]/i)
+    || text.match(/\[(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*=\s*([a-z0-9_\.\-]+)\]/i);
+
   if (!match || !match[1]) return null;
   const normalizedKey = resolveImageAssetKey(match[1]);
   return normalizedKey;
@@ -74,7 +87,11 @@ export function parseSendImageTag(text) {
 
 export function stripSendImageTag(text) {
   if (!text || typeof text !== 'string') return text;
-  return text.replace(/\s*\[\s*SEND_IMAGE\s*:\s*[a-z0-9_\-]+\s*\]\s*/gis, ' ').replace(/\s{2,}/g, ' ').trim();
+  return text
+    .replace(/\s*\[\s*(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*:\s*[a-z0-9_\.\-]+\s*\]\s*/gis, ' ')
+    .replace(/\s*\[\s*(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*=\s*[a-z0-9_\.\-]+\s*\]\s*/gis, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 // Parse and strip BOOK_APPOINTMENT tag (flexible spaces/newlines)
