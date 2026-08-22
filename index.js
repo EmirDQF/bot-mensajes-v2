@@ -7,7 +7,7 @@ import errorHandler from './middleware/errorHandler.js';
 const app = express();
 
 app.use((req, res, next) => {
-  console.log(`[INCOMING HTTP] ${req.method} ${req.originalUrl}`);
+  console.log(`[HTTP INCOMING] ${new Date().toISOString()} ${req.method} ${req.originalUrl}`);
   next();
 });
 
