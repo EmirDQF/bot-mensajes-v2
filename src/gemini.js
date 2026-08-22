@@ -393,15 +393,33 @@ function parseFechaHora(textoFecha, fechaReferencia = new Date()) {
   return null;
 }
 
+function normalizeHistoryText(rawText) {
+  if (!rawText || typeof rawText !== 'string') return 'Gracias por tu mensaje. Te ayudamos con tu solicitud.';
+  const cleaned = rawText
+    .replace(/<<<LEAD_JSON>>>[\s\S]*?(?:<<<END_LEAD_JSON>>>|$)/gi, '')
+    .replace(/\[(?:AGENDAR_CITA|BOOK_APPOINTMENT|ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*[^\]]*\]/gi, '')
+    .replace(/\{\s*"(?:nombre|telefono|distrito|fechaHora|fecha_hora|motivo)"\s*:/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned || 'Gracias por tu mensaje. Te ayudamos con tu solicitud.';
+}
+
 export async function obtenerRespuestaIA(jid, mensajeUsuario) {
   const sessionEntry = getOrCreateSession(jid);
   try {
-    const result = await sessionEntry.chat.sendMessage(mensajeUsuario);
-    const texto = extractTextFromCandidate(result?.response?.candidates?.[0]);
+    const waId = getSessionId(jid);
+    const contextualMessage = `Número de WhatsApp del paciente: ${waId}\n${mensajeUsuario}`;
+    const result = await sessionEntry.chat.sendMessage(contextualMessage);
+    const rawText = extractTextFromCandidate(result?.response?.candidates?.[0]) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';;
 
-    sessionEntry.history.push({ role: 'user', parts: [{ text: mensajeUsuario }] });
-    if (texto) {
-      sessionEntry.history.push({ role: 'model', parts: [{ text: texto }] });
+    const safeText = normalizeHistoryText(rawText);
+    if (rawText && rawText !== safeText) {
+      console.error('src/gemini.js: raw model output rejected from history to avoid loop', { rawText: rawText.slice(0, 2000) });
+    }
+
+    sessionEntry.history.push({ role: 'user', parts: [{ text: contextualMessage }] });
+    if (rawText) {
+      sessionEntry.history.push({ role: 'model', parts: [{ text: safeText }] });
     }
     sessionEntry.history = sessionEntry.history.slice(-MAX_HISTORY_MESSAGES);
     resetSessionTimer(getSessionId(jid), sessionEntry);
@@ -427,8 +445,9 @@ export async function obtenerRespuestaIA(jid, mensajeUsuario) {
       }
     }
 
+    const finalText = normalizeHistoryText(rawText);
     return {
-      texto: texto || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?',
+      texto: finalText,
       leadResult,
     };
   } catch (error) {

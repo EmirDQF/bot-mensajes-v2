@@ -972,6 +972,36 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1, opti
   throw lastErr || new Error('client failed');
 }
 
+function safeHistoryText(rawText, fallbackMessage = 'Gracias por tu mensaje. Te ayudamos con tu solicitud.') {
+  if (!rawText || typeof rawText !== 'string') return fallbackMessage;
+  const cleaned = sanitizeModelTextOutput(rawText).trim();
+  if (cleaned) return cleaned;
+  const withoutStructured = rawText
+    .replace(/<<<LEAD_JSON>>>[\s\S]*?(?:<<<END_LEAD_JSON>>>|$)/gi, '')
+    .replace(/\[(?:AGENDAR_CITA|BOOK_APPOINTMENT|ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*[^\]]*\]/gi, '')
+    .replace(/\{\s*"(?:nombre|telefono|distrito|fechaHora|fecha_hora|motivo)"\s*:/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return withoutStructured || fallbackMessage;
+}
+
+function shouldRetryStructuredParse(rawText) {
+  if (!rawText || typeof rawText !== 'string') return false;
+  return /<<<LEAD_JSON>>>|\[AGENDAR_CITA:|\[BOOK_APPOINTMENT:|\{\s*"(?:nombre|telefono|distrito|fechaHora|fecha_hora|motivo)"\s*:/i.test(rawText);
+}
+
+function parseStructuredAppointmentTag(rawText) {
+  if (!rawText || typeof rawText !== 'string') return null;
+  const match = rawText.match(/\[(?:AGENDAR_CITA|BOOK_APPOINTMENT)\s*:\s*({[\s\S]*?})\s*\]/i);
+  if (!match || !match[1]) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch (e) {
+    console.error('geminiService: failed to parse structured appointment tag', { rawText: rawText.slice(0, 2000), error: e && e.message ? e.message : e });
+    return null;
+  }
+}
+
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const client = options.client;
   const skipDebounce = Boolean(options.skipDebounce);
@@ -993,8 +1023,22 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid, { ...options, session });
 
   try {
-    const result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
-    const rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
+    let result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
+    let rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
+    if (shouldRetryStructuredParse(rawModelText) && !options._structuredRetry) {
+      console.error('geminiService: structured model output needs retry; rawText=', rawModelText.slice(0, 2000));
+      try {
+        const retryInstruction = 'Tu respuesta anterior no pudo procesarse. Responde solo en texto plano, sin JSON ni etiquetas, confirmando solo los datos que ya tienes y sin inventar nada.';
+        const retryRequest = buildGeminiRequest(client, retryInstruction, session.history, jid, { ...options, session, _structuredRetry: true });
+        const retryResult = await callClientWithRetries(client, retryRequest, 1, { ...options, _structuredRetry: true });
+        const retryText = extractTextFromResult(retryResult);
+        if (retryText && retryText.trim()) {
+          rawModelText = retryText;
+        }
+      } catch (retryErr) {
+        console.error('geminiService: structured retry failed', retryErr && retryErr.message ? retryErr.message : retryErr);
+      }
+    }
     let rawText = rawModelText;
     // sanitize any JSON-wrapped or code-fenced responses from the model for user output only
     const sanitizedRawText = sanitizeModelTextOutput(rawModelText);
@@ -1022,13 +1066,28 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
           leadData = null;
         }
 
-        // Push the model text into history and return early to avoid any re-persistence or re-notification.
-        session.history.push({ role: 'model', parts: [{ text: rawText }] });
+        // Push a safe plain-text version to history so a failed structured parse cannot poison future turns.
+        const safeBookedText = safeHistoryText(rawText, 'Gracias por tu mensaje. Ya tengo tu solicitud registrada.');
+        session.history.push({ role: 'model', parts: [{ text: safeBookedText }] });
         session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
         const sid = getSessionId(jid);
         failureCounts.set(sid, 0);
         const texto = sanitizeModelTextOutput(rawText);
         return { texto, leadData, skipLeadPersistence: true };
+      }
+    }
+
+    const appointmentTagData = parseStructuredAppointmentTag(rawText);
+    if (appointmentTagData && typeof appointmentTagData === 'object') {
+      const fallbackLead = {
+        nombre: appointmentTagData.nombre || appointmentTagData.name || null,
+        telefono: appointmentTagData.telefono || appointmentTagData.phone || null,
+        distrito: appointmentTagData.distrito || appointmentTagData.district || null,
+        fechaHora: appointmentTagData.fecha || appointmentTagData.fechaHora || appointmentTagData.fecha_hora || null,
+      };
+      leadData = finalizeLeadData(fallbackLead);
+      if (!leadData || (!leadData.nombre && !leadData.telefono && !leadData.distrito && !leadData.fechaHora)) {
+        leadData = null;
       }
     }
 
@@ -1144,7 +1203,11 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
       }
     }
 
-    session.history.push({ role: 'model', parts: [{ text: rawText }] });
+    const safeHistoryPlainText = safeHistoryText(rawText, 'Gracias por tu mensaje. Te ayudamos con tu solicitud.');
+    if (typeof rawText === 'string' && shouldRetryStructuredParse(rawText)) {
+      console.error('geminiService: raw model output was structured but could not be parsed safely; storing plain text only in history.', { rawText: rawText.slice(0, 2000) });
+    }
+    session.history.push({ role: 'model', parts: [{ text: safeHistoryPlainText }] });
     if (leadData && leadData.nombre && leadData.distrito && leadData.fechaHora && !session.history.some((h) => (h.parts || []).some((p) => typeof p.text === 'string' && p.text.includes('[SISTEMA - CITA REGISTRADA VERIFICADA:')))) {
       session.history.push({
         role: 'model',
