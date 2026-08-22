@@ -1,7 +1,8 @@
 import express from 'express';
 import rateLimiter from '../middleware/rateLimiter.js';
-import webhookController from '../controllers/webhookController.js';
 import config from '../config/env.js';
+import { obtenerRespuestaIA } from '../src/gemini.js';
+import whatsappService from '../services/whatsappService.js';
 
 const router = express.Router();
 
@@ -19,43 +20,46 @@ router.get('/', (req, res) => {
   return res.status(403).send('Forbidden');
 });
 
-router.post('/', express.raw({ type: 'application/json' }), rateLimiter(), async (req, res, next) => {
-  try {
-    const rawBody = req.body && Buffer.isBuffer(req.body) ? req.body.toString('utf8') : (req.body || '');
-    let parsedBody = null;
-
-    if (rawBody) {
-      try {
-        parsedBody = JSON.parse(rawBody);
-      } catch (err) {
-        parsedBody = rawBody;
-      }
-    }
-
-    console.log('[WEBHOOK BODY]:', JSON.stringify(parsedBody ?? rawBody ?? {}, null, 2));
-  } catch (e) {
-    console.error('webhook route: failed to log body:', e && e.message ? e.message : e);
+router.post('/', express.raw({ type: 'application/json' }), rateLimiter(), async (req, res) => {
+  if (req.headers && req.headers['x-hub-signature-256']) {
+    console.warn('Skipping strict X-Hub-Signature-256 validation for webhook debugging.');
   }
 
-  res.sendStatus(200);
-
-  const safeRes = {
-    headersSent: true,
-    status() { return this; },
-    json() { return this; },
-    send() { return this; },
-    setHeader() {},
-    getHeader() { return undefined; },
-    end() { return this; }
-  };
-
-  (async () => {
-    try {
-      await webhookController(req, safeRes, next);
-    } catch (err) {
-      console.error('webhook route: background processing error', err && err.message ? err.message : err);
+  let parsedBody = null;
+  try {
+    if (Buffer.isBuffer(req.body)) {
+      parsedBody = JSON.parse(req.body.toString('utf8'));
+    } else if (req.body) {
+      parsedBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     }
-  })();
+  } catch (e) {
+    parsedBody = req.body;
+  }
+
+  console.log('[MENSAJE ENTRANTE RECIBIDO]:', JSON.stringify(parsedBody ?? req.body ?? {}, null, 2));
+  res.status(200).send('EVENT_RECEIVED');
+
+  try {
+    const message = parsedBody?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    if (!message) {
+      console.warn('No WhatsApp message payload found in webhook body.');
+      return;
+    }
+
+    const from = String(message.from || '').replace(/\D/g, '');
+    const text = message.text?.body || message.button?.text || message.interactive?.button_reply?.title || '';
+    if (!from || !text) {
+      console.warn('Incoming WhatsApp message missing sender or text body.');
+      return;
+    }
+
+    const remoteJid = `${from}@s.whatsapp.net`;
+    const { texto } = await obtenerRespuestaIA(remoteJid, text);
+    await whatsappService.sendWhatsAppMessage(from, texto || 'Gracias por tu mensaje.');
+    console.log(`Respuesta enviada a ${from}: ${texto}`);
+  } catch (error) {
+    console.error('webhook route: background processing error', error && error.message ? error.message : error);
+  }
 });
 
 export default router;

@@ -11,11 +11,6 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use((req, res, next) => {
-  console.log(`[HTTP INCOMING] ${new Date().toISOString()} ${req.method} ${req.originalUrl}`);
-  next();
-});
-
 app.use('/webhook', (req, res, next) => {
   const ts = new Date().toISOString();
   console.log(`[${ts}] WEBHOOK INBOUND ${req.method} ${req.originalUrl}`);
@@ -25,6 +20,7 @@ app.use('/webhook', (req, res, next) => {
   next();
 });
 
+app.use('/webhook', webhookRouter);
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; }, limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
