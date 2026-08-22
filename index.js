@@ -6,6 +6,9 @@ import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 
+// Use express.json for normal routes; keep raw for /webhook
+app.use(express.json());
+
 app.use((req, res, next) => {
   console.log(`[HTTP INCOMING] ${new Date().toISOString()} ${req.method} ${req.originalUrl}`);
   next();
