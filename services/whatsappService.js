@@ -6,6 +6,8 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.WHATSAPP_TIMEOUT_MS || 8000);
 const DEFAULT_MAX_RETRIES = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
 const BACKOFF_MS = [500, 1500]; // exponential/backoff sequence for retries
 
+const PUBLIC_IMAGE_BASE_URL = (process.env.PUBLIC_IMAGE_BASE_URL || 'https://bot-mensajes-dental.onrender.com/public').replace(/\/$/, '');
+
 const IMAGE_MAP = {
   'promo_consulta': 'LUMINZU/promo_consulta.jpeg',
   'promo': 'LUMINZU/promo_consulta.jpeg',
@@ -27,25 +29,27 @@ const IMAGE_MAP = {
   'ninos': 'LUMINZU/odontopediatria.jpeg',
   'kids': 'LUMINZU/odontopediatria.jpeg',
   'resinas_kids': 'LUMINZU/odontopediatria.jpeg',
-  'ubicacion': 'public/ubicacion.jpg',
-  'ubicacion.jpg': 'public/ubicacion.jpg',
-  'mapa': 'public/ubicacion.jpg',
-  'croquis': 'public/ubicacion.jpg',
-  'fachada': 'public/ubicacion.jpg',
-  'local': 'public/ubicacion.jpg',
-  'antes_despues_ortodoncia': 'public/antes_despues_ortodoncia.jpg',
-  'antes_despues_ortodoncia.jpg': 'public/antes_despues_ortodoncia.jpg',
-  'ortodoncia_general': 'public/antes_despues_ortodoncia.jpg',
-  'ortodoncia_kids': 'public/antes_despues_ortodoncia.jpg',
-  'antes_despues_implantes': 'public/antes_despues_implantes.jpg',
-  'antes_despues_implantes.jpg': 'public/antes_despues_implantes.jpg',
-  'antes_despues_carillas': 'public/antes_despues_carillas.jpg',
-  'antes_despues_carillas.jpg': 'public/antes_despues_carillas.jpg',
-  'promociones': 'public/promociones.jpg',
-  'promociones.jpg': 'public/promociones.jpg',
+  'ubicacion': `${PUBLIC_IMAGE_BASE_URL}/ubicacion.jpg`,
+  'ubicacion.jpg': `${PUBLIC_IMAGE_BASE_URL}/ubicacion.jpg`,
+  'mapa': `${PUBLIC_IMAGE_BASE_URL}/ubicacion.jpg`,
+  'croquis': `${PUBLIC_IMAGE_BASE_URL}/ubicacion.jpg`,
+  'fachada': `${PUBLIC_IMAGE_BASE_URL}/ubicacion.jpg`,
+  'local': `${PUBLIC_IMAGE_BASE_URL}/ubicacion.jpg`,
+  'antes_despues_ortodoncia': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_ortodoncia.jpg`,
+  'antes_despues_ortodoncia.jpg': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_ortodoncia.jpg`,
+  'ortodoncia_general': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_ortodoncia.jpg`,
+  'ortodoncia_kids': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_ortodoncia.jpg`,
+  'antes_despues_implantes': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_implantes.jpg`,
+  'antes_despues_implantes.jpg': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_implantes.jpg`,
+  'antes_despues_carillas': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_carillas.jpg`,
+  'antes_despues_carillas.jpg': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_carillas.jpg`,
+  'promociones': `${PUBLIC_IMAGE_BASE_URL}/promociones.jpg`,
+  'promociones.jpg': `${PUBLIC_IMAGE_BASE_URL}/promociones.jpg`,
+  'antes_despues_blanqueamiento': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_blanqueamiento.jpg`,
+  'antes_despues_blanqueamiento.jpg': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_blanqueamiento.jpg`,
   // Legacy clinic assets
-  'ortodoncia_antes_despues': 'public/antes_despues_ortodoncia.jpg',
-  'carillas_antes_despues': 'public/antes_despues_carillas.jpg'
+  'ortodoncia_antes_despues': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_ortodoncia.jpg`,
+  'carillas_antes_despues': `${PUBLIC_IMAGE_BASE_URL}/antes_despues_carillas.jpg`
 };
 
 function maskPhone(phone) {
@@ -92,6 +96,23 @@ export function stripSendImageTag(text) {
     .replace(/\s*\[\s*(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*=\s*[a-z0-9_\.\-]+\s*\]\s*/gis, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+export function resolvePublicImageUrl(imageKey) {
+  if (!imageKey || typeof imageKey !== 'string') return null;
+  const trimmed = imageKey.trim();
+  if (!trimmed) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  const normalizedKey = trimmed.toLowerCase();
+  const mappedValue = IMAGE_MAP[normalizedKey] || IMAGE_MAP[normalizedKey.replace(/\.(jpg|jpeg|png|gif|webp)$/i, '')];
+  if (!mappedValue) return null;
+
+  if (/^https?:\/\//i.test(mappedValue)) return mappedValue;
+  return `${PUBLIC_IMAGE_BASE_URL}/${mappedValue.replace(/^\/?public\//i, '').replace(/^\/?/, '')}`;
 }
 
 // Parse and strip BOOK_APPOINTMENT tag (flexible spaces/newlines)
@@ -158,7 +179,55 @@ export async function sendWhatsAppImageMessage(toPhone, imageKey, text = '', opt
   const fetchImpl = options.fetchImpl || (globalThis.fetch && globalThis.fetch.bind(globalThis));
   if (!fetchImpl) throw new Error('No fetch implementation provided');
 
+  const directUrl = /^https?:\/\//i.test(String(imageKey || '')) ? String(imageKey) : resolvePublicImageUrl(String(imageKey || ''));
   const resolvedKey = resolveImageAssetKey(imageKey);
+  const phoneNumberId = config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || '';
+  const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
+  const sendUrl = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${phoneNumberId}/messages`;
+
+  if (directUrl) {
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: toPhone,
+      type: 'image',
+      image: {
+        link: directUrl,
+        ...(text && text.trim() ? { caption: text.trim() } : {}),
+      },
+    };
+
+    try {
+      const res = await fetchImpl(sendUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseBody = res && typeof res.text === 'function' ? await res.text() : '';
+      let json = null;
+      try { json = responseBody ? JSON.parse(responseBody) : null; } catch (e) { json = null; }
+
+      if (!res || !res.ok) {
+        const status = res && res.status ? res.status : 'unknown';
+        const message = json && json.error ? JSON.stringify(json.error) : responseBody || 'unknown error';
+        console.error('Meta WhatsApp image send error:', { status, url: sendUrl, to: toPhone, payload, body: json || responseBody, message });
+        throw new Error(`WhatsApp image send failed (${status}): ${message}`);
+      }
+
+      if (text && text.trim().length > 0) {
+        return json || { ok: true };
+      }
+      return json || { ok: true };
+    } catch (error) {
+      console.error('Meta WhatsApp direct image send exception:', error && error.message ? error.message : error);
+      throw error;
+    }
+  }
+
   if (!resolvedKey) {
     throw new Error(`Unsupported WhatsApp image key: ${imageKey}`);
   }
@@ -167,12 +236,15 @@ export async function sendWhatsAppImageMessage(toPhone, imageKey, text = '', opt
   try {
     await fs.access(assetPath);
   } catch (e) {
-    console.warn(`WhatsApp image asset not found for key ${resolvedKey}: ${assetPath}`);
+    console.warn(`WhatsApp image asset not found for key ${resolvedKey}: ${assetPath}; falling back to public URL mapping`);
+    const directFallback = resolvePublicImageUrl(resolvedKey);
+    if (directFallback) {
+      return await sendWhatsAppImageMessage(toPhone, directFallback, text, options);
+    }
     return null;
   }
 
   const mediaId = await uploadWhatsAppImage(assetPath, { ...options, fetchImpl });
-  const sendUrl = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const payload = {
     messaging_product: 'whatsapp',
     to: toPhone,
@@ -184,7 +256,7 @@ export async function sendWhatsAppImageMessage(toPhone, imageKey, text = '', opt
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + (config.whatsapp?.token || process.env.WHATSAPP_TOKEN || ''),
+      Authorization: 'Bearer ' + token,
     },
     body: JSON.stringify(payload),
   });
