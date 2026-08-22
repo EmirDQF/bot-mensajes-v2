@@ -40,13 +40,14 @@ router.post('/', rateLimiter(), async (req, res) => {
     }
 
     const from = String(message?.from || '').replace(/\D/g, '');
+    const phoneNumberId = String(value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || '').trim();
     const msgId = message?.id || 'unknown';
     const text = message?.text?.body || message?.button?.text || message?.interactive?.button_reply?.title || '';
 
-    console.log('[WEBHOOK MESSAGE] from=', from, 'id=', msgId, 'text=', text);
+    console.log('[WEBHOOK MESSAGE] from=', from, 'phone_number_id=', phoneNumberId, 'id=', msgId, 'text=', text);
 
-    if (!from || !text) {
-      console.warn('Missing required message.from or message.text.body in incoming webhook.');
+    if (!from || !text || !phoneNumberId) {
+      console.warn('Missing required webhook fields: from, text, or phone_number_id.');
       return res.sendStatus(200);
     }
 
@@ -54,7 +55,48 @@ router.post('/', rateLimiter(), async (req, res) => {
 
     const remoteJid = `${from}@s.whatsapp.net`;
     const { texto } = await obtenerRespuestaIA(remoteJid, text);
-    await whatsappService.sendWhatsAppMessage(from, texto || 'Gracias por tu mensaje.');
+    const replyText = texto || 'Gracias por tu mensaje.';
+
+    try {
+      const apiRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN || config.whatsapp?.token || ''}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: from,
+          type: 'text',
+          text: { body: replyText },
+        }),
+      });
+
+      const responseText = await apiRes.text();
+      console.log('[META OUTBOUND RESPONSE]', apiRes.status, responseText);
+
+      if (!apiRes.ok) {
+        console.error('[META OUTBOUND ERROR]', {
+          status: apiRes.status,
+          phone_number_id: phoneNumberId,
+          to: from,
+          body: responseText,
+          payload: {
+            messaging_product: 'whatsapp',
+            to: from,
+            type: 'text',
+            text: { body: replyText },
+          },
+        });
+      }
+    } catch (sendErr) {
+      console.error('[META OUTBOUND EXCEPTION]', {
+        message: sendErr?.message || String(sendErr),
+        stack: sendErr?.stack,
+        to: from,
+        phone_number_id: phoneNumberId,
+      });
+    }
   } catch (err) {
     console.error('[ERROR_PROCESAMIENTO_WEBHOOK]:', err);
     try {
