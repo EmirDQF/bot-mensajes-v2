@@ -11,6 +11,11 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use((req, res, next) => {
+  console.log(`[HTTP INCOMING] ${new Date().toISOString()} ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 app.use('/webhook', (req, res, next) => {
   const ts = new Date().toISOString();
   console.log(`[${ts}] WEBHOOK INBOUND ${req.method} ${req.originalUrl}`);
@@ -19,6 +24,9 @@ app.use('/webhook', (req, res, next) => {
   }
   next();
 });
+
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; }, limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // Limpieza de archivos temporales huérfanos relacionados con leads.
 // Esto elimina archivos como leads.json.tmp o leads.test.json.tmp que podrían haber quedado si el proceso
@@ -255,15 +263,20 @@ app.get('/api/restore-waba', async (req, res) => {
   }
 });
 
-// Configure Cloud API webhook routes (if WHATSAPP_TOKEN/etc are set)
-app.use('/', webhookRouter);
-app.use(express.json({ limit: '1mb' }));
+app.use('/webhook', webhookRouter);
+app.get('/', (req, res) => {
+  res.send('BotDental Lima API is running');
+});
 
 // Mount centralized error handler at the end of middleware chain
 app.use(errorHandler);
 
-// No longer using Baileys socket — Cloud API uses webhooks + HTTP calls.
 app.listen(port, () => {
-  console.log(`Express server listening on http://localhost:${port}`);
-  listRegisteredRoutes();
+  console.log(`Express server listening on port ${port}`);
+  if (app._router && app._router.stack) {
+    const routes = app._router.stack
+      .filter((r) => r && r.route)
+      .map((r) => `${Object.keys(r.route.methods).join(',').toUpperCase()} ${r.route.path}`);
+    console.log('[ROUTES REGISTERED]:', routes);
+  }
 });
