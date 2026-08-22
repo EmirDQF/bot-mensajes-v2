@@ -262,6 +262,7 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
         const err = new Error(`WhatsApp API returned status ${status}`);
         err.status = status;
         lastError = err;
+        console.error('Meta WhatsApp send error:', { to: masked, status, response: txt, url });
         console.error(`WhatsApp send failed to ${masked}: ${status} ${txt}`);
         throw err;
       }

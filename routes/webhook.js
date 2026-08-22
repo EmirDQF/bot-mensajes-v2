@@ -27,8 +27,6 @@ router.post('/', express.raw({ type: 'application/json' }), rateLimiter(), async
     console.warn('Skipping strict X-Hub-Signature-256 validation for webhook debugging.');
   }
 
-  res.status(200).send('EVENT_RECEIVED');
-
   try {
     const parsedBody = (() => {
       if (!req.body) return {};
@@ -44,13 +42,14 @@ router.post('/', express.raw({ type: 'application/json' }), rateLimiter(), async
 
     console.log('[MENSAJE ENTRANTE RECIBIDO]:', JSON.stringify(parsedBody, null, 2));
 
-    const entry = req.body?.entry?.[0] || parsedBody?.entry?.[0];
+    const entry = parsedBody?.entry?.[0];
     const changes = entry?.changes?.[0];
-    const message = changes?.value?.messages?.[0];
+    const value = changes?.value;
+    const message = value?.messages?.[0];
 
-    if (!message || changes?.value?.statuses) {
+    if (!message || value?.statuses) {
       console.log('Ignoring status notification or empty message payload.');
-      return;
+      return res.sendStatus(200);
     }
 
     const from = String(message?.from || '').replace(/\D/g, '');
@@ -58,14 +57,21 @@ router.post('/', express.raw({ type: 'application/json' }), rateLimiter(), async
 
     if (!from || !text) {
       console.warn('Missing required message.from or message.text.body in incoming webhook.');
-      return;
+      return res.sendStatus(200);
     }
+
+    res.sendStatus(200);
 
     const remoteJid = `${from}@s.whatsapp.net`;
     const { texto } = await obtenerRespuestaIA(remoteJid, text);
     await whatsappService.sendWhatsAppMessage(from, texto || 'Gracias por tu mensaje.');
   } catch (err) {
     console.error('[ERROR_PROCESAMIENTO_WEBHOOK]:', err);
+    try {
+      return res.sendStatus(200);
+    } catch (e) {
+      // no-op: response may already be committed
+    }
   }
 });
 
