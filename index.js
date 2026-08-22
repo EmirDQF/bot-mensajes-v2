@@ -6,9 +6,6 @@ import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 
-// Use express.json for normal routes; keep raw for /webhook
-app.use(express.json());
-
 app.use((req, res, next) => {
   console.log(`[HTTP INCOMING] ${new Date().toISOString()} ${req.method} ${req.originalUrl}`);
   next();
@@ -22,8 +19,6 @@ app.use('/webhook', (req, res, next) => {
   }
   next();
 });
-
-app.use('/webhook', express.raw({ type: 'application/json' }));
 
 // Limpieza de archivos temporales huérfanos relacionados con leads.
 // Esto elimina archivos como leads.json.tmp o leads.test.json.tmp que podrían haber quedado si el proceso
@@ -171,32 +166,39 @@ app.get('/api/register-phone', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Express server listening on http://localhost:${port}`);
-
-  // List registered routes for debugging (will appear in Render logs)
+function listRegisteredRoutes() {
   try {
     const routes = [];
-    app._router.stack.forEach((middleware) => {
+    const stack = app._router && Array.isArray(app._router.stack) ? app._router.stack : [];
+
+    for (const middleware of stack) {
+      if (!middleware) continue;
+
       if (middleware.route) {
-        // routes registered directly on the app
-        const methods = Object.keys(middleware.route.methods).join(',').toUpperCase();
+        const methods = Object.keys(middleware.route.methods || {}).join(',').toUpperCase();
         routes.push(`${methods} ${middleware.route.path}`);
-      } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
-        // router middleware
-        middleware.handle.stack.forEach((handler) => {
-          if (handler.route) {
-            const methods = Object.keys(handler.route.methods).join(',').toUpperCase();
+        continue;
+      }
+
+      if (middleware.name === 'router' && middleware.handle && Array.isArray(middleware.handle.stack)) {
+        for (const handler of middleware.handle.stack) {
+          if (handler && handler.route) {
+            const methods = Object.keys(handler.route.methods || {}).join(',').toUpperCase();
             routes.push(`${methods} ${handler.route.path}`);
           }
-        });
+        }
       }
-    });
-    console.log('[ROUTES REGISTERED]:\n' + routes.join('\n'));
+    }
+
+    if (routes.length) {
+      console.log('[ROUTES REGISTERED]:\n' + routes.join('\n'));
+    } else {
+      console.log('[ROUTES REGISTERED]: no routes found');
+    }
   } catch (e) {
     console.warn('Could not list routes:', e && e.message ? e.message : e);
   }
-});
+}
 
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
@@ -255,8 +257,13 @@ app.get('/api/restore-waba', async (req, res) => {
 
 // Configure Cloud API webhook routes (if WHATSAPP_TOKEN/etc are set)
 app.use('/', webhookRouter);
+app.use(express.json({ limit: '1mb' }));
 
 // Mount centralized error handler at the end of middleware chain
 app.use(errorHandler);
 
 // No longer using Baileys socket — Cloud API uses webhooks + HTTP calls.
+app.listen(port, () => {
+  console.log(`Express server listening on http://localhost:${port}`);
+  listRegisteredRoutes();
+});
