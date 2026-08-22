@@ -3,6 +3,11 @@
 // - Exposes a config object for the app
 // - Exposes helpers to mask secrets in logs
 
+const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || null;
+const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.VERIFY_TOKEN || null;
+if (phoneNumberId) process.env.WHATSAPP_PHONE_NUMBER_ID = phoneNumberId;
+if (verifyToken) process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = verifyToken;
+
 const required = [
   'GEMINI_API_KEY',
   'GEMINI_MODEL',
@@ -77,9 +82,9 @@ export default {
   },
   whatsapp: {
     token: process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN || null,
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || null,
     appSecret: process.env.WHATSAPP_APP_SECRET || null,
-    webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+    webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.VERIFY_TOKEN || null,
   },
   supabase: {
     url: process.env.SUPABASE_URL || null,

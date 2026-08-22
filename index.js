@@ -7,9 +7,17 @@ import errorHandler from './middleware/errorHandler.js';
 const app = express();
 
 app.use((req, res, next) => {
-  console.log(`[HTTP INCOMING] ${new Date().toISOString()} ${req.method} ${req.originalUrl}`);
+  const now = new Date().toISOString();
+  console.log(`[${now}] [HTTP INCOMING] ${req.method} ${req.originalUrl}`);
+  console.log(`[${now}] [HTTP HEADERS]`, JSON.stringify(req.headers, null, 2));
+  if (req.body && Object.keys(req.body).length) {
+    console.log(`[${now}] [HTTP BODY]`, JSON.stringify(req.body, null, 2));
+  }
   next();
 });
+
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; }, limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 app.use('/webhook', (req, res, next) => {
   const ts = new Date().toISOString();
@@ -21,8 +29,6 @@ app.use('/webhook', (req, res, next) => {
 });
 
 app.use('/webhook', webhookRouter);
-app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; }, limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
 
 // Limpieza de archivos temporales huérfanos relacionados con leads.
 // Esto elimina archivos como leads.json.tmp o leads.test.json.tmp que podrían haber quedado si el proceso
@@ -60,6 +66,11 @@ if (!process.env.WHATSAPP_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
 if (!process.env.WHATSAPP_APP_SECRET) {
   console.warn('Advertencia: WHATSAPP_APP_SECRET no está definida. El webhook aceptará solicitudes sin verificar la firma.');
 }
+
+console.log('[ENV DEBUG] PHONE_NUMBER_ID set:', Boolean(process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID));
+console.log('[ENV DEBUG] WHATSAPP_TOKEN set:', Boolean(process.env.WHATSAPP_TOKEN));
+console.log('[ENV DEBUG] VERIFY_TOKEN set:', Boolean(process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.VERIFY_TOKEN));
+console.log('[ENV DEBUG] PORT set:', Boolean(process.env.PORT));
 
 app.get('/', (req, res) => {
   res.send('Bot Dental Operativo 24/7 🚀');

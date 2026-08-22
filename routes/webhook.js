@@ -10,7 +10,7 @@ router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  const expected = config.whatsapp?.webhookVerifyToken || process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+  const expected = config.whatsapp?.webhookVerifyToken || process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.VERIFY_TOKEN;
 
   if (mode === 'subscribe' && token === expected) {
     console.log('✅ Webhook verified');
@@ -20,29 +20,16 @@ router.get('/', (req, res) => {
   return res.status(403).send('Forbidden');
 });
 
-router.post('/', express.raw({ type: 'application/json' }), rateLimiter(), async (req, res) => {
-  console.log('>>> [WEBHOOK ENTRANTE RECIBIDO RAW] <<<', JSON.stringify(req.body));
+router.post('/', rateLimiter(), async (req, res) => {
+  console.log('>>> [WEBHOOK ENTRANTE RECIBIDO] <<<', JSON.stringify(req.body || {}, null, 2));
 
   if (req.headers && req.headers['x-hub-signature-256']) {
     console.warn('Skipping strict X-Hub-Signature-256 validation for webhook debugging.');
   }
 
   try {
-    const parsedBody = (() => {
-      if (!req.body) return {};
-      if (Buffer.isBuffer(req.body)) {
-        try {
-          return JSON.parse(req.body.toString('utf8'));
-        } catch (e) {
-          return {};
-        }
-      }
-      return typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    })();
-
-    console.log('[MENSAJE ENTRANTE RECIBIDO]:', JSON.stringify(parsedBody, null, 2));
-
-    const entry = parsedBody?.entry?.[0];
+    const body = req.body || {};
+    const entry = body.entry?.[0];
     const changes = entry?.changes?.[0];
     const value = changes?.value;
     const message = value?.messages?.[0];
@@ -53,7 +40,10 @@ router.post('/', express.raw({ type: 'application/json' }), rateLimiter(), async
     }
 
     const from = String(message?.from || '').replace(/\D/g, '');
+    const msgId = message?.id || 'unknown';
     const text = message?.text?.body || message?.button?.text || message?.interactive?.button_reply?.title || '';
+
+    console.log('[WEBHOOK MESSAGE] from=', from, 'id=', msgId, 'text=', text);
 
     if (!from || !text) {
       console.warn('Missing required message.from or message.text.body in incoming webhook.');
