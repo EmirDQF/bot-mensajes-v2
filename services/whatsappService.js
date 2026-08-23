@@ -81,28 +81,43 @@ export function resolveImageAssetPath(key) {
 export function parseSendImageTag(text) {
   if (!text || typeof text !== 'string') return null;
 
-  const match = text.match(/\[(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*:\s*([a-z0-9_\.\-]+)\]/i)
-    || text.match(/\[(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*=\s*([a-z0-9_\.\-]+)\]/i);
+  const match = text.match(/\[(?:SEND_IMAGE|ENVIAR_IMAGEN|ENVIAR_ARCHIVO)\s*[:=]\s*([A-Za-z0-9_\-\.]+)\]/i)
+    || text.match(/\[(?:SEND_IMAGE|ENVIAR_IMAGEN|ENVIAR_ARCHIVO)\s*=\s*([A-Za-z0-9_\-\.]+)\]/i);
 
   if (!match || !match[1]) return null;
-  const normalizedKey = resolveImageAssetKey(match[1]);
+  const filename = match[1];
+  const normalized = normalizeImageKeyFromFilename(filename);
+  const normalizedKey = resolveImageAssetKey(normalized) || resolveImageAssetKey(filename) || normalized;
   return normalizedKey;
 }
 
 export function stripSendImageTag(text) {
   if (!text || typeof text !== 'string') return text;
   return text
-    .replace(/\s*\[\s*(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*:\s*[a-z0-9_\.\-]+\s*\]\s*/gis, ' ')
-    .replace(/\s*\[\s*(?:SEND_IMAGE|ENVIAR_IMAGEN)\s*=\s*[a-z0-9_\.\-]+\s*\]\s*/gis, ' ')
+    .replace(/\s*\[\s*(?:SEND_IMAGE|ENVIAR_IMAGEN|ENVIAR_ARCHIVO)\s*[:=]\s*[A-Za-z0-9_\-\.]+\s*\]\s*/gis, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
 
 export function extractImageFilenameFromTag(text) {
   if (!text || typeof text !== 'string') return null;
-  const match = text.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i);
+  const match = text.match(/\[(?:ENVIAR_IMAGEN|ENVIAR_ARCHIVO|SEND_IMAGE)\s*[:=]\s*([^\]]+)\]/i);
   if (!match || !match[1]) return null;
   return match[1].trim();
+}
+
+// Normalize filenames like "carillas_antes_despues.png" -> "carillas" or try to strip suffixes
+export function normalizeImageKeyFromFilename(filename) {
+  if (!filename || typeof filename !== 'string') return filename;
+  let f = filename.trim().toLowerCase();
+  // remove extension
+  f = f.replace(/\.(png|jpe?g|webp)$/i, '');
+  // remove common suffixes like _antes_despues, _antes_despues1, _1, -1
+  f = f.replace(/(_antes_despues)(?:_\d+)?$/i, '');
+  f = f.replace(/(_antes_despues_?\d+)$|(_\d+$)|(-\d+$)/i, '');
+  // collapse multiple underscores/dashes
+  f = f.replace(/[\-_]{2,}/g, '_');
+  return f;
 }
 
 
@@ -115,12 +130,25 @@ export function resolvePublicImageUrl(imageKey) {
     return trimmed;
   }
 
-  const normalizedKey = trimmed.toLowerCase();
-  const mappedValue = IMAGE_MAP[normalizedKey] || IMAGE_MAP[normalizedKey.replace(/\.(jpg|jpeg|png|gif|webp)$/i, '')];
-  if (!mappedValue) return null;
+  // normalize potential filename into a key
+  const withoutExt = trimmed.replace(/\.(jpg|jpeg|png|gif|webp)$/i, '').toLowerCase();
+  const candidates = [withoutExt, withoutExt.replace(/_antes_despues(?:_\d+)?$/i, ''), withoutExt.replace(/_\d+$/i, ''), withoutExt.replace(/-/g, '_')];
+  for (const c of candidates) {
+    if (IMAGE_MAP[c]) {
+      const mappedValue = IMAGE_MAP[c];
+      if (/^https?:\/\//i.test(mappedValue)) return mappedValue;
+      return `${PUBLIC_IMAGE_BASE_URL}/${mappedValue.replace(/^\/?public\//i, '').replace(/^\/?/, '')}`;
+    }
+  }
 
-  if (/^https?:\/\//i.test(mappedValue)) return mappedValue;
-  return `${PUBLIC_IMAGE_BASE_URL}/${mappedValue.replace(/^\/?public\//i, '').replace(/^\/?/, '')}`;
+  // fallback: if IMAGE_MAP has the raw trimmed key
+  const mapped = IMAGE_MAP[trimmed.toLowerCase()];
+  if (mapped) {
+    if (/^https?:\/\//i.test(mapped)) return mapped;
+    return `${PUBLIC_IMAGE_BASE_URL}/${mapped.replace(/^\/?public\//i, '').replace(/^\/?/, '')}`;
+  }
+
+  return null;
 }
 
 // Parse and strip BOOK_APPOINTMENT tag (flexible spaces/newlines)
@@ -282,18 +310,34 @@ export async function sendWhatsAppImageMessage(toPhone, imageKey, text = '', opt
   try { return await res.json(); } catch (e) { return null; }
 }
 
+export function detectImageKeyFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+  const t = text.toLowerCase();
+  if (/carillas|diseñ[oó]s? de sonrisa|diseño/i.test(t)) return 'carillas';
+  if (/ortodoncia|brackets|frenillos|correcci[oó]n dental/i.test(t)) return 'antes_despues_ortodoncia';
+  if (/nino|ni[nñ]o|kids|odontopediatria|resinas_kids|resinas/i.test(t)) return 'odontopediatria';
+  if (/kit preventivo|preventivo|limpieza|profilaxis|sarro|manchas/i.test(t)) return 'kit_preventivo';
+  if (/protesis|pr[oó]tesis/i.test(t)) return 'protesis';
+  if (/endodoncia|conducto|dolor fuerte|tratamiento de conducto/i.test(t)) return 'endodoncia';
+  if (/ubicaci[oó]n|croquis|direcci[oó]n|fachada|donde quedan|d[oó]nde quedan|direc/i.test(t)) return 'ubicacion';
+  if (/promo|promoci[oó]n|descuento|consulta/i.test(t)) return 'promo_consulta';
+  return null;
+}
+
 export async function sendWhatsAppMessageOrImage(phoneNumberId, to, fullReplyText) {
   const token = process.env.WHATSAPP_TOKEN || '';
   const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL || 'https://bot-mensajes-dental.onrender.com';
   const url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
-  const match = (typeof fullReplyText === 'string') ? fullReplyText.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i) : null;
+  // detect tag variants (ENVIAR_IMAGEN / ENVIAR_ARCHIVO / SEND_IMAGE)
+  const tagMatch = (typeof fullReplyText === 'string') ? fullReplyText.match(/\[(?:ENVIAR_IMAGEN|ENVIAR_ARCHIVO|SEND_IMAGE)\s*[:=]\s*([^\]]+)\]/i) : null;
   let payload = {};
 
-  if (match) {
-    const filename = match[1].trim();
-    const cleanText = String(fullReplyText).replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '').trim();
-    const imageUrl = `${baseUrl.replace(/\/$/, '')}/images/${encodeURIComponent(filename)}`;
+  if (tagMatch) {
+    const filename = tagMatch[1].trim();
+    const cleanText = String(fullReplyText).replace(/\[(?:ENVIAR_IMAGEN|ENVIAR_ARCHIVO|SEND_IMAGE)\s*[:=][^\]]+\]/gi, '').trim();
+    // normalize filename to public URL via resolvePublicImageUrl
+    const imageUrl = resolvePublicImageUrl(filename) || `${baseUrl.replace(/\/$/, '')}/images/${encodeURIComponent(filename)}`;
 
     console.log(`[OUTBOUND IMAGE] Enviando imagen: ${imageUrl} a ${to}`);
 
@@ -308,6 +352,19 @@ export async function sendWhatsAppMessageOrImage(phoneNumberId, to, fullReplyTex
       },
     };
   } else {
+    // fallback by keyword mapping: if AI didn't include tag but mentions keywords, automatically send image
+    const fallbackKey = detectImageKeyFromText(String(fullReplyText || ''));
+    if (fallbackKey) {
+      console.log('[OUTBOUND IMAGE - FALLBACK] detected keyword ->', fallbackKey);
+      // send using image helper which handles mapping/upload logic
+      try {
+        const res = await sendWhatsAppImageMessage(to, fallbackKey, String(fullReplyText || ''));
+        return res;
+      } catch (err) {
+        console.warn('Fallback image send failed, falling back to sending text:', err && err.message ? err.message : err);
+      }
+    }
+
     console.log(`[OUTBOUND TEXT] Enviando texto a ${to}`);
     payload = {
       messaging_product: 'whatsapp',

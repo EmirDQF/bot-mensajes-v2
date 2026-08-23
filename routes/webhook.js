@@ -5,13 +5,18 @@ import { obtenerRespuestaIA } from '../src/gemini.js';
 import { sendWhatsAppMessageOrImage } from '../services/whatsappService.js';
 import { appendChatAuditEntry } from '../src/chatAudit.js';
 
-const IMAGE_TAG_RE = /\[(?:ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*([^\]]+)\]/gi;
+// Accept multiple tag variants: ENVIAR_IMAGEN, ENVIAR_ARCHIVO, SEND_IMAGE and tolerate ':' or '='
+const IMAGE_TAG_RE = /\[(?:ENVIAR_IMAGEN|ENVIAR_ARCHIVO|SEND_IMAGE)\s*[:=]\s*([^\]]+)\]/gi;
 function extractImageTags(text) {
   if (!text || typeof text !== 'string') return [];
   const matches = [...text.matchAll(IMAGE_TAG_RE)];
   return matches
     .map((match) => String(match[1] || '').trim())
     .filter(Boolean)
+    .map((v) => {
+      // normalize common filename variants (strip surrounding spaces)
+      return v.replace(/^\s+|\s+$/g, '').replace(/^\/+/, '');
+    })
     .filter((value, index, arr) => arr.indexOf(value) === index);
 }
 function stripImageTags(text) {
