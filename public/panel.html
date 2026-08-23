@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panel de Monitoreo en Vivo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="brand-block">
+            <div class="brand-logo-wrap">
+              <img src="/LUMINZU/logo.jpeg" alt="Luminzu" class="brand-logo" />
+            </div>
+            <div class="brand-text">
+              <h1>CLÍNICA LUMINZU</h1>
+            </div>
+          </div>
+          <span class="status-pill"><span class="live-dot"></span> En vivo</span>
+        </div>
+
+        <div class="sidebar-meta">
+          <span id="conversationCount">0 conversaciones</span>
+        </div>
+
+        <div class="search-wrap">
+          <input id="searchInput" type="search" placeholder="Buscar paciente o WhatsApp" aria-label="Buscar conversación" />
+        </div>
+
+        <div id="conversationList" class="conversation-list" aria-live="polite"></div>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="chat-header">
+          <div class="chat-header__identity">
+            <div class="avatar avatar--header" id="headerAvatar">E</div>
+            <div>
+              <h2 id="chatTitle">Select a contact</h2>
+              <p id="chatPhone">+51 9XX XXX XXX</p>
+            </div>
+          </div>
+          <div class="chat-header__actions">
+            <div class="bot-status"><span class="bot-status__dot"></span> Bot activo</div>
+            <button id="interveneButton" class="intervene-btn" type="button">Intervenir</button>
+          </div>
+        </header>
+
+        <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <div id="lightbox" class="lightbox" aria-hidden="true">
+      <button class="lightbox__close" type="button" aria-label="Cerrar vista previa">×</button>
+      <img id="lightboxImage" src="" alt="Vista previa de imagen" />
+    </div>
+
+    <script src="/panel.js"></script>
+  </body>
+</html>
