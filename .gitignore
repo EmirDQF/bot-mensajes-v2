@@ -6,3 +6,12 @@ auth_info/
 logs/
 leads.json
 leads.test.json
+"audit_inventory.csv" 
+"audit_inventory_filtered.csv" 
+"audit_report.md" 
+"audit_report_filtered.md" 
+"audit_summary.json" 
+"audit_summary_filtered.json" 
+"diffs_prompt.txt" 
+"tests_output_services.txt" 
+"tests_output_services_recent.txt" 
