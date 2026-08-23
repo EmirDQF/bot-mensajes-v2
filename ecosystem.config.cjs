@@ -1,10 +1,13 @@
-export default {
+module.exports = {
   apps: [
     {
-      name: 'botmensajes',
-      script: './index.js',
+      name: 'bot-mensajes',
+      script: 'index.js',
       exec_mode: 'cluster',
       instances: 'max',
+      env: {
+        NODE_ENV: 'production',
+      },
       env_production: {
         NODE_ENV: 'production',
         GEMINI_API_KEY: process.env.GEMINI_API_KEY,

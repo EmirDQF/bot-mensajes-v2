@@ -83,6 +83,55 @@ function safeParseAgendaPayload(raw) {
   }
 }
 
+async function persistAgendaPayload(payload, context = {}) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  if (!rawUrl || !key) return null;
+
+  const record = {
+    nombre: payload.nombre || null,
+    telefono: payload.telefono || context.phone || null,
+    motivo: payload.motivo || null,
+    fecha: payload.fecha || null,
+    hora: payload.hora || null,
+    clinic_id: context.clinicId || null,
+    created_at: new Date().toISOString(),
+    source: context.source || 'whatsapp',
+  };
+
+  try {
+    const client = createClient(rawUrl, key);
+    const attempts = [
+      () => client.from('appointments').insert([record]).select(),
+      () => client.from('calendar_events').insert([record]).select(),
+      () => client.from('leads').insert([{ telefono: record.telefono, nombre: record.nombre, distrito: null, fecha_hora_texto: record.fecha ? `${record.fecha} ${record.hora || ''}`.trim() : null, fecha_hora_iso: null, created_at: record.created_at, clinic_id: record.clinic_id }]).select(),
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const { error } = await attempt();
+        if (!error) return record;
+        const msg = String(error.message || '').toLowerCase();
+        if (!msg.includes('does not exist') && !msg.includes('relation') && !msg.includes('not found')) {
+          throw error;
+        }
+      } catch (e) {
+        const msg = String(e && e.message ? e.message : e).toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) {
+          continue;
+        }
+        throw e;
+      }
+    }
+  } catch (e) {
+    console.warn('webhookController: AGENDAR_CITA storage failed but user message will continue:', e && e.message ? e.message : e);
+  }
+
+  return null;
+}
+
 // Controller delgado que orquesta: Gemini -> lead -> WhatsApp -> admin notify
 // IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
 export default async function webhookController(req, res, next) {
@@ -258,7 +307,18 @@ export default async function webhookController(req, res, next) {
         const convId = conversation?.id || p?.conversation?.id;
         const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
         const cleanedTexto = stripInstructionTags(extractPlainText(texto));
-        const { imageFiles } = extractInstructionTags(texto);
+        const { imageFiles, agendaPayloads } = extractInstructionTags(texto);
+
+        for (const rawAgenda of agendaPayloads) {
+          try {
+            const parsed = safeParseAgendaPayload(rawAgenda);
+            if (parsed) {
+              await persistAgendaPayload(parsed, { clinicId: clinic?.id || null, phone: contactDigits || null, source: 'chatwoot' });
+            }
+          } catch (e) {
+            console.error('webhookController: failed persisting AGENDAR_CITA from chatwoot reply', e && e.message ? e.message : e);
+          }
+        }
 
         if (accountId && convId && apiToken) {
           await chatwootService.sendMessageToConversation(accountId, convId, apiToken, cleanedTexto);
@@ -432,6 +492,7 @@ export default async function webhookController(req, res, next) {
               const parsed = safeParseAgendaPayload(rawAgenda);
               if (parsed) {
                 console.log('[AGENDAR_CITA]', parsed);
+                await persistAgendaPayload(parsed, { clinicId: clinic?.id || null, phone: from, source: 'whatsapp' });
               }
             } catch (e) {
               console.error('webhookController: failed parsing AGENDAR_CITA payload', e && e.message ? e.message : e);
