@@ -282,50 +282,69 @@ export async function sendWhatsAppImageMessage(toPhone, imageKey, text = '', opt
   try { return await res.json(); } catch (e) { return null; }
 }
 
+export async function sendWhatsAppMessageOrImage(phoneNumberId, to, fullReplyText) {
+  const token = process.env.WHATSAPP_TOKEN || '';
+  const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL || 'https://bot-mensajes-dental.onrender.com';
+  const url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+
+  const match = (typeof fullReplyText === 'string') ? fullReplyText.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i) : null;
+  let payload = {};
+
+  if (match) {
+    const filename = match[1].trim();
+    const cleanText = String(fullReplyText).replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '').trim();
+    const imageUrl = `${baseUrl.replace(/\/$/, '')}/images/${encodeURIComponent(filename)}`;
+
+    console.log(`[OUTBOUND IMAGE] Enviando imagen: ${imageUrl} a ${to}`);
+
+    payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: to,
+      type: 'image',
+      image: {
+        link: imageUrl,
+        ...(cleanText ? { caption: cleanText } : {}),
+      },
+    };
+  } else {
+    console.log(`[OUTBOUND TEXT] Enviando texto a ${to}`);
+    payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: to,
+      type: 'text',
+      text: { body: String(fullReplyText || '') },
+    };
+  }
+
+  try {
+    const fetchImpl = (globalThis.fetch && globalThis.fetch.bind(globalThis));
+    if (!fetchImpl) throw new Error('No fetch implementation available for sending WhatsApp messages');
+
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let data = null;
+    try { data = response && typeof response.json === 'function' ? await response.json() : null; } catch (e) { data = null; }
+    console.log('[RESPUESTA META CLOUD API]:', JSON.stringify(data, null, 2));
+    return data;
+  } catch (error) {
+    console.error('[ERROR ENVIANDO MENSAJE A META]:', error && (error.message || error));
+    return null;
+  }
+}
+
+// Updated reply helper: delegate to sendWhatsAppMessageOrImage and remove session.sentImages blocking
 export async function sendWhatsAppReplyWithOptionalImage(toPhone, text, options = {}) {
-  const cleanText = typeof text === 'string' ? text : '';
-
-  // First, check for explicit filename tag [ENVIAR_IMAGEN: filename.ext]
-  const filename = extractImageFilenameFromTag(cleanText);
-  if (filename) {
-    const strippedText = stripSendImageTag(cleanText);
-    const session = options && options.session ? options.session : null;
-    const sentImages = session && session.sentImages instanceof Set ? session.sentImages : null;
-    if (sentImages && sentImages.has(filename)) {
-      if (strippedText.trim().length > 0) return await sendWhatsAppMessage(toPhone, strippedText, options);
-      return null;
-    }
-    if (sentImages) sentImages.add(filename);
-    const base = PUBLIC_IMAGE_BASE_URL;
-    const link = `${base}/images/${encodeURIComponent(filename)}`;
-    return await sendWhatsAppImageMessage(toPhone, link, strippedText, options);
-  }
-
-  // Fallback: legacy image key parsing/lookup
-  const imageKey = parseSendImageTag(cleanText);
-  if (!imageKey) {
-    if (cleanText.trim().length > 0) {
-      return await sendWhatsAppMessage(toPhone, cleanText, options);
-    }
-    return null;
-  }
-
-  const session = options && options.session ? options.session : null;
-  const sentImages = session && session.sentImages instanceof Set ? session.sentImages : null;
-  if (sentImages && sentImages.has(imageKey)) {
-    const strippedText = stripSendImageTag(cleanText);
-    if (strippedText.trim().length > 0) {
-      return await sendWhatsAppMessage(toPhone, strippedText, options);
-    }
-    return null;
-  }
-
-  const strippedText = stripSendImageTag(cleanText);
-  if (sentImages) {
-    sentImages.add(imageKey);
-  }
-  await sendWhatsAppImageMessage(toPhone, imageKey, strippedText, options);
-  return null;
+  const phoneNumberId = (options && options.phoneNumberId) || config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+  return await sendWhatsAppMessageOrImage(phoneNumberId, toPhone, String(text || ''));
 }
 
 export async function sendWhatsAppMessage(toPhone, text, options = {}) {

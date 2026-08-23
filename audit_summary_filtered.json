@@ -1,0 +1,1001 @@
+{
+  "GeneratedAt": "2026-08-23T05:31:54.0871749-05:00",
+  "TotalFilesScanned": 98,
+  "TotalSizeBytes": 10940760.0,
+  "NodeModulesExists": true,
+  "NodeModulesSizeBytes": 281183812.0,
+  "PackageJsonAtRoot": true,
+  "Duplicates": null,
+  "ByDecision": [
+    {
+      "Decision": "⚠️ REVISAR MANUALMENTE",
+      "Count": 4
+    },
+    {
+      "Decision": "✅ MANTENER",
+      "Count": 94
+    }
+  ],
+  "Files": [
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.dockerignore",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.dockerignore",
+      "Length": 41,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-23T18:13:07.8790159-05:00",
+      "MD5": "2FF1182CA9B7D0A302D89800DF7D538A",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.env",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.env",
+      "Length": 2729,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T11:12:36.4161552-05:00",
+      "MD5": "6422B9D674F227F6C6C5033A1B411887",
+      "Decision": "⚠️ REVISAR MANUALMENTE",
+      "Reasons": "Nombre sugiere posible secreto o variables de entorno — revisar contenido."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.env.example",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.env.example",
+      "Length": 2511,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-18T20:26:58.2485119-05:00",
+      "MD5": "5A1C88A3B480C7ECBAA21141D7FD6BF9",
+      "Decision": "⚠️ REVISAR MANUALMENTE",
+      "Reasons": "Nombre sugiere posible secreto o variables de entorno — revisar contenido."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.gitignore",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\.gitignore",
+      "Length": 84,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-30T21:36:00.7905697-05:00",
+      "MD5": "7455BE15CEC23BBE1E4CB75537963C92",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\audit_inventory.csv",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\audit_inventory.csv",
+      "Length": 1626784,
+      "SizeMB": 1.55,
+      "LastWriteTime": "2026-08-23T05:19:29.4625955-05:00",
+      "MD5": "E269C0FAD7034E9D1322E3FBA7110D12",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\audit_report.md",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\audit_report.md",
+      "Length": 2065315,
+      "SizeMB": 1.97,
+      "LastWriteTime": "2026-08-23T05:23:53.3701724-05:00",
+      "MD5": "FB4085D67AEA6AF4CD13B8981CB2491B",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\audit_summary.json",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\audit_summary.json",
+      "Length": 4713755,
+      "SizeMB": 4.5,
+      "LastWriteTime": "2026-08-23T05:23:41.0278766-05:00",
+      "MD5": "26DD7594972D84CA488C769615CE981C",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\commit_msg.txt",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\commit_msg.txt",
+      "Length": 80,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-18T20:51:46.2486792-05:00",
+      "MD5": "919BAB6CDF6E81CB5687B251AF996152",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\commitmsg.txt",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\commitmsg.txt",
+      "Length": 197,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-19T18:15:26.1112977-05:00",
+      "MD5": "4D3BCABD6921AF75428A307083F50583",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\CONSENTIMIENTO_CLIENTE.md",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\CONSENTIMIENTO_CLIENTE.md",
+      "Length": 1444,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-30T22:49:47.4383357-05:00",
+      "MD5": "2D051A7BC7F18456F8DFEEF2FB306FF7",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\diag_handles.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\diag_handles.js",
+      "Length": 3088,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-01T08:50:46.1655861-05:00",
+      "MD5": "DAF3A3221464DF43F5A6FE9139E0DB28",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\diag_handles2.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\diag_handles2.js",
+      "Length": 3306,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-01T08:52:38.0390396-05:00",
+      "MD5": "5A4CB586DCDF36E243CF957660EC0528",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\diagnose.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\diagnose.js",
+      "Length": 2859,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-01T08:08:52.4426919-05:00",
+      "MD5": "A388925F5445AFFEE9C6EDF2B1D67D66",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\docker-compose.yml",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\docker-compose.yml",
+      "Length": 850,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-23T18:17:22.1363586-05:00",
+      "MD5": "1CF9598E354BCF18DA82DC1F67632452",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\Dockerfile",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\Dockerfile",
+      "Length": 362,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-23T18:13:04.6339114-05:00",
+      "MD5": "4F199A913AF29B08FD1C59C1BB4F0BC2",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\ecosystem.config.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\ecosystem.config.js",
+      "Length": 705,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-30T21:50:16.5941571-05:00",
+      "MD5": "5A6713F11AEA5E936A8EE338A85C84D9",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\index.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\index.js",
+      "Length": 24858,
+      "SizeMB": 0.02,
+      "LastWriteTime": "2026-08-22T21:13:45.1914703-05:00",
+      "MD5": "A5AD7BA5C87326EBE3AF0B3C855CBFDB",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\leads.json",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\leads.json",
+      "Length": 708,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-01T07:59:51.7797960-05:00",
+      "MD5": "CC626C830B68DCFE1945857D349B0D5A",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\MANUAL_OPERATIVO.md",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\MANUAL_OPERATIVO.md",
+      "Length": 15467,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-07-30T22:41:55.2714583-05:00",
+      "MD5": "2B6525148EEF5837D7902E72F85B1D8B",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\MIGRACION_API_OFICIAL.md",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\MIGRACION_API_OFICIAL.md",
+      "Length": 4589,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-30T22:49:59.5909807-05:00",
+      "MD5": "851B61B6238BD0AA5B39194CF303E575",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\override-webhook.mjs",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\override-webhook.mjs",
+      "Length": 3118,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T10:01:31.0995194-05:00",
+      "MD5": "B911C23B8C9C5C96A084E4D69733C243",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\package-lock.json",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\package-lock.json",
+      "Length": 115014,
+      "SizeMB": 0.11,
+      "LastWriteTime": "2026-08-18T19:52:16.2729187-05:00",
+      "MD5": "2364B18DECCF1E00DB7565E0A620200D",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Archivo de manifiesto o documentación esencial del proyecto."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\package.json",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\package.json",
+      "Length": 873,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T10:21:44.4556946-05:00",
+      "MD5": "567F5A3693060F63EE375FBA00EF799D",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Archivo de manifiesto o documentación esencial del proyecto."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\plan.md",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\plan.md",
+      "Length": 552,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T20:15:20.2191921-05:00",
+      "MD5": "65D35E4091F1456A887306A67E863A9E",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\README.md",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\README.md",
+      "Length": 3134,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T20:54:45.7994080-05:00",
+      "MD5": "D57D3FAB12D5E16DCA1FB849A9087098",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Archivo de manifiesto o documentación esencial del proyecto."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\test_verify_sig.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\test_verify_sig.js",
+      "Length": 843,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-01T08:54:31.0572656-05:00",
+      "MD5": "86DFE72CD920A4CE22B4A6DB8B7F0511",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\VALERIA_INSTRUCTIONS_ORIGINAL.txt",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\VALERIA_INSTRUCTIONS_ORIGINAL.txt",
+      "Length": 22452,
+      "SizeMB": 0.02,
+      "LastWriteTime": "2026-08-22T20:28:15.5201489-05:00",
+      "MD5": "30D2F5B4EB17561E70EB9ECC7C84DF02",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\VALERIA_INSTRUCTIONS_SUMMARY.md",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\VALERIA_INSTRUCTIONS_SUMMARY.md",
+      "Length": 4423,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T20:31:27.9633069-05:00",
+      "MD5": "A5BBCA6D321920160CDE99D568F0E891",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\VALERIA_PASTED_ATTACHMENT_3.txt",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\VALERIA_PASTED_ATTACHMENT_3.txt",
+      "Length": 3133,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T20:39:36.3771529-05:00",
+      "MD5": "837008162C8B9F8045202F11EFB5FB74",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\config\\env.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\config\\env.js",
+      "Length": 5419,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-22T20:53:57.6317979-05:00",
+      "MD5": "423BB05FEDCC948407A1CB9D24154CEE",
+      "Decision": "⚠️ REVISAR MANUALMENTE",
+      "Reasons": "Nombre sugiere posible secreto o variables de entorno — revisar contenido."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\controllers\\webhookController.chatwoot.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\controllers\\webhookController.chatwoot.test.js",
+      "Length": 2122,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-20T15:49:04.4725467-05:00",
+      "MD5": "85970855B00DF205E3B1021FC9BD7219",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\controllers\\webhookController.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\controllers\\webhookController.js",
+      "Length": 39081,
+      "SizeMB": 0.04,
+      "LastWriteTime": "2026-08-22T20:54:12.1400399-05:00",
+      "MD5": "8031A296316006CC3C7195CA1A175968",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\carillas.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\carillas.jpeg",
+      "Length": 26433,
+      "SizeMB": 0.03,
+      "LastWriteTime": "2026-08-22T16:27:08.8134695-05:00",
+      "MD5": "936257BA997D7081C567BB3E46E05058",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\endodoncia.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\endodoncia.jpeg",
+      "Length": 143308,
+      "SizeMB": 0.14,
+      "LastWriteTime": "2026-08-18T19:15:06.4282019-05:00",
+      "MD5": "1F616AC46C08D8D3A3C13117180392F0",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\fachada.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\fachada.jpeg",
+      "Length": 261831,
+      "SizeMB": 0.25,
+      "LastWriteTime": "2026-08-18T19:14:48.7814711-05:00",
+      "MD5": "44063FF2F1A3A7C5BD040AB754B7A702",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\implantes.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\implantes.jpeg",
+      "Length": 117229,
+      "SizeMB": 0.11,
+      "LastWriteTime": "2026-08-18T19:15:09.6171749-05:00",
+      "MD5": "F0973FEFF7C5396437404FB728A4F97C",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\kit_preventivo.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\kit_preventivo.jpeg",
+      "Length": 118778,
+      "SizeMB": 0.11,
+      "LastWriteTime": "2026-08-18T19:15:02.3484279-05:00",
+      "MD5": "7D9FB061E82723CE0EB78A525BB0DDD0",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\logo.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\logo.jpeg",
+      "Length": 41024,
+      "SizeMB": 0.04,
+      "LastWriteTime": "2026-08-18T19:15:36.7243788-05:00",
+      "MD5": "E0893B89DA09BEE8FEE3C40E460E8C1D",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\odontopediatria.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\odontopediatria.jpeg",
+      "Length": 145408,
+      "SizeMB": 0.14,
+      "LastWriteTime": "2026-08-18T19:14:58.2167858-05:00",
+      "MD5": "A9B508863C2E126F58BC01B5211D17DF",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues.jpeg",
+      "Length": 128361,
+      "SizeMB": 0.12,
+      "LastWriteTime": "2026-08-19T16:29:41.7833095-05:00",
+      "MD5": "5D7ECFEAA823D111A3FB6A2206E24CD9",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues1.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues1.jpeg",
+      "Length": 126519,
+      "SizeMB": 0.12,
+      "LastWriteTime": "2026-08-19T16:29:55.4597564-05:00",
+      "MD5": "92CBE8AF098895DCAE71F5E001477B26",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues2.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues2.jpeg",
+      "Length": 159631,
+      "SizeMB": 0.15,
+      "LastWriteTime": "2026-08-19T16:30:08.1578776-05:00",
+      "MD5": "5C1090F9BEC132074D3816604A8BCE37",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues3.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues3.jpeg",
+      "Length": 128713,
+      "SizeMB": 0.12,
+      "LastWriteTime": "2026-08-19T16:30:24.4692109-05:00",
+      "MD5": "177C3AB7B759C9F4DB96F9C4CC4E5B3E",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues4.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ortodoncia_antes_despues4.jpeg",
+      "Length": 144731,
+      "SizeMB": 0.14,
+      "LastWriteTime": "2026-08-19T16:30:38.9873695-05:00",
+      "MD5": "CDA3254EA8C50BBFB60A4CC4A67F5D89",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\promo_consulta.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\promo_consulta.jpeg",
+      "Length": 77320,
+      "SizeMB": 0.07,
+      "LastWriteTime": "2026-08-18T19:14:54.5570272-05:00",
+      "MD5": "5323FA391F6BDEC21241E6D24A131EEF",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\protesis.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\protesis.jpeg",
+      "Length": 141697,
+      "SizeMB": 0.14,
+      "LastWriteTime": "2026-08-18T19:15:14.0067399-05:00",
+      "MD5": "37EA5D1934A62227E6CA6E7334E1834A",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ubicacion.jpeg",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\LUMINZU\\ubicacion.jpeg",
+      "Length": 191269,
+      "SizeMB": 0.18,
+      "LastWriteTime": "2026-08-18T19:15:23.1643844-05:00",
+      "MD5": "0937002999CC40B94F227D229BFACBAD",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\middleware\\errorHandler.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\middleware\\errorHandler.js",
+      "Length": 1064,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-31T22:46:35.3098956-05:00",
+      "MD5": "06292E309DEEECC2189BACFAD442792D",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\middleware\\rateLimiter.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\middleware\\rateLimiter.js",
+      "Length": 3398,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-31T22:47:15.9630139-05:00",
+      "MD5": "3E88C64097B9203D3339F2FB601009D6",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\middleware\\verifySignature.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\middleware\\verifySignature.js",
+      "Length": 4745,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T18:36:11.0975836-05:00",
+      "MD5": "2C5EC57EA4ADED32CB06FA417AA08229",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\migrations\\20260803_add_chatwoot_fields_to_clinics.sql",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\migrations\\20260803_add_chatwoot_fields_to_clinics.sql",
+      "Length": 655,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T15:08:09.7241754-05:00",
+      "MD5": "542BFF17C02A573B814F3FC94BE6843A",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\migrations\\20260806_add_lead_snapshot.sql",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\migrations\\20260806_add_lead_snapshot.sql",
+      "Length": 157,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-06T19:23:41.4534046-05:00",
+      "MD5": "140B1E16F344EE3E2C0D6C63D4405B47",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\routes\\webhook.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\routes\\webhook.js",
+      "Length": 4975,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T19:51:36.9829704-05:00",
+      "MD5": "C308A16ED8742C32BA83C41A5FFFDE57",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\check_try.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\check_try.js",
+      "Length": 1444,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-19T12:17:11.9470088-05:00",
+      "MD5": "56DBAB886863904C71FCCC04E269C16B",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\debug_hallucination.mjs",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\debug_hallucination.mjs",
+      "Length": 1055,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-06T19:04:34.6220367-05:00",
+      "MD5": "F7A8035F681D61DCA0C2A9FE2B57BDFE",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\debug_notify_concurrent.mjs",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\debug_notify_concurrent.mjs",
+      "Length": 3416,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-06T19:22:34.3267755-05:00",
+      "MD5": "A0A082B5FBEBBE375DA8A18F5D5DC952",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\exec-restore-now.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\exec-restore-now.js",
+      "Length": 872,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T05:43:28.8085159-05:00",
+      "MD5": "75686175D9945A6D2FFE215D5F25341A",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\fix-webhook.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\fix-webhook.js",
+      "Length": 5836,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-21T17:42:49.5159107-05:00",
+      "MD5": "CAD7A6FF727C90B0AD340A7EA5E39404",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\keepAlive.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\keepAlive.js",
+      "Length": 840,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T10:52:31.7033480-05:00",
+      "MD5": "677A304125792340F78DA9284E309DCD",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\list-models.mjs",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\list-models.mjs",
+      "Length": 568,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-30T22:17:05.4783943-05:00",
+      "MD5": "C0B9BF01DE1A5A4B6B4274E61DF13002",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\migrate_supabase.sql",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\migrate_supabase.sql",
+      "Length": 1096,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T10:52:17.6301990-05:00",
+      "MD5": "8D030EFC77FDA237E07CF54F684A3BA9",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\reconnect-meta.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\reconnect-meta.js",
+      "Length": 5793,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-21T17:48:42.6705159-05:00",
+      "MD5": "DB7CCBEC1F830590614BAF62C6DA39E6",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\reset-auth.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\reset-auth.js",
+      "Length": 446,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-23T19:56:10.9687099-05:00",
+      "MD5": "26625C2F2E5C903E85FA2BAE126E7F0B",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\restore-whatsapp.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\restore-whatsapp.js",
+      "Length": 4776,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T05:11:25.7746667-05:00",
+      "MD5": "99C92E8FAC44945CFBB5DBC4B4258F91",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\runProspector.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\runProspector.js",
+      "Length": 400,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T10:53:01.8048977-05:00",
+      "MD5": "6147CBC315D739F5D3B84730AD5BBCFB",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\simulate-chat.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\simulate-chat.js",
+      "Length": 2481,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T05:15:08.8802189-05:00",
+      "MD5": "06D677FA41281F8AA302C4FBEC545417",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\simulate-conversation.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\simulate-conversation.js",
+      "Length": 12480,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-05T19:58:27.1608553-05:00",
+      "MD5": "A1F2455BE1F88CB4FC7F60FCEE31FF0F",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\simulate-conversation.mjs",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\simulate-conversation.mjs",
+      "Length": 6937,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-22T20:54:39.8247274-05:00",
+      "MD5": "64580B7A1FC190D956A1E8F07BC978CA",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\smoke-test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\smoke-test.js",
+      "Length": 6469,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-01T14:47:31.4418146-05:00",
+      "MD5": "EBDA146FA038EC9BD4E4EBDAB6EAEC80",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\test-fechas.mjs",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\scripts\\test-fechas.mjs",
+      "Length": 945,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-30T21:49:59.2373978-05:00",
+      "MD5": "1166C5261CCDFDEA47E70ABE4594AF3D",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\antiCollision.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\antiCollision.js",
+      "Length": 1156,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-20T11:23:59.0682359-05:00",
+      "MD5": "BF61F7BBE01F5280F9DFF89646E5EC48",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\calendarService.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\calendarService.js",
+      "Length": 4660,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-20T15:47:12.4533865-05:00",
+      "MD5": "46DD589B92A1FF7C593B3D250266A84B",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\calendarService.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\calendarService.test.js",
+      "Length": 3566,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-20T15:20:32.9327465-05:00",
+      "MD5": "F31AA5D4C5B4769E68961ED67960557E",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\chatwootService.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\chatwootService.js",
+      "Length": 2817,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T15:02:11.2710459-05:00",
+      "MD5": "E834D55411F3E7D734D38E21768C7AE7",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\chatwootService.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\chatwootService.test.js",
+      "Length": 1542,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T15:08:24.9909949-05:00",
+      "MD5": "6E9CA96F9DFBEF0EDC5E7E0A051EF11B",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\districts.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\districts.js",
+      "Length": 2075,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-05T11:12:44.7092100-05:00",
+      "MD5": "85B5044737B01FA03D14284E5BB61C79",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.hallucination.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.hallucination.test.js",
+      "Length": 1332,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-06T15:53:16.7736802-05:00",
+      "MD5": "F0B6A59E4C56B4A8C6B40F4E9451857C",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.js",
+      "Length": 62408,
+      "SizeMB": 0.06,
+      "LastWriteTime": "2026-08-22T20:54:18.2172255-05:00",
+      "MD5": "C119B29E88420DD5D5667E5DD38F83D0",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.refinements.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.refinements.test.js",
+      "Length": 3402,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-19T10:19:25.0670795-05:00",
+      "MD5": "8C67BDB441DA9742C244A022EA87F362",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.regressions.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.regressions.test.js",
+      "Length": 9748,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-11T19:36:34.9567172-05:00",
+      "MD5": "41AFC2FDBB155DDF1805DFEE05727D0B",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\geminiService.test.js",
+      "Length": 13091,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-22T16:32:05.0191265-05:00",
+      "MD5": "DF29AB1D7E0F417A34D05EB7A3962DDC",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\leadService.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\leadService.js",
+      "Length": 31284,
+      "SizeMB": 0.03,
+      "LastWriteTime": "2026-08-20T15:18:29.9552425-05:00",
+      "MD5": "E7E1E0738B673DA8406C635462287EA8",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\leadService.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\leadService.test.js",
+      "Length": 11825,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-12T09:23:42.3988042-05:00",
+      "MD5": "C821AA8B7ABF654A6738A647087C42A6",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\notificationService.concurrent.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\notificationService.concurrent.test.js",
+      "Length": 3227,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-06T19:21:21.1169025-05:00",
+      "MD5": "1818FB3777776FB3FEDE098539F14484",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\notificationService.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\notificationService.js",
+      "Length": 10445,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-18T20:27:06.1107203-05:00",
+      "MD5": "8ECE57143B05918EBC81A8E065AC5D11",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\notificationService.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\notificationService.test.js",
+      "Length": 3277,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-12T09:23:50.7519373-05:00",
+      "MD5": "33BDCED89208CC3C40788A3171C30CC8",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\prospectorService.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\prospectorService.js",
+      "Length": 3073,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-03T10:52:54.7736632-05:00",
+      "MD5": "89D9702F513EC5DAAFBABE5F83C94109",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\whatsappService.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\whatsappService.js",
+      "Length": 16009,
+      "SizeMB": 0.02,
+      "LastWriteTime": "2026-08-22T16:20:09.7121563-05:00",
+      "MD5": "03DC5E03C896140E4551D603CE4B5BED",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\whatsappService.test.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\services\\whatsappService.test.js",
+      "Length": 4930,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-18T19:35:16.7265504-05:00",
+      "MD5": "DD9751C6E1ADA3F40C40C517D301E0D9",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\chatAudit.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\chatAudit.js",
+      "Length": 1321,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T19:32:52.0374841-05:00",
+      "MD5": "E271E5E6F4B460F5BD767A2325DCBC7D",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\config.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\config.js",
+      "Length": 3075,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T20:51:07.6533638-05:00",
+      "MD5": "CAEBE56C25949D6F9C0C5A4B10F7EAC6",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\envLoader.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\envLoader.js",
+      "Length": 1382,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-07-30T22:14:21.1016618-05:00",
+      "MD5": "ABB8B5B33CEC5B0448D9DF89C1369E7A",
+      "Decision": "⚠️ REVISAR MANUALMENTE",
+      "Reasons": "Nombre sugiere posible secreto o variables de entorno — revisar contenido."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\gemini.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\gemini.js",
+      "Length": 19914,
+      "SizeMB": 0.02,
+      "LastWriteTime": "2026-08-22T19:42:16.2335413-05:00",
+      "MD5": "35CACA80D8DB516DBD3FE7E080825AF1",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\geminiClient.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\geminiClient.js",
+      "Length": 949,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-05T12:13:17.4184268-05:00",
+      "MD5": "A1820C2C97B9F32D98D24B7C30CF9A00",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\leads.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\leads.js",
+      "Length": 6541,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-07-30T22:39:54.4382636-05:00",
+      "MD5": "C93359B7D9FAAF1134AF3ED61FACED5E",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\whatsapp.baileys.old.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\whatsapp.baileys.old.js",
+      "Length": 10660,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-07-30T22:49:28.6991718-05:00",
+      "MD5": "FBFA7D145844AECA7A6F5D2BDAF35AED",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\whatsapp.js",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\src\\whatsapp.js",
+      "Length": 12452,
+      "SizeMB": 0.01,
+      "LastWriteTime": "2026-08-22T19:51:17.3356243-05:00",
+      "MD5": "52E7D2729757FBE15E747D312557AA96",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    },
+    {
+      "RelativePath": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\test\\simulator.test.mjs",
+      "FullName": "C:\\Users\\Usuario\\Desktop\\BotMensajes\\test\\simulator.test.mjs",
+      "Length": 1603,
+      "SizeMB": 0.0,
+      "LastWriteTime": "2026-08-22T10:21:57.7748789-05:00",
+      "MD5": "9FE7684BD04C1F0857084CCDBE12F1D3",
+      "Decision": "✅ MANTENER",
+      "Reasons": "Por heurística estándar: código o asset relevante."
+    }
+  ]
+}
