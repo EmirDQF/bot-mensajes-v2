@@ -101,228 +101,198 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-app.get('/panel', (req, res) => {
-  try {
-    const log = Array.isArray(globalThis.chatAuditLog) ? globalThis.chatAuditLog : [];
-    const cards = log.length
-      ? log.map((entry) => {
-          const name = escapeHtml(entry?.name || 'Paciente');
-          const phone = escapeHtml(entry?.phone || '');
-          const time = escapeHtml(entry?.timestamp || '');
-          const patientMessage = escapeHtml(entry?.userMessage || '');
-          const assistantReply = escapeHtml(entry?.botReply || '');
-          const imageAttachment = entry?.imageAttachment ? escapeHtml(entry.imageAttachment) : null;
-          const attachmentBadge = imageAttachment
-            ? `<span class="attachment-tag">📎 Adjunto: ${imageAttachment}</span>`
-            : '';
+function requierePassword(req, res, next) {
+  const auth = req.headers.authorization;
+  const expected = 'Basic ' + Buffer.from(`doctor:${process.env.PANEL_PASSWORD}`).toString('base64');
+  if (!process.env.PANEL_PASSWORD || auth !== expected) {
+    res.set('WWW-Authenticate', 'Basic realm="Panel LUMINZU"');
+    return res.status(401).send('Acceso restringido');
+  }
+  next();
+}
 
-          return `
-            <article class="conversation-card">
-              <div class="conversation-header">
-                <div>
-                  <h2>${name}</h2>
-                  <div class="meta-row">
-                    <span>📞 ${phone || 'Sin teléfono'}</span>
-                    <span>🕒 ${time || 'Ahora'}</span>
-                  </div>
-                </div>
-                <a class="wa-button" href="https://wa.me/${encodeURIComponent(phone || '')}" target="_blank" rel="noopener noreferrer">📲 Intervenir en WhatsApp</a>
-              </div>
-              <div class="message-block patient">
-                <div class="message-label">Paciente</div>
-                <p>${patientMessage || 'Sin mensaje'}</p>
-              </div>
-              <div class="message-block bot">
-                <div class="message-label">Asistente</div>
-                <p>${assistantReply || 'Sin respuesta'}</p>
-              </div>
-              ${attachmentBadge ? `<div class="attachment-row">${attachmentBadge}</div>` : ''}
-            </article>
-          `;
-        }).join('')
-      : `<div class="empty-state">Esperando nuevas interacciones desde WhatsApp...</div>`;
+function agruparPorPaciente(messagesLog) {
+  const porPaciente = {};
+  for (const m of messagesLog) {
+    const numero = m?.numero || m?.phone || m?.telefono || '';
+    const nombre = m?.nombre || m?.name || numero || 'Paciente';
+    if (!porPaciente[numero]) {
+      porPaciente[numero] = { numero, nombre, mensajes: [] };
+    }
+    porPaciente[numero].mensajes.push({
+      mensaje: m?.mensaje || m?.userMessage || '',
+      respuesta: m?.respuesta || m?.botReply || '',
+      timestamp: m?.timestamp || new Date().toISOString(),
+    });
+  }
+  return Object.values(porPaciente).sort((a, b) => {
+    const ua = a.mensajes[a.mensajes.length - 1]?.timestamp || 0;
+    const ub = b.mensajes[b.mensajes.length - 1]?.timestamp || 0;
+    return new Date(ub) - new Date(ua);
+  });
+}
 
-    const html = `<!DOCTYPE html>
+app.get('/panel/data', requierePassword, (req, res) => {
+  const messagesLog = Array.isArray(globalThis.chatAuditLog) ? globalThis.chatAuditLog : [];
+  res.json(agruparPorPaciente(messagesLog));
+});
+
+const PANEL_HTML = `<!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="refresh" content="4" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Panel de administración</title>
-    <style>
-      :root {
-        --bg: #111b21;
-        --panel: #202c33;
-        --panel-strong: #182229;
-        --panel-bot: #005c4b;
-        --accent: #00a884;
-        --text: #e9edef;
-        --muted: #8696a0;
-        --border: rgba(255,255,255,0.08);
-        --shadow: 0 18px 40px rgba(0,0,0,0.28);
-      }
-      * { box-sizing: border-box; }
-      html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: Arial, sans-serif; }
-      body {
-        background:
-          radial-gradient(circle at top, rgba(0, 168, 132, 0.14), transparent 18%),
-          var(--bg);
-      }
-      .container {
-        width: min(1100px, calc(100% - 24px));
-        margin: 0 auto;
-        padding: 24px 0 48px;
-      }
-      .topbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 18px;
-      }
-      .topbar h1 {
-        margin: 0;
-        font-size: clamp(1.5rem, 3vw, 2.4rem);
-        letter-spacing: -0.03em;
-      }
-      .ring {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        background: rgba(0, 168, 132, 0.14);
-        border: 1px solid rgba(0, 168, 132, 0.32);
-        color: var(--text);
-        padding: 8px 12px;
-        border-radius: 999px;
-        font-size: 0.8rem;
-      }
-      .ring::before {
-        content: '';
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: var(--accent);
-        box-shadow: 0 0 16px rgba(0, 168, 132, 0.8);
-      }
-      .conversation-list {
-        display: grid;
-        gap: 18px;
-      }
-      .conversation-card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        padding: 18px;
-        box-shadow: var(--shadow);
-      }
-      .conversation-header {
-        display: flex;
-        gap: 14px;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 14px;
-      }
-      .conversation-header h2 {
-        margin: 0 0 8px;
-        font-size: clamp(1.1rem, 2vw, 1.5rem);
-      }
-      .meta-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 10px;
-        color: var(--muted);
-        font-size: 0.8rem;
-      }
-      .wa-button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--accent);
-        color: #081b18;
-        text-decoration: none;
-        border-radius: 10px;
-        padding: 11px 14px;
-        font-weight: 700;
-        font-size: 0.9rem;
-        box-shadow: 0 10px 22px rgba(0, 168, 132, 0.25);
-        white-space: nowrap;
-      }
-      .message-block {
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin-top: 12px;
-      }
-      .message-block.patient {
-        background: var(--panel-strong);
-        border: 1px solid rgba(255,255,255,0.04);
-      }
-      .message-block.bot {
-        background: var(--panel-bot);
-      }
-      .message-label {
-        font-size: 0.76rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        opacity: 0.8;
-        margin-bottom: 8px;
-      }
-      .message-block p {
-        margin: 0;
-        line-height: 1.55;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .attachment-row {
-        margin-top: 12px;
-      }
-      .attachment-tag {
-        display: inline-flex;
-        padding: 7px 10px;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.06);
-        color: var(--text);
-        border: 1px solid rgba(255,255,255,0.08);
-        font-size: 0.78rem;
-      }
-      .empty-state {
-        background: rgba(32, 44, 51, 0.86);
-        border: 1px dashed rgba(0, 168, 132, 0.7);
-        color: var(--text);
-        border-radius: 16px;
-        padding: 30px 18px;
-        text-align: center;
-        font-size: 1.05rem;
-      }
-      @media (max-width: 640px) {
-        .conversation-header {
-          flex-direction: column;
-        }
-        .wa-button {
-          width: 100%;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="topbar">
-        <h1>Panel de administración</h1>
-        <span class="ring">En vivo</span>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel LUMINZU</title>
+  <style>
+    :root {
+      --bg:#0b0f14; --sidebar:#111720; --border:#1f2733;
+      --text:#e6e8ec; --muted:#8a90a2; --accent:#25d366;
+      --bubble-in:#1f2430; --bubble-out:#123524;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden; }
+    .app { display:flex; height:100vh; }
+    .sidebar { width:340px; flex-shrink:0; background:var(--sidebar); border-right:1px solid var(--border); display:flex; flex-direction:column; }
+    .sidebar-header { padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .sidebar-header h1 { font-size:17px; font-weight:700; }
+    .sidebar-header span { font-size:12px; color:var(--muted); }
+    .lista-chats { flex:1; overflow-y:auto; }
+    .item-chat { display:flex; gap:12px; padding:12px 16px; cursor:pointer; border-bottom:1px solid var(--border); }
+    .item-chat:hover, .item-chat.activo { background:#17202b; }
+    .avatar { width:42px; height:42px; border-radius:50%; background:var(--accent); color:#06210f; display:flex; align-items:center; justify-content:center; font-weight:700; flex-shrink:0; }
+    .item-info { flex:1; min-width:0; }
+    .item-top { display:flex; justify-content:space-between; gap:8px; }
+    .item-nombre { font-weight:600; font-size:14px; }
+    .item-hora { font-size:11px; color:var(--muted); flex-shrink:0; }
+    .item-preview { font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .vacio-lista { padding:20px; color:var(--muted); font-size:13px; text-align:center; }
+    .chat-area { flex:1; display:flex; flex-direction:column; }
+    .chat-vacio { flex:1; display:flex; align-items:center; justify-content:center; color:var(--muted); }
+    .chat-abierto { flex:1; display:none; flex-direction:column; }
+    .chat-header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); background:var(--sidebar); }
+    .btn-volver { display:none; background:none; border:none; color:var(--text); font-size:20px; cursor:pointer; }
+    .chat-info h2 { font-size:15px; }
+    .chat-info span { font-size:12px; color:var(--muted); }
+    .btn-intervenir { margin-left:auto; background:var(--accent); color:#06210f; text-decoration:none; font-weight:600; font-size:13px; padding:8px 14px; border-radius:8px; }
+    .chat-mensajes { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:8px; }
+    .burbuja { max-width:70%; padding:8px 12px; border-radius:10px; font-size:14px; line-height:1.4; }
+    .burbuja.paciente { align-self:flex-start; background:var(--bubble-in); }
+    .burbuja.bot { align-self:flex-end; background:var(--bubble-out); }
+    .burbuja .hora { display:block; font-size:10px; color:var(--muted); margin-top:4px; }
+    @media (max-width:768px) {
+      .sidebar { width:100%; }
+      .chat-area { display:none; }
+      body.mostrando-chat .sidebar { display:none; }
+      body.mostrando-chat .chat-area { display:flex; }
+      .btn-volver { display:block; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header"><h1>LUMINZU</h1><span id="contador"></span></div>
+      <div class="lista-chats" id="lista-chats"></div>
+    </aside>
+    <main class="chat-area">
+      <div class="chat-vacio" id="chat-vacio"><p>Selecciona una conversación para ver los mensajes</p></div>
+      <div class="chat-abierto" id="chat-abierto">
+        <div class="chat-header">
+          <button class="btn-volver" id="btn-volver">←</button>
+          <div class="avatar" id="chat-avatar"></div>
+          <div class="chat-info"><h2 id="chat-nombre"></h2><span id="chat-numero"></span></div>
+          <a class="btn-intervenir" id="btn-intervenir" target="_blank" rel="noopener">Intervenir</a>
+        </div>
+        <div class="chat-mensajes" id="chat-mensajes"></div>
       </div>
-      <main class="conversation-list">
-        ${cards}
-      </main>
-    </div>
-  </body>
+    </main>
+  </div>
+  <script>
+    let pacientes = [];
+    let chatSeleccionado = null;
+    const TEXTO_INTERVENCION = encodeURIComponent('Hola soy el Dr. Frank');
+
+    async function cargarDatos() {
+      try {
+        const res = await fetch('/panel/data');
+        if (!res.ok) return;
+        pacientes = await res.json();
+        renderSidebar();
+        if (chatSeleccionado) {
+          const actual = pacientes.find(p => p.numero === chatSeleccionado);
+          if (actual) renderChat(actual);
+        }
+      } catch (e) { console.error('Error cargando panel:', e); }
+    }
+
+    function renderSidebar() {
+      document.getElementById('contador').textContent = pacientes.length + ' conversaciones';
+      const cont = document.getElementById('lista-chats');
+      if (pacientes.length === 0) {
+        cont.innerHTML = '<p class="vacio-lista">Aún no hay conversaciones</p>';
+        return;
+      }
+      cont.innerHTML = pacientes.map(function (p) {
+        const ultimo = p.mensajes[p.mensajes.length - 1];
+        const activo = p.numero === chatSeleccionado ? ' activo' : '';
+        return '<div class="item-chat' + activo + '" data-numero="' + escapeHtml(p.numero) + '">' +
+          '<div class="avatar">' + inicial(p.nombre) + '</div>' +
+          '<div class="item-info">' +
+            '<div class="item-top"><span class="item-nombre">' + escapeHtml(p.nombre) + '</span><span class="item-hora">' + formatearHora(ultimo && ultimo.timestamp) + '</span></div>' +
+            '<div class="item-preview">' + escapeHtml(ultimo ? ultimo.mensaje : '') + '</div>' +
+          '</div></div>';
+      }).join('');
+      cont.querySelectorAll('.item-chat').forEach(function (el) {
+        el.addEventListener('click', function () {
+          abrirChat(el.getAttribute('data-numero'));
+        });
+      });
+    }
+
+    function abrirChat(numero) {
+      chatSeleccionado = numero;
+      document.body.classList.add('mostrando-chat');
+      const p = pacientes.find(p => p.numero === numero);
+      if (p) renderChat(p);
+      renderSidebar();
+    }
+
+    function renderChat(p) {
+      document.getElementById('chat-vacio').style.display = 'none';
+      document.getElementById('chat-abierto').style.display = 'flex';
+      document.getElementById('chat-avatar').textContent = inicial(p.nombre);
+      document.getElementById('chat-nombre').textContent = p.nombre;
+      document.getElementById('chat-numero').textContent = p.numero;
+      document.getElementById('btn-intervenir').href = 'https://wa.me/' + p.numero.replace(/[^0-9]/g, '') + '?text=' + TEXTO_INTERVENCION;
+      const cont = document.getElementById('chat-mensajes');
+      cont.innerHTML = p.mensajes.map(m =>
+        '<div class="burbuja paciente"><p>' + escapeHtml(m.mensaje) + '</p><span class="hora">' + formatearHora(m.timestamp) + '</span></div>' +
+        '<div class="burbuja bot"><p>' + escapeHtml(m.respuesta) + '</p></div>'
+      ).join('');
+      cont.scrollTop = cont.scrollHeight;
+    }
+
+    document.getElementById('btn-volver').onclick = function () {
+      document.body.classList.remove('mostrando-chat');
+    };
+
+    function inicial(nombre) { return (nombre || '?').charAt(0).toUpperCase(); }
+    function formatearHora(ts) {
+      if (!ts) return '';
+      return new Date(ts).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    }
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    cargarDatos();
+    setInterval(cargarDatos, 4000);
+  </script>
+</body>
 </html>`;
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.status(200).send(html);
-  } catch (error) {
-    console.error('[PANEL ERROR]', error && error.message ? error.message : error);
-    return res.status(500).send('No se pudo renderizar el panel de administración.');
-  }
+app.get('/panel', requierePassword, (req, res) => {
+  res.send(PANEL_HTML);
 });
 
 // One-time endpoint to restore WABA subscription from production (use with caution).
