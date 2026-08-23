@@ -1042,6 +1042,15 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   try {
     let result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
     let rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
+// TEMP LOG (diagnóstico): imprimir la respuesta cruda del modelo cuando el usuario pide "carillas" o cuando la respuesta incluye la etiqueta de imagen
+try {
+  if (/carillas/i.test(String(mensaje || '')) || /\[ENVIAR_IMAGEN\s*:/i.test(String(rawModelText || '')) || /carillas/i.test(String(rawModelText || ''))) {
+    console.log(`[GEMINI RAW RESPONSE] jid=${jid} userMessage=${String(mensaje || '').slice(0,120)} rawModelText:`, String(rawModelText || '').slice(0,5000));
+  }
+} catch (e) {
+  // non-fatal logging
+}
+
     if (shouldRetryStructuredParse(rawModelText) && !options._structuredRetry) {
       console.error('geminiService: structured model output needs retry; rawText=', rawModelText.slice(0, 2000));
       try {
