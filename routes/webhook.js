@@ -2,7 +2,7 @@ import express from 'express';
 import rateLimiter from '../middleware/rateLimiter.js';
 import config from '../config/env.js';
 import { obtenerRespuestaIA } from '../src/gemini.js';
-import whatsappService from '../services/whatsappService.js';
+import { sendWhatsAppMessageOrImage } from '../services/whatsappService.js';
 import { appendChatAuditEntry } from '../src/chatAudit.js';
 
 const IMAGE_TAG_RE = /\[(?:ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*([^\]]+)\]/gi;
@@ -92,15 +92,8 @@ router.post('/', rateLimiter(), async (req, res) => {
     }
 
     try {
-      const textMessage = cleanedText || (imageNames.length ? 'Aquí tienes la información que pediste.' : replyText);
-      if (textMessage.trim().length > 0) {
-        await whatsappService.sendWhatsAppMessage(from, textMessage, { fetchImpl: globalThis.fetch.bind(globalThis) });
-      }
-
-      for (const imageName of imageNames) {
-        const publicUrl = `${process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-dental.onrender.com'}/public/${encodeURIComponent(imageName)}`;
-        await whatsappService.sendWhatsAppImageMessage(from, publicUrl, '', { fetchImpl: globalThis.fetch.bind(globalThis) });
-      }
+      // Delegate to unified sender which handles images or text based on the AI reply content
+      await sendWhatsAppMessageOrImage(phoneNumberId, from, replyText);
     } catch (sendErr) {
       console.error('[META OUTBOUND EXCEPTION]', {
         message: sendErr?.message || String(sendErr),

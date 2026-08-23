@@ -322,6 +322,9 @@ export async function sendWhatsAppMessageOrImage(phoneNumberId, to, fullReplyTex
     const fetchImpl = (globalThis.fetch && globalThis.fetch.bind(globalThis));
     if (!fetchImpl) throw new Error('No fetch implementation available for sending WhatsApp messages');
 
+    // Debug log of final payload before sending to Meta
+    console.log('[DEBUG MULTIMEDIA] Payload final a Meta:', JSON.stringify(payload, null, 2));
+
     const response = await fetchImpl(url, {
       method: 'POST',
       headers: {
@@ -346,6 +349,25 @@ export async function sendWhatsAppReplyWithOptionalImage(toPhone, text, options 
   const phoneNumberId = (options && options.phoneNumberId) || config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || '';
   return await sendWhatsAppMessageOrImage(phoneNumberId, toPhone, String(text || ''));
 }
+
+// Compatibility exports: default object and CommonJS module.exports when available
+const whatsappServiceExports = {
+  sendWhatsAppMessageOrImage,
+  sendWhatsAppReplyWithOptionalImage,
+  sendWhatsAppMessage,
+  sendWhatsAppImageMessage,
+};
+
+export default whatsappServiceExports;
+
+try {
+  if (typeof module !== 'undefined' && module && module.exports) {
+    module.exports = Object.assign(module.exports || {}, whatsappServiceExports);
+  }
+} catch (e) {
+  // ignore in ESM environments
+}
+
 
 export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const fetchImpl = options.fetchImpl || (globalThis.fetch && globalThis.fetch.bind(globalThis));
