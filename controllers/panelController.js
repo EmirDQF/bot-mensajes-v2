@@ -62,15 +62,50 @@ export async function getConversations(req, res) {
   const client = getSupabaseClient();
   if (client) {
     try {
-      // Try a dedicated inbox_entries table first
-      let { data, error } = await client.from('inbox_entries').select('*').order('updated_at', { ascending: false }).limit(200);
-      if (error && String(error.message || '').toLowerCase().includes('relation') ) {
-        // table not found: fallback
-        data = null;
-        error = null;
+      // Try chat_sessions table first (preferred for session-based chat history)
+      let { data, error } = await client.from('chat_sessions').select('id, history, updated_at').order('updated_at', { ascending: false }).limit(500);
+      if (error && String(error.message || '').toLowerCase().includes('relation')) {
+        data = null; error = null;
       }
 
       if (Array.isArray(data) && data.length) {
+        const out = [];
+        for (const row of data) {
+          // history is expected to be an array of messages
+          const hist = Array.isArray(row.history) ? row.history : (row.history && typeof row.history === 'string' ? JSON.parse(row.history) : []);
+          // try to find phone in session metadata or messages
+          let phone = null;
+          let name = null;
+          let lastMessageText = null;
+          let lastTs = row.updated_at || null;
+          if (hist.length) {
+            // find last non-empty message
+            const last = hist[hist.length - 1];
+            lastMessageText = last?.text || last?.body || last?.message || null;
+            lastTs = last?.timestamp || last?.created_at || lastTs;
+            for (const m of hist) {
+              if (!phone) phone = m.phone || m.from || m.to || m.sender_phone || m.contact_phone || null;
+              if (!name) name = m.contact_name || m.name || m.sender_name || null;
+              if (phone && name) break;
+            }
+          }
+
+          // fallback: use session id if looks like a phone
+          if (!phone && typeof row.id === 'string') {
+            const digits = row.id.replace(/\D/g, '');
+            if (digits.length >= 8) phone = digits;
+          }
+
+          if (!phone) continue;
+
+          out.push({ phone, name, lastMessage: lastMessageText, timestamp: lastTs, timeLabel: lastTs ? formatTime(lastTs) : null, status: null });
+        }
+        return res.json(out);
+      }
+
+      // Try a dedicated inbox_entries table
+      ({ data, error } = await client.from('inbox_entries').select('*').order('updated_at', { ascending: false }).limit(200));
+      if (!error && Array.isArray(data) && data.length) {
         const out = data.map(mapRowToConversation).filter((c) => c.phone).map((c) => ({
           phone: c.phone,
           name: c.name,
@@ -139,13 +174,54 @@ export async function getMessages(req, res) {
 
   if (client && normPhone) {
     try {
+      // Try chat_sessions first: fetch sessions and find matching history entries
+      let { data, error } = await client.from('chat_sessions').select('id, history, updated_at').order('updated_at', { ascending: false }).limit(500);
+      if (error && String(error.message || '').toLowerCase().includes('relation')) { data = null; error = null; }
+      if (Array.isArray(data) && data.length) {
+        const messages = [];
+        for (const row of data) {
+          const hist = Array.isArray(row.history) ? row.history : (row.history && typeof row.history === 'string' ? JSON.parse(row.history) : []);
+          for (const m of hist) {
+            const candidates = [m.phone, m.from, m.to, m.sender_phone, m.contact_phone, m.whatsapp_id, m.whatsapp_number];
+            const found = candidates.map((c)=>c?String(c).replace(/\D/g,''):'').find((d)=>d && d.endsWith(normPhone));
+            if (found) {
+              messages.push(m);
+            }
+          }
+        }
+        // sort by timestamp
+        messages.sort((a,b)=>{
+          const ta = a.timestamp || a.created_at || a.ts || null;
+          const tb = b.timestamp || b.created_at || b.ts || null;
+          const na = ta?Number(ta):0; const nb = tb?Number(tb):0; return na - nb;
+        });
+
+        const out = messages.map((m)=>{
+          const text = m.text || m.body || m.message || null;
+          const imgFromTag = text && (text.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i) || [])[1];
+          const rawImgName = imgFromTag || m.image || m.media_url || m.attachment || null;
+          let img = null;
+          if (rawImgName) {
+            // Extract only filename portion
+            const fname = String(rawImgName).split(/[\\/]/).pop();
+            img = fname.startsWith('/LUMINZU/') ? fname : `/LUMINZU/${fname}`;
+          }
+
+          return {
+            from: m.from || m.sender || (m.direction === 'outbound' ? 'bot' : 'patient'),
+            text: text && String(text).replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '').trim() || null,
+            image: img,
+            timestamp: m.created_at || m.timestamp || m.ts || null,
+            timeLabel: formatTime(m.created_at || m.timestamp || m.ts || null),
+          };
+        });
+        return res.json(out);
+      }
+
       // Query inbox_entries by any phone-like column
       const orFilter = `phone.eq.${normPhone},contact_phone.eq.${normPhone},sender_phone.eq.${normPhone},to.eq.${normPhone},from.eq.${normPhone}`;
-      let { data, error } = await client.from('inbox_entries').select('*').or(orFilter).order('created_at', { ascending: true }).limit(1000);
-      if (error && String(error.message || '').toLowerCase().includes('relation')) {
-        data = null; error = null;
-      }
-      if (Array.isArray(data) && data.length) {
+      ({ data, error } = await client.from('inbox_entries').select('*').or(orFilter).order('created_at', { ascending: true }).limit(1000));
+      if (!error && Array.isArray(data) && data.length) {
         const out = data.map((m) => ({
           from: m.from || m.sender || (m.direction === 'outbound' ? 'bot' : 'patient'),
           text: m.body || m.text || m.message || null,

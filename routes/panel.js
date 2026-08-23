@@ -1,5 +1,6 @@
 import express from 'express';
-import { getConversations, getMessages, toggleBot, sendMessage } from '../controllers/panelController.js';
+import { getConversations, getMessages, toggleBot } from '../controllers/panelController.js';
+import { sendMessage } from '../controllers/panelSend.js';
 
 const router = express.Router();
 router.use(express.json());
