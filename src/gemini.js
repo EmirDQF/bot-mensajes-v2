@@ -5,7 +5,7 @@ import { saveLead } from './leads.js';
 
 
 const apiKey = process.env.GEMINI_API_KEY;
-const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const ttlMs = 30 * 60 * 1000;
 const contingencyMessage = 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
 const chatSessions = new Map();
@@ -25,8 +25,8 @@ function getModel() {
       model: geminiModel,
       systemInstruction: SYSTEM_PROMPT,
       generationConfig: {
-        maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 2048),
-        temperature: 0.7,
+        maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 250),
+        temperature: 0.2,
       },
     });
   }

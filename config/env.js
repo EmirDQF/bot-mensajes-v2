@@ -60,8 +60,8 @@ function maskPhone(phone) {
 export default {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
-    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
-    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 4096),
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 250),
   },
   clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || process.env.CLINIC_NAME || 'LUMINZU Dent',
   clinicProfile: {

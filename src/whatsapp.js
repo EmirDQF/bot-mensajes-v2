@@ -149,21 +149,41 @@ export async function processWebhookEvent(body, rawBodyBuf, headers) {
     console.log(`🧠 Camila response for ${from}: ${respuesta}`);
     console.log(`📌 Lead result for ${from}:`, leadResult);
 
+    const imageTags = [...String(respuesta || '').matchAll(/\[(?:ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*([^\]]+)\]/gi)].map((match) => String(match[1] || '').trim()).filter(Boolean);
+    const cleanedBotReply = String(respuesta || '').replace(/\[(?:ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*([^\]]+)\]/gi, '').replace(/\s{2,}/g, ' ').trim();
+
     try {
       appendChatAuditEntry({
         name: 'Paciente',
         phone: from,
         userMessage: messageText,
-        botReply: respuesta,
+        botReply: cleanedBotReply || respuesta,
         timestamp: new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit' }).format(new Date()),
-        imageAttachment: message?.type === 'image' ? (message?.image?.filename || message?.image?.name || message?.image?.caption || null) : null,
+        imageAttachment: imageTags.length ? imageTags.join(', ') : (message?.type === 'image' ? (message?.image?.filename || message?.image?.name || message?.image?.caption || null) : null),
       });
     } catch (auditErr) {
       console.warn('[AUDIT LOG] No se pudo guardar la interacción en whatsapp.js:', auditErr?.message || auditErr);
     }
 
-    // send response back to user
-    await sendWhatsAppMessage(from, respuesta);
+    if (cleanedBotReply) {
+      await sendWhatsAppMessage(from, cleanedBotReply);
+    }
+    for (const imageFile of imageTags) {
+      const publicUrl = `${process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-dental.onrender.com'}/public/${encodeURIComponent(imageFile)}`;
+      await fetch(`https://graph.facebook.com/${process.env.WHATSAPP_API_VERSION || 'v17.0'}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + (process.env.WHATSAPP_TOKEN || ''),
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: from,
+          type: 'image',
+          image: { link: publicUrl },
+        }),
+      });
+    }
 
           if (leadResult?.readyToNotify && leadResult.lead) {
             // send confirmation message based on lead

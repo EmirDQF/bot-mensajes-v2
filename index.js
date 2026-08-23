@@ -10,6 +10,7 @@ const chatAuditLog = [];
 globalThis.chatAuditLog = chatAuditLog;
 
 app.use('/images', express.static(path.join(process.cwd(), 'LUMINZU')));
+app.use('/public', express.static(path.join(process.cwd(), 'LUMINZU')));
 app.locals.baseUrl = baseUrl.replace(/\/$/, '');
 
 app.use((req, res, next) => {

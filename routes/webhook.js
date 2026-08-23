@@ -5,25 +5,21 @@ import { obtenerRespuestaIA } from '../src/gemini.js';
 import whatsappService from '../services/whatsappService.js';
 import { appendChatAuditEntry } from '../src/chatAudit.js';
 
-const router = express.Router();
-
-const IMAGE_TAG_RE = /\[(?:ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*([^\]]+)\]/i;
-
-function extractImageTag(text) {
-  if (!text || typeof text !== 'string') return null;
-  const match = text.match(IMAGE_TAG_RE);
-  return match && match[1] ? match[1].trim() : null;
+const IMAGE_TAG_RE = /\[(?:ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*([^\]]+)\]/gi;
+function extractImageTags(text) {
+  if (!text || typeof text !== 'string') return [];
+  const matches = [...text.matchAll(IMAGE_TAG_RE)];
+  return matches
+    .map((match) => String(match[1] || '').trim())
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
 }
-
-function stripImageTag(text) {
+function stripImageTags(text) {
   if (!text || typeof text !== 'string') return '';
   return text.replace(IMAGE_TAG_RE, '').replace(/\s{2,}/g, ' ').trim();
 }
 
-function buildImageUrl(filename) {
-  const baseUrl = (process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/$/, '');
-  return `${baseUrl}/images/${encodeURIComponent(filename)}`;
-}
+const router = express.Router();
 
 router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -79,8 +75,8 @@ router.post('/', rateLimiter(), async (req, res) => {
     const remoteJid = `${from}@s.whatsapp.net`;
     const { texto } = await obtenerRespuestaIA(remoteJid, text);
     const replyText = texto || 'Gracias por tu mensaje.';
-    const imageName = extractImageTag(replyText);
-    const cleanedText = stripImageTag(replyText);
+    const imageNames = extractImageTags(replyText);
+    const cleanedText = stripImageTags(replyText);
 
     try {
       appendChatAuditEntry({
@@ -89,51 +85,21 @@ router.post('/', rateLimiter(), async (req, res) => {
         userMessage: text,
         botReply: cleanedText || replyText,
         timestamp: new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit' }).format(new Date()),
-        imageAttachment: imageAttachment || null,
+        imageAttachment: imageNames.length ? imageNames.join(', ') : (imageAttachment || null),
       });
     } catch (auditErr) {
       console.warn('[AUDIT LOG] Falló la auditoría del webhook:', auditErr?.message || auditErr);
     }
 
     try {
-      const payload = imageName
-        ? {
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: from,
-            type: 'image',
-            image: {
-              link: buildImageUrl(imageName),
-              caption: cleanedText || 'Aquí tienes la imagen que pediste.',
-            },
-          }
-        : {
-            messaging_product: 'whatsapp',
-            to: from,
-            type: 'text',
-            text: { body: cleanedText || replyText },
-          };
+      const textMessage = cleanedText || (imageNames.length ? 'Aquí tienes la información que pediste.' : replyText);
+      if (textMessage.trim().length > 0) {
+        await whatsappService.sendWhatsAppMessage(from, textMessage, { fetchImpl: globalThis.fetch.bind(globalThis) });
+      }
 
-      const apiRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN || config.whatsapp?.token || ''}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const responseText = await apiRes.text();
-      console.log('[META OUTBOUND RESPONSE]', apiRes.status, responseText);
-
-      if (!apiRes.ok) {
-        console.error('[META OUTBOUND ERROR]', {
-          status: apiRes.status,
-          phone_number_id: phoneNumberId,
-          to: from,
-          body: responseText,
-          payload,
-        });
+      for (const imageName of imageNames) {
+        const publicUrl = `${process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-dental.onrender.com'}/public/${encodeURIComponent(imageName)}`;
+        await whatsappService.sendWhatsAppImageMessage(from, publicUrl, '', { fetchImpl: globalThis.fetch.bind(globalThis) });
       }
     } catch (sendErr) {
       console.error('[META OUTBOUND EXCEPTION]', {
