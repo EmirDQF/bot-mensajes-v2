@@ -1,16 +1,31 @@
 import './envLoader.js';
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { SYSTEM_PROMPT } from './config.js';
+import { createClient } from '@supabase/supabase-js';
 import { saveLead } from './leads.js';
 
 
 const apiKey = process.env.GEMINI_API_KEY;
 const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const ttlMs = 30 * 60 * 1000;
+// Default session TTL: 24 hours (can be overridden with SESSION_TTL_MS env var)
+const ttlMs = Number(process.env.SESSION_TTL_MS || 24 * 60 * 60 * 1000);
 const contingencyMessage = 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
 const chatSessions = new Map();
 const MAX_HISTORY_MESSAGES = 8;
 let model;
+
+// Supabase optional persistence for chat sessions
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+let supabase = null;
+if (supabaseUrl && supabaseKey) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseKey);
+  } catch (e) {
+    console.warn('No se pudo inicializar Supabase client:', e?.message || e);
+    supabase = null;
+  }
+}
 
 // Inicializa y cachea el modelo con configuración limitada de tokens y temperatura
 // (Evita crear nuevas instancias repetidamente y controla maxOutputTokens para ahorrar tokens).
@@ -58,7 +73,20 @@ function resetSessionTimer(sessionId, sessionEntry) {
   sessionEntry.timer = setTimeout(() => {
     chatSessions.delete(sessionId);
     console.log(`🧹 Historial limpiado por inactividad para ${sessionId}`);
+    // Also attempt to remove persisted session if supabase configured
+    if (supabase) {
+      supabase.from('chat_sessions').delete().eq('id', sessionId).then(({ error }) => {
+        if (error) console.warn('Failed removing persisted session:', error.message || error);
+      }).catch((e) => console.warn('Failed removing persisted session:', e?.message || e));
+    }
   }, ttlMs);
+
+  // Persist updated expiry asynchronously (don't await)
+  if (supabase) {
+    import('./_supabase_helpers.js').then(({ persistSessionToSupabase }) => {
+      persistSessionToSupabase(supabase, sessionId, sessionEntry, ttlMs).catch((e) => console.warn('persistSessionToSupabase error:', e));
+    }).catch((e) => console.warn('Failed to load supabase helpers:', e?.message || e));
+  }
 }
 
 function formatConversationHistory(history) {
@@ -265,7 +293,7 @@ async function extractLeadData(history) {
   }
 }
 
-function getOrCreateSession(jid) {
+async function getOrCreateSession(jid) {
   // Maneja sesiones por número (limpia el sufijo @...), guarda chat y history en memoria
   const sessionId = getSessionId(jid);
   const existingSession = chatSessions.get(sessionId);
@@ -274,11 +302,33 @@ function getOrCreateSession(jid) {
     return existingSession;
   }
 
-  const history = existingSession?.history ?? [];
+  // Try to load persisted session from Supabase if configured
+  let history = existingSession?.history ?? [];
+  if (supabase) {
+    try {
+      const { loadSessionFromSupabase } = await import('./_supabase_helpers.js');
+      const persisted = await loadSessionFromSupabase(supabase, sessionId);
+      if (persisted && Array.isArray(persisted.history) && persisted.history.length > 0) {
+        history = persisted.history;
+        console.log(`✅ Sesión restaurada desde Supabase para ${sessionId} (entries: ${history.length})`);
+      }
+    } catch (e) {
+      console.warn('Error intentando cargar sesión desde Supabase:', e?.message || e);
+    }
+  }
+
   const chat = getModel().startChat({ history });
   const sessionEntry = { chat, history, timer: null };
   chatSessions.set(sessionId, sessionEntry);
   resetSessionTimer(sessionId, sessionEntry);
+
+  // Persist session asynchronously
+  if (supabase) {
+    import('./_supabase_helpers.js').then(({ persistSessionToSupabase }) => {
+      persistSessionToSupabase(supabase, sessionId, sessionEntry, ttlMs).catch((e) => console.warn('persistSessionToSupabase error:', e));
+    }).catch((e) => console.warn('Failed to load supabase helpers:', e?.message || e));
+  }
+
   return sessionEntry;
 }
 
@@ -411,7 +461,7 @@ function normalizeHistoryText(rawText) {
 }
 
 export async function obtenerRespuestaIA(jid, mensajeUsuario) {
-  const sessionEntry = getOrCreateSession(jid);
+  const sessionEntry = await getOrCreateSession(jid);
   try {
     const waId = getSessionId(jid);
     const contextualMessage = `Número de WhatsApp del paciente: ${waId}\n${mensajeUsuario}`;
