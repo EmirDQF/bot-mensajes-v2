@@ -1,0 +1,268 @@
+import fs from 'fs/promises';
+import path from 'path';
+import { createClient } from '@supabase/supabase-js';
+import config from '../config/env.js';
+
+// Flexible timestamp formatter: accepts seconds, milliseconds, or ISO strings
+function formatTime(value) {
+  try {
+    if (!value) return null;
+    let dt;
+    if (typeof value === 'number' || /^[0-9]+$/.test(String(value))) {
+      // If looks like seconds (10 digits) or milliseconds (13 digits)
+      const v = Number(value);
+      dt = v > 1e12 ? new Date(v) : new Date(v * 1000);
+    } else {
+      dt = new Date(value);
+    }
+    if (Number.isNaN(dt.getTime())) return null;
+    return new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true }).format(dt);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function readJsonIfExists(p) {
+  try {
+    const raw = await fs.readFile(p, 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+
+let supabaseClient = null;
+function getSupabaseClient() {
+  if (supabaseClient) return supabaseClient;
+  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  if (!rawUrl || !key) return null;
+  supabaseClient = createClient(rawUrl, key);
+  return supabaseClient;
+}
+
+function mapRowToConversation(row) {
+  const phone = row.phone || row.sender_phone || row.contact_phone || row.from || row.to || row.whatsapp_number || row.whatsapp_id || null;
+  const name = row.contact_name || row.name || row.profile_name || row.sender_name || null;
+  const lastMessage = row.body || row.last_message || row.message || row.text || row.content || null;
+  const ts = row.updated_at || row.last_message_ts || row.created_at || row.timestamp || null;
+  return {
+    phone,
+    name,
+    lastMessage,
+    timestamp: ts,
+    timeLabel: ts ? formatTime(ts) : null,
+    status: row.status || row.direction || null,
+  };
+}
+
+// GET /api/panel/conversations
+export async function getConversations(req, res) {
+  // Prefer Supabase if configured
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      // Try a dedicated inbox_entries table first
+      let { data, error } = await client.from('inbox_entries').select('*').order('updated_at', { ascending: false }).limit(200);
+      if (error && String(error.message || '').toLowerCase().includes('relation') ) {
+        // table not found: fallback
+        data = null;
+        error = null;
+      }
+
+      if (Array.isArray(data) && data.length) {
+        const out = data.map(mapRowToConversation).filter((c) => c.phone).map((c) => ({
+          phone: c.phone,
+          name: c.name,
+          lastMessage: c.lastMessage,
+          timestamp: c.timestamp,
+          timeLabel: c.timeLabel,
+          status: c.status,
+        }));
+        return res.json(out);
+      }
+
+      // Fallback: try a generic messages table and aggregate by phone
+      const { data: msgs, error: msgsErr } = await client.from('messages').select('*').order('created_at', { ascending: false }).limit(1000);
+      if (!msgsErr && Array.isArray(msgs) && msgs.length) {
+        const byPhone = new Map();
+        for (const m of msgs) {
+          const phoneKey = m.phone || m.to || m.from || m.sender_phone || m.contact_phone || null;
+          if (!phoneKey) continue;
+          if (!byPhone.has(phoneKey)) {
+            byPhone.set(phoneKey, m);
+          }
+        }
+        const out = Array.from(byPhone.values()).map(mapRowToConversation);
+        return res.json(out);
+      }
+    } catch (e) {
+      console.warn('panelController.getConversations: supabase query failed:', e && e.message ? e.message : e);
+      // fallthrough to file-based fallback
+    }
+  }
+
+  // File-based fallback
+  const dataPath = path.join(process.cwd(), 'data', 'conversations.json');
+  const data = (await readJsonIfExists(dataPath)) || [];
+
+  const normalized = data.map((c) => ({
+    phone: c.phone,
+    name: c.name || c.contactName || null,
+    lastMessage: c.lastMessage || null,
+    timestamp: c.timestamp || (c.lastMessageTs || null),
+    status: c.status || 'unknown'
+  }));
+
+  normalized.sort((a, b) => (Number(b.timestamp || 0) - Number(a.timestamp || 0)));
+
+  const out = normalized.map((c) => ({
+    phone: c.phone,
+    name: c.name,
+    lastMessage: c.lastMessage,
+    timestamp: c.timestamp,
+    timeLabel: c.timestamp ? formatTime(c.timestamp) : null,
+    status: c.status
+  }));
+
+  res.json(out);
+}
+
+// GET /api/panel/messages/:phone
+export async function getMessages(req, res) {
+  const { phone } = req.params;
+  const client = getSupabaseClient();
+
+  // Helper to normalize phone for simple matching (strip non-digits)
+  const normalize = (p) => (p ? String(p).replace(/\D/g, '') : p);
+  const normPhone = normalize(phone);
+
+  if (client && normPhone) {
+    try {
+      // Query inbox_entries by any phone-like column
+      const orFilter = `phone.eq.${normPhone},contact_phone.eq.${normPhone},sender_phone.eq.${normPhone},to.eq.${normPhone},from.eq.${normPhone}`;
+      let { data, error } = await client.from('inbox_entries').select('*').or(orFilter).order('created_at', { ascending: true }).limit(1000);
+      if (error && String(error.message || '').toLowerCase().includes('relation')) {
+        data = null; error = null;
+      }
+      if (Array.isArray(data) && data.length) {
+        const out = data.map((m) => ({
+          from: m.from || m.sender || (m.direction === 'outbound' ? 'bot' : 'patient'),
+          text: m.body || m.text || m.message || null,
+          image: m.media_url || m.image || m.attachment || null,
+          timestamp: m.created_at || m.timestamp || null,
+          timeLabel: formatTime(m.created_at || m.timestamp || null),
+        }));
+        return res.json(out);
+      }
+
+      // Fallback to messages table
+      const { data: msgs, error: msgsErr } = await client.from('messages').select('*').or(orFilter).order('created_at', { ascending: true }).limit(2000);
+      if (!msgsErr && Array.isArray(msgs) && msgs.length) {
+        const out = msgs.map((m) => ({
+          from: m.from || m.sender || (m.is_bot ? 'bot' : 'patient'),
+          text: m.body || m.text || m.message || null,
+          image: m.media_url || m.image || m.attachment || null,
+          timestamp: m.created_at || m.timestamp || null,
+          timeLabel: formatTime(m.created_at || m.timestamp || null),
+        }));
+        return res.json(out);
+      }
+    } catch (e) {
+      console.warn('panelController.getMessages: supabase query failed:', e && e.message ? e.message : e);
+    }
+  }
+
+  // File-based fallback
+  const phonePath = path.join(process.cwd(), 'data', `messages_${phone}.json`);
+  const globalPath = path.join(process.cwd(), 'data', 'messages.json');
+
+  let msgs = (await readJsonIfExists(phonePath));
+  if (!msgs) msgs = (await readJsonIfExists(globalPath)) || [];
+
+  if (Array.isArray(msgs) && msgs.length && msgs[0].phone !== undefined) {
+    msgs = msgs.filter((m) => String(m.phone) === String(phone));
+  }
+
+  msgs.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+
+  const out = msgs.map((m) => ({
+    from: m.from || m.sender || (m.isBot ? 'bot' : 'patient'),
+    text: m.text || (m.body && m.body.text) || null,
+    image: m.image || (m.media && m.media.filename) || null,
+    timestamp: m.timestamp || null,
+    timeLabel: m.timestamp ? formatTime(m.timestamp) : null
+  }));
+
+  res.json(out);
+}
+
+// POST /api/panel/toggle-bot/:phone
+export async function toggleBot(req, res) {
+  const { phone } = req.params;
+  const dataDir = path.join(process.cwd(), 'data');
+  await fs.mkdir(dataDir, { recursive: true });
+  const statePath = path.join(dataDir, 'bot_state.json');
+  const state = (await readJsonIfExists(statePath)) || {};
+
+  const current = !!state[phone];
+  state[phone] = !current;
+
+  try {
+    await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf8');
+    res.json({ phone, botEnabled: state[phone] });
+  } catch (e) {
+    console.error('Failed to write bot state', e && e.message ? e.message : e);
+    res.status(500).json({ error: 'No se pudo cambiar el estado' });
+  }
+}
+
+// POST /api/panel/send-message
+export async function sendMessage(req, res) {
+  const { phone, text, imageUrl } = req.body || {};
+  if (!phone || (!text && !imageUrl)) {
+    return res.status(400).json({ error: 'Se requiere phone y text o imageUrl' });
+  }
+
+  const token = process.env.WHATSAPP_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+  if (!token || !phoneId) {
+    return res.status(501).json({ error: 'WHATSAPP_TOKEN o WHATSAPP_PHONE_NUMBER_ID no configurados en el entorno' });
+  }
+
+  try {
+    const url = `https://graph.facebook.com/v17.0/${phoneId}/messages`;
+    const body = imageUrl
+      ? { messaging_product: 'whatsapp', to: phone, type: 'image', image: { link: imageUrl, caption: text || '' } }
+      : { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text } };
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const j = await resp.json();
+    if (!resp.ok) {
+      console.error('WhatsApp API error', j);
+      return res.status(502).json({ error: 'Error from WhatsApp API', details: j });
+    }
+
+    // Optionally persist sent message to data/messages.json for the panel to show immediately
+    try {
+      const dataPath = path.join(process.cwd(), 'data', 'messages.json');
+      const existing = (await readJsonIfExists(dataPath)) || [];
+      existing.push({ phone, from: 'panel', text: text || null, image: imageUrl || null, timestamp: Math.floor(Date.now() / 1000) });
+      await fs.mkdir(path.dirname(dataPath), { recursive: true });
+      await fs.writeFile(dataPath, JSON.stringify(existing, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('Could not persist sent message locally', e && e.message ? e.message : e);
+    }
+
+    res.json({ ok: true, result: j });
+  } catch (e) {
+    console.error('sendMessage error', e && e.message ? e.message : e);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+}

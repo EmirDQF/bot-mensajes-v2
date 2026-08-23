@@ -1,6 +1,7 @@
 import express from 'express';
 import './src/envLoader.js';
 import webhookRouter from './routes/webhook.js';
+import panelRouter from './routes/panel.js';
 import fs from 'fs/promises';
 import path from 'path';
 import errorHandler from './middleware/errorHandler.js';
@@ -112,6 +113,9 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Promise Rejection:', reason);
 });
+
+// Mount panel API routes
+app.use('/api/panel', panelRouter);
 
 // Configure Cloud API webhook routes (if WHATSAPP_TOKEN/etc are set)
 app.use('/', webhookRouter);
