@@ -4,13 +4,10 @@ process.env.GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 process.env.WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '12345';
 process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'verify-token';
 
-import fs from 'fs/promises';
-import path from 'path';
 import { describe, it, before } from 'node:test';
 import assert from 'assert';
 
 let sendWhatsAppMessage;
-let sendWhatsAppReplyWithOptionalImage;
 
 // Helper to create a mock fetch that returns given sequence of responses
 function mockFetchSequence(responses, options = {}) {
@@ -51,12 +48,6 @@ describe('whatsappService', () => {
     // Dynamic import after setting env vars
     const mod = await import('./whatsappService.js');
     sendWhatsAppMessage = mod.sendWhatsAppMessage;
-    sendWhatsAppReplyWithOptionalImage = mod.sendWhatsAppReplyWithOptionalImage;
-
-    const dir = path.resolve(process.cwd(), 'LUMINZU');
-    await fs.mkdir(dir, { recursive: true });
-    const file = path.resolve(dir, 'carillas.jpeg');
-    await fs.writeFile(file, Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]));
   });
   it('succeeds on first attempt', async () => {
     const fetch = mockFetchSequence([makeResponse({ ok: true, status: 200, jsonObj: { id: 'ok' } })]);
@@ -102,25 +93,5 @@ describe('whatsappService', () => {
     }
     assert.equal(threw, true);
     assert.equal(calls, 1);
-  });
-
-  it('sends image media first and strips the send tag from the final text', async () => {
-    let calls = [];
-    const fetch = async (url, opts) => {
-      calls.push({ url, body: opts && opts.body ? String(opts.body) : '' });
-      if (url.includes('/media')) {
-        return makeResponse({ ok: true, jsonObj: { id: 'media-123' } });
-      }
-      return makeResponse({ ok: true, jsonObj: { id: 'message-456' } });
-    };
-
-    const session = { sentImages: new Set() };
-    const res = await sendWhatsAppReplyWithOptionalImage('987654325', 'Revisa esto [SEND_IMAGE: carillas] y te explico la sonrisa.', { fetchImpl: fetch, timeoutMs: 2000, maxRetries: 0, session });
-
-    assert.equal(res, null);
-    assert.equal(session.sentImages.has('carillas'), true);
-    assert.equal(calls.length >= 3, true);
-    assert.ok(calls.some((call) => call.url.includes('/media')));
-    assert.ok(calls.some((call) => call.url.includes('/messages') && call.body.includes('image')));
   });
 });

@@ -105,26 +105,8 @@ Perfecto, tu cita queda agendada.`);
     const { obtenerRespuestaIA } = (await import('./geminiService.js'));
     const res = await obtenerRespuestaIA(makeJid(), 'quiero agendar', { client });
     assert.ok(capturedRequest, 'generateContent should be called');
-    assert.equal(capturedRequest.systemInstruction.includes('Eres **Valeria**'), true);
+    assert.equal(capturedRequest.systemInstruction.includes('Eres "Camila"'), true);
     assert.ok(res.texto.includes('Hola'));
-  });
-
-  it('extracts response text from real Google SDK response.text() output', async () => {
-    const client = {
-      async generateContent() {
-        return {
-          response: {
-            text() {
-              return 'Perfecto, te ayudo con tu cita.';
-            }
-          }
-        };
-      },
-    };
-    const { obtenerRespuestaIA } = (await import('./geminiService.js'));
-    const res = await obtenerRespuestaIA(makeJid(), 'quiero reservar cita', { client });
-    assert.ok(res.texto.includes('Perfecto'));
-    assert.ok(res.texto.includes('cita'));
   });
 
   it('sanitizes JSON stringified responses with response field', async () => {

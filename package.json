@@ -9,9 +9,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:smoke": "node scripts/smoke-test.js",
     "test:unit": "set \"NODE_ENV=test\"&& node --test ./services/*.test.js",
-    "prospect": "node scripts/runProspector.js",
-    "override-webhook": "node override-webhook.mjs",
-    "test:simulator": "set \"NODE_ENV=test\"&& node --test ./test/simulator.test.mjs"
+    "prospect": "node scripts/runProspector.js"
   },
   "keywords": [],
   "author": "",
@@ -22,7 +20,6 @@
     "@supabase/supabase-js": "^2.30.0",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "express": "^5.2.1",
-    "googleapis": "^176.0.0",
     "qrcode-terminal": "^0.12.0"
   }
 }

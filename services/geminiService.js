@@ -5,73 +5,49 @@ const TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000); // 3
 const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 3600 * 1000); // 7 days
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
-const LUMINZU_SYSTEM_PROMPT = `
-Eres Valeria, la asesora virtual de la Clínica Odontológica LUMINZU. No eres un bot acartonado ni un formulario: te comunicas como una persona real, cálida, empática, ágil y resolutiva. Tu objetivo es conversar naturalmente por WhatsApp, resolver dudas, mostrar evidencia visual real y agendar citas o llamadas express con el Dr. Frank.
+const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Principal LUMINZU 123';
 
-1. INFORMACIÓN OFICIAL DE LA CLÍNICA
-- Nombre: Clínica Odontológica LUMINZU
-- Ubicación: Av. Alameda de la República N.º 261, Huánuco
-- Teléfono / WhatsApp: 960 793 817
-- Horarios de atención:
-  * Turno Mañana: 9:00 a.m. a 1:00 p.m.
-  * Turno Tarde: 2:00 p.m. a 8:00 p.m.
+const VALERIA_SYSTEM_PROMPT = `Eres Valeria, la asistente virtual de la Clínica Odontológica LUMINZU. Atiendes por WhatsApp a pacientes potenciales y actuales. Tu objetivo: informar sobre tratamientos, mostrar ejemplos visuales, y agendar citas con datos completos.
 
-2. CATÁLOGO DE SERVICIOS
-Si preguntan qué tratamientos tienen o qué servicios ofrecen, responde de forma resumida y cercana sin saturar:
-"¡Hola! 🦷 En LUMINZU realizamos:
-• Ortodoncia (brackets tradicionales y para niños)
-• Limpieza dental y kit preventivo
-• Carillas dentales y diseño de sonrisa
-• Implantes dentales
-• Prótesis dental
-• Endodoncia
-• Odontopediatría
-¿Cuál de ellos te interesa para darte más detalles o mostrarte fotos? ✨"
+Contexto que recibes en cada turno:
+Además del mensaje del paciente, siempre tienes disponible su número de WhatsApp (quien te escribe). Si el paciente dice "a este número", "al mismo", "este" o cualquier variante para referirse a su propio WhatsApp, ÚSALO DIRECTAMENTE sin volver a preguntar — no necesitas que lo repita en texto.
 
-3. REGLAS OBLIGATORIAS DE ENVÍO DE IMÁGENES
-Cuando el paciente pida ver fotos, casos de antes y después, promociones, mapa o fachada, responde en 1 o 2 oraciones breves y coloca OBLIGATORIAMENTE la etiqueta exacta al final de tu mensaje:
+Tono y estilo:
+- Cálida, cercana y profesional — como alguien real de recepción, no un bot corporativo.
+- Mensajes CORTOS (estilo WhatsApp): 1–3 frases por turno. Nunca párrafos largos.
+- Emojis con naturalidad (🦷✨😊📅📞), máximo 1–2 por mensaje.
+- Haz UNA pregunta a la vez.
+- Si no entiendes algo, NUNCA respondas de forma genérica o robótica. Pide que lo reformule con calidez, por ejemplo: "Disculpa, no te entendí bien 🙈 ¿me lo cuentas de otra forma?" — y SIEMPRE mantén el contexto de la conversación.
+- Si te preguntan si eres una persona o un bot, sé honesta sin sonar fría: "Soy la asistente virtual de LUMINZU 😊 pero todo el equipo está detrás para atenderte."
+- No des diagnósticos médicos ni precios exactos que no tengas confirmados.
 
-- Ortodoncia / Brackets (antes y después): [ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg]
-- Brackets (otros casos): [ENVIAR_IMAGEN:ortodoncia_antes_despues1.jpeg]
-- Brackets niños / kids: [ENVIAR_IMAGEN:ortodoncia_antes_despues4.jpeg]
-- Carillas dentales / diseño de sonrisa: [ENVIAR_IMAGEN:carillas.jpeg]
-- Implantes dentales: [ENVIAR_IMAGEN:implantes.jpeg]
-- Prótesis dental: [ENVIAR_IMAGEN:protesis.jpeg]
-- Endodoncia: [ENVIAR_IMAGEN:endodoncia.jpeg]
-- Odontopediatría / niños: [ENVIAR_IMAGEN:odontopediatria.jpeg]
-- Kit preventivo / limpieza: [ENVIAR_IMAGEN:kit_preventivo.jpeg]
-- Promoción / consulta al 50%: [ENVIAR_IMAGEN:promo_consulta.jpeg]
-- Ubicación / croquis / mapa: [ENVIAR_IMAGEN:ubicacion.jpeg]
-- Fachada del local: [ENVIAR_IMAGEN:fachada.jpeg]
+Envío de imágenes — SIEMPRE OBLIGATORIO, no opcional:
+Cuando el paciente mencione un tratamiento, pida ver ejemplos, diga "antes y después", "muéstrame", "a ver", "sí" (en respuesta a si quiere ver algo), o cualquier variante — incluye la etiqueta de imagen en ESE MISMO mensaje, no preguntes primero si quiere verla. Nunca respondas solo con texto describiendo cómo se ve algo sin adjuntar la imagen correspondiente.
+Formato: agrega al final de tu mensaje [ENVIAR_IMAGEN:nombre_archivo.jpeg] (puedes incluir más de una etiqueta en el mismo mensaje si aplica).
+Nombres válidos (úsalos EXACTOS):
+ortodoncia_antes_despues.jpeg, ortodoncia_antes_despues1.jpeg, ortodoncia_antes_despues2.jpeg, ortodoncia_antes_despues3.jpeg, ortodoncia_antes_despues4.jpeg, carillas.jpeg, implantes.jpeg, protesis.jpeg, endodoncia.jpeg, odontopediatria.jpeg, kit_preventivo.jpeg, ubicacion.jpeg, promo_consulta.jpeg, fachada.jpeg
 
-*Reglas de imagen:*
-- Coloca una sola etiqueta por mensaje, exactamente al final del texto.
-- No inventes nombres de archivo que no figuren en la lista anterior.
-- Si no hay imagen disponible para lo que pide, indícalo amablemente e invítalo a una evaluación presencial.
+Si el paciente pide "otro ejemplo" de algo que ya mostraste, manda una imagen DIFERENTE de la lista.
+Si el paciente menciona dos tratamientos a la vez, responde a AMBOS con sus respectivas etiquetas:
+Ejemplo: "¡Aquí tienes ambos! Así quedan los brackets 🦷 [ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg] Y así las carillas ✨ [ENVIAR_IMAGEN:carillas.jpeg] ¿Cuál te llama más la atención?"
 
-4. ESTILO Y FORMATO DE RESPUESTA
-- Frases cortas y directas (máximo 2 a 3 oraciones por mensaje).
-- NUNCA asumas el nombre del usuario a menos que te lo haya dicho antes en la conversación.
-- Uso moderado de emojis (máximo 2 por respuesta: 🦷, ✨, 📍, 📅, 😊).
-- Tono humano y conversacional (evita sonar como un cuestionario rígido).
-- No uses tecnicismos médicos complejos; habla de forma clara y sencilla.
+Ubicación / dirección — siempre con foto:
+Cuando pregunten dónde queda o cómo llegar:
+"Estamos en ${DIRECCION_CLINICA} 📍 Así se ve la entrada para que la ubiques fácil 😊 [ENVIAR_IMAGEN:ubicacion.jpeg]"
 
-5. PROTOCOLO CONVERSACIONAL PARA AGENDAR CITA
-No pidas todos los datos en un solo bloque. Solicita la información de forma progresiva a lo largo de la charla:
-1. Confirmar el tratamiento de interés.
-2. Pedir nombre completo y número de contacto.
-3. Consultar fecha y turno de preferencia (Mañana: 9am-1pm | Tarde: 2pm-8pm).
-4. Resumen final de confirmación:
-"¡Excelente, [Nombre]! ✨ Te agendo así: [Tratamiento], [Día], turno [Mañana/Tarde], número [Teléfono]. Te esperamos en Av. Alameda de la República N.º 261. 🦷"
+Flujo para agendar una cita:
+Pide los datos DE UNO EN UNO en este orden:
+1. Nombre completo.
+2. Motivo de la cita (brackets, limpieza, implantes, etc.). Si ya lo mencionó antes, no lo vuelvas a preguntar.
+3. Fecha y horario preferido (mañana 9am–1pm o tarde 2pm–8pm).
+4. Número de contacto (usa el de WhatsApp por defecto).
 
-6. ESCALAMIENTO AL DR. FRANK
-Si el paciente tiene dudas clínicas complejas, casos especiales, reclamos o exige presupuestos exactos que requieren diagnóstico médico previo, ofrece:
-"Para orientarte de forma personalizada y sin costo, podemos coordinar una llamada express de 5 minutos con el Dr. Frank. ¿Me confirmas tu nombre, teléfono y a qué hora te vendría bien recibirla?"
+Al tener los 4 datos, confirma y genera la etiqueta:
+[AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
+"¡Listo, {nombre}! 📅 Te agendo por {motivo} el {fecha} en horario de {horario}. Te esperamos en ${DIRECCION_CLINICA} 📍 ¡Nos vemos pronto! 🦷✨ [ENVIAR_IMAGEN:ubicacion.jpeg]"
 
-7. LÍMITES
-- No des diagnósticos definitivos ni garantices resultados por chat.
-- No inventes precios ni tarifas no autorizadas.
-- Si el usuario se despide o no desea agendar, despídete con amabilidad sin insistir.
+Llamada con el Dr. Frank (último recurso o petición explícita):
+"Claro, te coordino una llamada de cortesía de 5 minutos con el Dr. Frank 📞 Te contactamos al {número}."
 `;
 
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
@@ -204,7 +180,7 @@ export function mergeRecentUserMessages(history, windowMs = 10000) {
 function formatHistoryForPrompt(history, mergeWindowMs = 10000) {
   const normalized = mergeRecentUserMessages(history, mergeWindowMs);
   return normalized.map((h) => {
-    const role = h.role === 'user' ? 'Cliente' : 'LUMINZU';
+    const role = h.role === 'user' ? 'Cliente' : 'Valeria';
     const text = h.text || '';
     return text ? `${role}: ${text}` : '';
   }).filter(Boolean).join('\n');
@@ -414,12 +390,9 @@ export function getOrCreateSession(jid) {
   const sid = getSessionId(jid);
   let entry = chatSessions.get(sid);
   if (!entry) {
-    entry = { history: [], timer: null, lastUserMessageAt: 0, booked: false, leadSnapshot: null, awaitingConfirmation: false, sentImages: new Set() };
+    entry = { history: [], timer: null, lastUserMessageAt: 0, booked: false, leadSnapshot: null, awaitingConfirmation: false };
     entry.restorePromise = restoreSessionFromDb(sid, entry);
     chatSessions.set(sid, entry);
-  }
-  if (!entry.sentImages) {
-    entry.sentImages = new Set();
   }
   resetSessionTimer(sid, entry);
   return entry;
@@ -442,21 +415,9 @@ function isStructuredGeminiClient(client) {
 }
  
 function extractTextFromCandidate(candidate) {
-  const candidateContent = candidate?.content || candidate;
-  const parts = Array.isArray(candidateContent?.parts) ? candidateContent.parts : [];
-  return parts
-    .map((part) => {
-      if (typeof part?.text === 'string') return part.text;
-      if (typeof part?.text === 'function') {
-        try {
-          const value = part.text();
-          return typeof value === 'string' ? value : '';
-        } catch (e) {
-          return '';
-        }
-      }
-      return '';
-    })
+  if (!candidate?.content?.parts) return '';
+  return candidate.content.parts
+    .map((part) => (typeof part?.text === 'string' ? part.text : ''))
     .filter(Boolean)
     .join(' ')
     .trim();
@@ -465,44 +426,12 @@ function extractTextFromCandidate(candidate) {
 function extractTextFromResult(result) {
   if (!result) return '';
   if (typeof result === 'string') return result;
-
   if (typeof result.text === 'string') return result.text;
-  if (typeof result.text === 'function') {
-    try {
-      const value = result.text();
-      if (typeof value === 'string') return value;
-    } catch (e) {
-      // continue to structured extraction below
-    }
+  if (result.response) {
+    if (typeof result.response.text === 'string') return result.response.text;
+    const candidate = Array.isArray(result.response.candidates) ? result.response.candidates[0] : null;
+    return extractTextFromCandidate(candidate);
   }
-
-  const response = result.response || result;
-  if (response) {
-    if (typeof response.text === 'string') return response.text;
-    if (typeof response.text === 'function') {
-      try {
-        const value = response.text();
-        if (typeof value === 'string') return value;
-      } catch (e) {
-        // continue to candidates fallback
-      }
-    }
-
-    const candidates = Array.isArray(response.candidates)
-      ? response.candidates
-      : Array.isArray(result.candidates)
-        ? result.candidates
-        : [];
-
-    const joined = candidates.map(extractTextFromCandidate).filter(Boolean).join(' ').trim();
-    if (joined) return joined;
-  }
-
-  if (Array.isArray(result.candidates)) {
-    const joined = result.candidates.map(extractTextFromCandidate).filter(Boolean).join(' ').trim();
-    if (joined) return joined;
-  }
-
   return '';
 }
 
@@ -548,7 +477,7 @@ function extractTextFromParsedJson(parsed) {
 // === LIMPIEZA DE STRINGS JSON EN geminiService.js ===
 export function sanitizeModelTextOutput(rawText) {
   if (!rawText || typeof rawText !== 'string') return '';
-
+  
   let cleaned = rawText.trim();
 
   // 1. Eliminar etiquetas LEAD_JSON (completas o truncadas por el modelo)
@@ -646,24 +575,24 @@ export function buildSystemPromptWithContext(jid, session = null, clinic = null)
   const phoneHint = getCurrentPhoneHint(jid);
 
   const clinicProfile = config?.clinicProfile || {
-    name: config?.clinicNameFallback || 'LUMINZU Dent',
-    address: '📍 Av. Alameda de la República N° 261 - Huánuco',
-    hours: 'Lunes a Sábado: 9:00 a. m. – 8:00 p. m. | Domingo: CERRADO',
-    contactPhone: process.env.CLINIC_CONTACT_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || 'Contáctanos por WhatsApp',
-    doctorName: process.env.CLINIC_DOCTOR_NAME || 'equipo de LUMINZU Dent',
-    bracketsEvaluationPrice: 'S/ 40 (promo)',
-    initialBracketsPrice: 'S/ 600 (promo / requiere evaluación)',
-    monthlyControlPrice: 'Consulta para definir plan',
-    bracketsTypes: 'Consulta previa para definir plan',
-    cleaningPrice: 'S/ 150 (promo / kit preventivo)',
-    cleaningIncludes: 'Consulta odontológica + profilaxis + destartraje + fluorización + evaluación de ortodoncia',
-    whiteningPrice: 'Consulta personalizada',
-    curationsPrice: 'Consulta personalizada',
-    extractionsPrice: 'Consulta personalizada',
+    name: config?.clinicNameFallback || 'nuestra clínica dental',
+    address: 'Av. Principal 123, Los Olivos',
+    hours: 'Lunes a Sábado de 9:00 AM a 8:00 PM',
+    contactPhone: process.env.ADMIN_WHATSAPP_NUMBER || '+51 999 999 999',
+    doctorName: 'Dr(a).',
+    bracketsEvaluationPrice: 'Gratis / S/ 30',
+    initialBracketsPrice: 'Desde S/ 1,500',
+    monthlyControlPrice: 'Desde S/ 180',
+    bracketsTypes: 'Metálicos, Estéticos, Autoligados',
+    cleaningPrice: 'S/ 120',
+    cleaningIncludes: 'Ultrasonido + Pulido + Fluorización',
+    whiteningPrice: 'Consulta',
+    curationsPrice: 'Consulta',
+    extractionsPrice: 'Consulta',
   };
 
   // Determine clinic name fallback and patient name from session if available
-  const clinicName = (clinic && clinic.name) ? clinic.name : (clinicProfile.name || config.clinicNameFallback || 'LUMINZU Dent');
+  const clinicName = (clinic && clinic.name) ? clinic.name : (clinicProfile.name || config.clinicNameFallback || 'nuestra clínica dental');
   let patientName = null;
   try {
     if (session && session.leadSnapshot && isValidName(session.leadSnapshot.nombre)) {
@@ -685,7 +614,8 @@ export function buildSystemPromptWithContext(jid, session = null, clinic = null)
     patientName = null;
   }
 
-  let promptBase = LUMINZU_SYSTEM_PROMPT
+  let promptBase = VALERIA_SYSTEM_PROMPT
+    .replace(/\{DIRECCION_CLINICA\}/g, clinicProfile.address || DIRECCION_CLINICA)
     .replace(/\[NOMBRE_CLINICA\]/g, clinicName)
     .replace(/\[DIRECCION_O_SEDES\]/g, clinicProfile.address)
     .replace(/\[HORARIOS\]/g, clinicProfile.hours)
@@ -938,7 +868,7 @@ function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
         ],
         systemInstruction: effectiveSystemPrompt,
         generationConfig: {
-          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 250
+          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100
         },
       },
     };
@@ -968,7 +898,7 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1, opti
       }
 
       if (typeof client.generate === 'function') {
-        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 250 });
+        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100 });
       }
 
       if (typeof client.generateContent === 'function' && geminiRequest?.type === 'structured') {
@@ -987,36 +917,6 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1, opti
     }
   }
   throw lastErr || new Error('client failed');
-}
-
-export function safeHistoryText(rawText, fallbackMessage = 'Gracias por tu mensaje. Te ayudamos con tu solicitud.') {
-  if (!rawText || typeof rawText !== 'string') return fallbackMessage;
-  const cleaned = sanitizeModelTextOutput(rawText).trim();
-  if (cleaned) return cleaned;
-  const withoutStructured = rawText
-    .replace(/<<<LEAD_JSON>>>[\s\S]*?(?:<<<END_LEAD_JSON>>>|$)/gi, '')
-    .replace(/\[(?:AGENDAR_CITA|BOOK_APPOINTMENT|ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*[^\]]*\]/gi, '')
-    .replace(/\{\s*"(?:nombre|telefono|distrito|fechaHora|fecha_hora|motivo)"\s*:/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  return withoutStructured || fallbackMessage;
-}
-
-export function shouldRetryStructuredParse(rawText) {
-  if (!rawText || typeof rawText !== 'string') return false;
-  return /<<<LEAD_JSON>>>|\[AGENDAR_CITA:|\[BOOK_APPOINTMENT:|\{\s*"(?:nombre|telefono|distrito|fechaHora|fecha_hora|motivo)"\s*:/i.test(rawText);
-}
-
-function parseStructuredAppointmentTag(rawText) {
-  if (!rawText || typeof rawText !== 'string') return null;
-  const match = rawText.match(/\[(?:AGENDAR_CITA|BOOK_APPOINTMENT)\s*:\s*({[\s\S]*?})\s*\]/i);
-  if (!match || !match[1]) return null;
-  try {
-    return JSON.parse(match[1]);
-  } catch (e) {
-    console.error('geminiService: failed to parse structured appointment tag', { rawText: rawText.slice(0, 2000), error: e && e.message ? e.message : e });
-    return null;
-  }
 }
 
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
@@ -1040,31 +940,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid, { ...options, session });
 
   try {
-    let result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
-    let rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
-// TEMP LOG (diagnóstico): imprimir la respuesta cruda del modelo cuando el usuario pide "carillas" o cuando la respuesta incluye la etiqueta de imagen
-try {
-  if (/carillas/i.test(String(mensaje || '')) || /\[ENVIAR_IMAGEN\s*:/i.test(String(rawModelText || '')) || /carillas/i.test(String(rawModelText || ''))) {
-    console.log(`[GEMINI RAW RESPONSE] jid=${jid} userMessage=${String(mensaje || '').slice(0,120)} rawModelText:`, String(rawModelText || '').slice(0,5000));
-  }
-} catch (e) {
-  // non-fatal logging
-}
-
-    if (shouldRetryStructuredParse(rawModelText) && !options._structuredRetry) {
-      console.error('geminiService: structured model output needs retry; rawText=', rawModelText.slice(0, 2000));
-      try {
-        const retryInstruction = 'Tu respuesta anterior no pudo procesarse. Responde solo en texto plano, sin JSON ni etiquetas, confirmando solo los datos que ya tienes y sin inventar nada.';
-        const retryRequest = buildGeminiRequest(client, retryInstruction, session.history, jid, { ...options, session, _structuredRetry: true });
-        const retryResult = await callClientWithRetries(client, retryRequest, 1, { ...options, _structuredRetry: true });
-        const retryText = extractTextFromResult(retryResult);
-        if (retryText && retryText.trim()) {
-          rawModelText = retryText;
-        }
-      } catch (retryErr) {
-        console.error('geminiService: structured retry failed', retryErr && retryErr.message ? retryErr.message : retryErr);
-      }
-    }
+    const result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
+    const rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
     let rawText = rawModelText;
     // sanitize any JSON-wrapped or code-fenced responses from the model for user output only
     const sanitizedRawText = sanitizeModelTextOutput(rawModelText);
@@ -1092,28 +969,13 @@ try {
           leadData = null;
         }
 
-        // Push a safe plain-text version to history so a failed structured parse cannot poison future turns.
-        const safeBookedText = safeHistoryText(rawText, 'Gracias por tu mensaje. Ya tengo tu solicitud registrada.');
-        session.history.push({ role: 'model', parts: [{ text: safeBookedText }] });
+        // Push the model text into history and return early to avoid any re-persistence or re-notification.
+        session.history.push({ role: 'model', parts: [{ text: rawText }] });
         session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
         const sid = getSessionId(jid);
         failureCounts.set(sid, 0);
         const texto = sanitizeModelTextOutput(rawText);
         return { texto, leadData, skipLeadPersistence: true };
-      }
-    }
-
-    const appointmentTagData = parseStructuredAppointmentTag(rawText);
-    if (appointmentTagData && typeof appointmentTagData === 'object') {
-      const fallbackLead = {
-        nombre: appointmentTagData.nombre || appointmentTagData.name || null,
-        telefono: appointmentTagData.telefono || appointmentTagData.phone || null,
-        distrito: appointmentTagData.distrito || appointmentTagData.district || null,
-        fechaHora: appointmentTagData.fecha || appointmentTagData.fechaHora || appointmentTagData.fecha_hora || null,
-      };
-      leadData = finalizeLeadData(fallbackLead);
-      if (!leadData || (!leadData.nombre && !leadData.telefono && !leadData.distrito && !leadData.fechaHora)) {
-        leadData = null;
       }
     }
 
@@ -1229,11 +1091,7 @@ try {
       }
     }
 
-    const safeHistoryPlainText = safeHistoryText(rawText, 'Gracias por tu mensaje. Te ayudamos con tu solicitud.');
-    if (typeof rawText === 'string' && shouldRetryStructuredParse(rawText)) {
-      console.error('geminiService: raw model output was structured but could not be parsed safely; storing plain text only in history.', { rawText: rawText.slice(0, 2000) });
-    }
-    session.history.push({ role: 'model', parts: [{ text: safeHistoryPlainText }] });
+    session.history.push({ role: 'model', parts: [{ text: rawText }] });
     if (leadData && leadData.nombre && leadData.distrito && leadData.fechaHora && !session.history.some((h) => (h.parts || []).some((p) => typeof p.text === 'string' && p.text.includes('[SISTEMA - CITA REGISTRADA VERIFICADA:')))) {
       session.history.push({
         role: 'model',
@@ -1287,12 +1145,13 @@ try {
     // Protect against model hallucinations: if the model claims a booking ("ya quedó agendada", "tu cita quedó...", etc.)
     // but we do NOT have a confirmed fecha (neither in leadData nor in session.leadSnapshot), remove those assertions aggressively.
     try {
-      const bookingClaimPattern = /\b(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está|ha\s+quedado)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b|\b(?:tu\s+cita|la\s+cita)\s+(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b/i;
+      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
       const hasBookingClaim = bookingClaimPattern.test(texto || '');
       const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
       if (hasBookingClaim && !hasConfirmedDate) {
+        // Remove any sentence that mentions 'cita' or booking verbs to be conservative
         const sentences = (texto || '').split(/[\.\?!]+/).map(s => s.trim()).filter(Boolean);
-        const filtered = sentences.filter(s => !/\b(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está|ha\s+quedado)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b|\b(?:tu\s+cita|la\s+cita)\s+(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b/i.test(s));
+        const filtered = sentences.filter(s => !/\b(cita|qued[oó]|agendad|agendar|reservad|programad)\b/i.test(s));
         texto = (filtered.join('. ') || '').trim();
         if (!texto) texto = 'Gracias por tu mensaje. ¿Qué día y a qué hora prefieres para la cita?';
       }
@@ -1306,9 +1165,9 @@ try {
       texto = sanitizeModelTextOutput(texto);
     }
 
-    // Final safety net: if texto still contains explicit booking confirmation claims but we have no confirmed fecha, replace with a neutral follow-up
+    // Final safety net: if texto still contains booking claims but we have no confirmed fecha, replace with a neutral follow-up
     try {
-      const bookingClaimPattern = /\b(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está|ha\s+quedado)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b|\b(?:tu\s+cita|la\s+cita)\s+(?:ya\s+)?(?:qued[oó]|est[aá]|queda|está)\s+(?:ya\s+)?(?:agendad[ao]|reservad[ao]|programad[ao])\b/i;
+      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
       const hasBookingClaim = bookingClaimPattern.test(texto || '');
       const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
       if (hasBookingClaim && !hasConfirmedDate) {

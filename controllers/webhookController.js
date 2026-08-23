@@ -1,13 +1,12 @@
 import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
-import * as leadService from '../services/leadService.js';
-import { getSupabaseClient } from '../services/leadService.js';
+import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import chatwootService from '../services/chatwootService.js';
-import * as calendarService from '../services/calendarService.js';
-import antiCollision from '../services/antiCollision.js';
 import { getGeminiClient } from '../src/geminiClient.js';
+import { enviarImagenWhatsapp } from '../src/whatsappMedia.js';
+import { createClient } from '@supabase/supabase-js';
 
 function extractPlainText(input) {
   let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
@@ -60,6 +59,30 @@ function extractPlainText(input) {
   return cleaned;
 }
 
+function extractInstructionTags(text) {
+  const imageMatches = [...String(text || '').matchAll(/\[ENVIAR_IMAGEN:([^\]]+)\]/gi)].map((m) => m[1].trim()).filter(Boolean);
+  const agendaMatches = [...String(text || '').matchAll(/\[AGENDAR_CITA:(\{.*?\})\]/gi)].map((m) => m[1].trim()).filter(Boolean);
+  return { imageFiles: [...new Set(imageMatches)], agendaPayloads: agendaMatches };
+}
+
+function stripInstructionTags(text) {
+  return String(text || '')
+    .replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '')
+    .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function safeParseAgendaPayload(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn('webhookController: invalid AGENDAR_CITA payload:', raw, e && e.message ? e.message : e);
+    return null;
+  }
+}
+
 // Controller delgado que orquesta: Gemini -> lead -> WhatsApp -> admin notify
 // IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
 export default async function webhookController(req, res, next) {
@@ -97,7 +120,9 @@ export default async function webhookController(req, res, next) {
       const phoneNumberId = String(inbox?.id || payload?.account_id || '').trim();
       let clinic = null;
       try {
-        const supabase = getSupabaseClient();
+        const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+        const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+        const supabase = createClient(rawUrl, key);
         if (inbox?.id) {
           const { data } = await supabase.from('clinics').select('*').eq('chatwoot_inbox_id', inbox.id).maybeSingle();
           clinic = data || null;
@@ -112,35 +137,9 @@ export default async function webhookController(req, res, next) {
 
       // Update clinicName from clinic if available
       clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
-      // If this is a Chatwoot outgoing message (human agent sent a reply), mark conversation as intervened and pause Gemini
-      const messageType = message?.message_type || message?.messageType || null;
-      if (messageType && String(messageType).toLowerCase() === 'outgoing') {
-        try {
-          const pauseId = contactDigits || (conversation?.id ? `cw-${conversation.id}` : null);
-          if (pauseId) geminiService.pauseSessionById(pauseId);
-        } catch (e) {
-          console.error('webhookController: failed to pause session for outgoing chatwoot message', e && e.message ? e.message : e);
-        }
-        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'human_outgoing' });
-        return;
-      }
-
       // If conversation is assigned to a human agent and open, skip bot
       const convStatus = conversation?.status || (p?.conversation?.status);
       const assigneeId = conversation?.meta?.assignee_id || conversation?.assignee_id || null;
-
-      // If conversation was resolved, resume AI for future messages
-      if (convStatus === 'resolved') {
-        try {
-          const resumeId = contactDigits || (conversation?.id ? `cw-${conversation.id}` : null);
-          if (resumeId) geminiService.resumeSessionById(resumeId);
-        } catch (e) {
-          console.error('webhookController: failed to resume session for resolved conversation', e && e.message ? e.message : e);
-        }
-        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'conversation_resolved' });
-        return;
-      }
-
       if (convStatus === 'open' && assigneeId) {
         // Human in the loop — do not bot-respond
         if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'human_assigned' });
@@ -201,22 +200,21 @@ export default async function webhookController(req, res, next) {
         client: geminiClient,
         clinic: (typeof clinic !== 'undefined' ? clinic : null),
         maxRetries: 1,
-                    maxOutputTokens: 4096,
+        maxOutputTokens: 100,
         skipLeadPersistence: Boolean(isAdminSender)
       });
       let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
       let leadData = null;
       try {
         const result = await geminiPromise;
-              console.log('🤖 [Gemini Raw Output]:', result && (result.texto || result.text || result));
-              if (result) {
-                texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
-                leadData = result.leadData || null;
-              }
-            } catch (e) {
-              console.error('webhookController: gemini call failed for chatwoot message', e && e.stack ? e.stack : e);
-              if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
-            }
+        if (result) {
+          texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
+          leadData = result.leadData || null;
+        }
+      } catch (e) {
+        console.error('webhookController: gemini call failed for chatwoot message', e && e.stack ? e.stack : e);
+        if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
+      }
 
       // If leadData present, attempt to save lead using the contact's WhatsApp number as source-of-truth
       let leadResult = null;
@@ -259,120 +257,21 @@ export default async function webhookController(req, res, next) {
         const accountId = (typeof clinic !== 'undefined' && clinic?.chatwoot_account_id) || payload.account_id || null;
         const convId = conversation?.id || p?.conversation?.id;
         const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
-
-        // Extract SEND_IMAGE and BOOK_APPOINTMENT tags (flexible parsing) and remove them from visible texto
-        try {
-          const originalTexto = String(texto || '');
-          const appt = whatsappService.parseBookAppointmentTag(originalTexto);
-          const imageKey = whatsappService.parseSendImageTag(originalTexto);
-
-                  // Diagnostic logs for extracted tags and admin target
-                  console.log('📅 [BOOK_APPOINTMENT Detectado]:', appt);
-                  console.log('🖼️ [SEND_IMAGE Detectado]:', imageKey);
-                  console.log('📲 [Notificando Admin a]:', process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone);
-
-                  // Remove both tags from visible texto (order-insensitive)
-                  if (appt) texto = whatsappService.stripBookAppointmentTag(String(texto || ''));
-                  if (imageKey) texto = whatsappService.stripSendImageTag(String(texto || ''));
-
-                  // If imageKey present, send image to user immediately (do not rely on Chatwoot for media)
-                  if (imageKey && contactDigits) {
-                    try {
-                      await whatsappService.sendWhatsAppImageMessage(contactDigits, imageKey, '', { fetchImpl: globalThis.fetch });
-                    } catch (err) {
-                      console.error('webhookController: failed to send image via WhatsApp API', err && err.message ? err.message : err);
-                    }
-                  }
-
-          if (appt) {
-            const bookingResult = await (async () => {
-              try {
-                const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || '51949737257';
-                let adminPhone = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
-                if (adminPhone.length === 9) adminPhone = '51' + adminPhone;
-
-                const slotKey = String(appt.datetime || '').trim();
-                const acquired = antiCollision.acquireSlot(slotKey, 60 * 1000);
-                if (!acquired) {
-                  console.warn('webhookController: slot already locked locally, skipping duplicate calendar insertion for', slotKey);
-                  try {
-                    const warnMsg = `⚠️ *INTENTO DUPLICADO DE RESERVA*\n\nSe detectó un intento concurrente de agendar la misma fecha/hora: ${slotKey}. Por favor revisar.`;
-                    if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, warnMsg, {});
-                  } catch (warnErr) {
-                    console.error('webhookController: failed to notify admin about duplicate booking attempt', warnErr && warnErr.message ? warnErr.message : warnErr);
-                  }
-                  return { success: false, reason: 'duplicate_slot' };
-                }
-
-                const alertMsg = `🚨 *NUEVA CITA AGENDADA* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha:* ${appt.datetime}\n📍 *Sede:* Huánuco`;
-
-                try {
-                  if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, alertMsg, {});
-                  console.log('✅ [Admin Alert] Alerta enviada a WhatsApp:', adminPhone);
-                } catch (warnErr) {
-                  console.error('❌ [Admin Alert Error]:', warnErr && warnErr.message ? warnErr.message : warnErr);
-                }
-
-                try {
-                  const duration = (appt.type === 'LLAMADA_5MIN') ? 10 : 30;
-                  const available = await calendarService.checkSlotAvailable(appt.datetime, duration);
-                  if (!available) {
-                    console.warn('webhookController: detected conflict or credential issue in Google Calendar for', appt.datetime);
-                    try {
-                      const conflictMsg = `⚠️ *CONFLICTO EN CALENDARIO*\n\nEl horario ${appt.datetime} ya aparece ocupado en Google Calendar o la credencial no está activa. No se creó un evento duplicado.`;
-                      if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, conflictMsg, {});
-                    } catch (notifyErr) {
-                      console.error('webhookController: failed to notify admin about calendar conflict', notifyErr && notifyErr.message ? notifyErr.message : notifyErr);
-                    }
-                    return { success: false, reason: 'calendar_unavailable' };
-                  }
-                } catch (checkErr) {
-                  console.error('webhookController: error checking slot availability', checkErr && checkErr.message ? checkErr.message : checkErr);
-                  return { success: false, reason: 'calendar_check_failed' };
-                }
-
-                try {
-                  await calendarService.createCalendarEvent({
-                    patientName: appt.name,
-                    phone: appt.phone,
-                    service: appt.service || 'Ortodoncia',
-                    startDateTime: new Date(appt.datetime).toISOString(),
-                    durationMinutes: 45,
-                    notes: 'Agendado automáticamente por BotDental'
-                  });
-                  console.log('✅ [Google Calendar] Cita agendada correctamente');
-                  return { success: true };
-                } catch (calErr) {
-                  console.error('❌ [Calendar Insert Error]:', calErr && calErr.message ? calErr.message : calErr);
-                  try {
-                    const fixMsg = `🚨 *ERROR EN CALENDARIO*\n\nNo se pudo crear la cita en Google Calendar. Requiere revisión manual del token/credenciales de Google. Paciente: ${appt.name}. Horario: ${appt.datetime}.`;
-                    if (adminPhone) await whatsappService.sendWhatsAppMessage(adminPhone, fixMsg, {});
-                  } catch (notifyErr) {
-                    console.error('webhookController: failed to notify admin about failed calendar insert', notifyErr && notifyErr.message ? notifyErr.message : notifyErr);
-                  }
-                  return { success: false, reason: 'calendar_insert_failed' };
-                } finally {
-                  try { antiCollision.releaseSlot(slotKey); } catch (e) { /* ignore */ }
-                }
-              } catch (err) {
-                console.error('❌ [Appointment Background Error]:', err && err.message ? err.message : err);
-                return { success: false, reason: 'booking_exception' };
-              }
-            })();
-
-            if (!bookingResult.success) {
-              texto = 'Gracias por tu interés. Estoy revisando tu solicitud de cita y te confirmaré la disponibilidad lo antes posible.';
-            }
-          }
-        } catch (e) {
-          console.warn('webhookController: error extracting SEND_IMAGE/BOOK_APPOINTMENT tags', e && e.message ? e.message : e);
-        }
+        const cleanedTexto = stripInstructionTags(extractPlainText(texto));
+        const { imageFiles } = extractInstructionTags(texto);
 
         if (accountId && convId && apiToken) {
-          await chatwootService.sendMessageToConversation(accountId, convId, apiToken, texto);
-        } else {
-          // fallback: if we have contact phone and whatsapp service, send directly
-          if (contactDigits) await whatsappService.sendWhatsAppMessage(contactDigits, texto, {});
+          await chatwootService.sendMessageToConversation(accountId, convId, apiToken, cleanedTexto);
+        } else if (contactDigits) {
+          if (cleanedTexto) await whatsappService.sendWhatsAppMessage(contactDigits, cleanedTexto, {});
+        }
+
+        for (const fileName of imageFiles) {
+          try {
+            if (contactDigits) await enviarImagenWhatsapp(contactDigits, fileName);
+          } catch (e) {
+            console.error('webhookController: failed sending image via chatwoot fallback', fileName, e && e.message ? e.message : e);
+          }
         }
       } catch (e) {
         console.error('webhookController: failed to send reply via chatwoot/whatsapp', e && e.message ? e.message : e);
@@ -445,7 +344,7 @@ export default async function webhookController(req, res, next) {
 
         // Apply a 15s timeout to the Gemini call (requirement).
         const geminiClient = getGeminiClient();
-        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 2048 });
+        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 100 });
         const timeoutMs = 25_000;
         const timeoutPromise = new Promise((_, reject) => {
           const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
@@ -497,7 +396,7 @@ export default async function webhookController(req, res, next) {
               console.warn('webhookController: no remitente phone available in WhatsApp event; skipping lead save to avoid using model-extracted phone');
             } else {
               const shouldConfirm = typeof messageText === 'string' && geminiService.isExplicitConfirmation(messageText);
-              if (!(typeof result !== 'undefined' && result && result.skipLeadPersistence)) {
+              if (!result.skipLeadPersistence) {
                 leadResult = await leadService.saveLead({
                   telefono: telefonoKey,
                   nombre: leadData.nombre,
@@ -518,118 +417,28 @@ export default async function webhookController(req, res, next) {
         // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
         try {
           // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
-          // First, extract and remove BOOK_APPOINTMENT tag if present so it is not shown to the patient,
-          // and process scheduling in background (no AI calls).
-          try {
-            const bookRegex = /\[BOOK_APPOINTMENT:\s*({[\s\S]*?})\s*\]/i;
-            const m = bookRegex.exec(texto || '');
-            if (m && m[1]) {
-              try {
-                const appt = JSON.parse(m[1]);
-                // remove tag from visible texto
-                texto = String(texto).replace(m[0], '').trim();
-
-                // Background: create event and notify admin
-                (async () => {
-                  try {
-                    const defaultAdmin = '51949737257';
-                    const rawAdminPhone = process.env.ADMIN_NOTIFICATION_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || defaultAdmin;
-                    let adminPhoneNorm = rawAdminPhone ? String(rawAdminPhone).replace(/\D/g, '') : '';
-                    if (adminPhoneNorm.length === 9) adminPhoneNorm = '51' + adminPhoneNorm;
-
-                    const modalityLabel = (appt && appt.type && String(appt.type).toUpperCase() === 'LLAMADA_5MIN') ? 'Llamada de Asesoría 5 min' : 'Cita Presencial';
-                    const readableDate = (() => {
-                      try {
-                        const d = new Date(appt.datetime);
-                        if (isNaN(d.getTime())) return appt.datetime || 'Sin fecha legible';
-                        return d.toLocaleString('es-PE', { timeZone: 'America/Lima' });
-                      } catch (e) { return appt.datetime || ''; }
-                    })();
-
-                    const alertMessage = `🚨 *NUEVO REGISTRO EN LUMINZU DENT* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Motivo / Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha y Hora solicitada:* ${readableDate}\n📌 *Modalidad:* ${modalityLabel}\n📍 *Sede:* Av. Alameda de la República N° 261, Huánuco\n\nℹ️ *Acción requerida:* Si el paciente agendó fuera de horario comercial (noche/madrugada), realizar la llamada de 5 minutos a primera hora de la mañana para coordinar detalles.`;
-
-                    try {
-                      try {
-                        await whatsappService.sendWhatsAppMessage(adminPhoneNorm, alertMessage, {});
-                      } catch (warnErr) {
-                        console.error('webhookController: failed to send admin WhatsApp alert', warnErr && warnErr.message ? warnErr.message : warnErr);
-                      }
-
-                      const start = appt.datetime;
-                      const startDate = new Date(start);
-                      const isCall = appt && appt.type && String(appt.type).toUpperCase() === 'LLAMADA_5MIN';
-                      const eventSummary = isCall ? `📞 Asesoría 5min: ${appt.name} - ${appt.service || 'Evaluación'}` : `🦷 Cita Presencial: ${appt.name} - ${appt.service || 'Evaluación'}`;
-
-                      try {
-                        const created = await calendarService.createCalendarEvent({
-                          patientName: appt.name,
-                          phone: appt.phone,
-                          service: appt.service || 'Ortodoncia',
-                          startDateTime: startDate.toISOString(),
-                          durationMinutes: 45,
-                          notes: isCall ? 'Llamada de asesoría 5 min' : 'Agendado automáticamente por BotDental'
-                        });
-                        if (created) {
-                          try {
-                            await notificationService.notifyAdminAppointment({ patientName: appt.name, patientPhone: appt.phone, serviceName: appt.service, dateTime: startDate.toISOString() }, { whatsappService });
-                          } catch (err) {
-                            console.error('webhookController: notifyAdminAppointment failed', err && err.message ? err.message : err);
-                          }
-                        }
-                      } catch (err) {
-                        console.error('❌ [Calendar Insert Error]:', err && err.message ? err.message : err);
-                      }
-
-                      // If presencial, send fachada image to patient (await to avoid race conditions)
-                      try {
-                        if (!isCall) {
-                          let contactDigits = appt && appt.phone ? String(appt.phone).replace(/\D/g, '') : '';
-                          if (contactDigits.length === 9) contactDigits = '51' + contactDigits;
-                          if (contactDigits) {
-                            await whatsappService.sendWhatsAppImageMessage(contactDigits, 'fachada', '', { fetchImpl: globalThis.fetch });
-                          }
-                        }
-                      } catch (imgErr) {
-                        console.error('webhookController: failed to send fachada image', imgErr && imgErr.message ? imgErr.message : imgErr);
-                      }
-
-                    } catch (err) {
-                      console.error('webhookController: BOOK_APPOINTMENT calendar insertion failed', err && err.message ? err.message : err);
-                    }
-                  } catch (err) {
-                    console.error('❌ [Appointment Background Error]:', err && err.message ? err.message : err);
-                  }
-                })();
-
-              } catch (err) {
-                console.warn('webhookController: failed to parse BOOK_APPOINTMENT JSON', err && err.message ? err.message : err);
-              }
-            }
-          } catch (e) {
-            console.warn('webhookController: error extracting BOOK_APPOINTMENT tag', e && e.message ? e.message : e);
-          }
-
           let textoFinal = extractPlainText(texto);
- 
+
           textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
           // Ensure admin-only alert text is never forwarded to the patient.
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
-          // === MEDIA tag processing: detect [MEDIA:clave] tags, strip them from visible text,
-          // and dispatch images immediately after sending the explanatory text to the patient.
-          const mediaRegex = /\[MEDIA:\s*([a-z0-9_\-]+)\]/ig;
-          const mediaKeys = [];
-          let mm;
-          while ((mm = mediaRegex.exec(textoFinal)) !== null) {
-            if (mm[1]) mediaKeys.push(mm[1].toLowerCase());
-          }
-          // remove media tags from textoFinal
-          if (mediaKeys.length > 0) {
-            textoFinal = textoFinal.replace(mediaRegex, '').trim();
+          const { imageFiles, agendaPayloads } = extractInstructionTags(textoFinal);
+          const sanitizedText = stripInstructionTags(textoFinal);
+
+          // Handle AGENDAR_CITA payloads safely and without breaking the user response.
+          for (const rawAgenda of agendaPayloads) {
+            try {
+              const parsed = safeParseAgendaPayload(rawAgenda);
+              if (parsed) {
+                console.log('[AGENDAR_CITA]', parsed);
+              }
+            } catch (e) {
+              console.error('webhookController: failed parsing AGENDAR_CITA payload', e && e.message ? e.message : e);
+            }
           }
 
           // Defensive placeholder cleanup before sending to user
-          // Use shared clinicName declared earlier (already contains env/default fallback); prefer clinic.name when available
           clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
           const session = (() => { try { return geminiService.getOrCreateSession(from + '@s.whatsapp.net'); } catch (e) { return null; } })();
           let patientName = null;
@@ -649,44 +458,24 @@ export default async function webhookController(req, res, next) {
             }
           } catch (e) { patientName = null; }
 
-          textoFinal = textoFinal.replace(/\[NOMBRE_CLINICA\]/g, clinicName);
+          let finalTextForUser = sanitizedText.replace(/\[NOMBRE_CLINICA\]/g, clinicName);
           if (patientName) {
-            textoFinal = textoFinal.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
+            finalTextForUser = finalTextForUser.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
           } else {
-            textoFinal = textoFinal.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
+            finalTextForUser = finalTextForUser.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
+          }
+          finalTextForUser = finalTextForUser.replace(/\s{2,}/g, ' ').trim();
+
+          if (finalTextForUser && finalTextForUser.length > 0 && !skipResponse) {
+            await whatsappService.sendWhatsAppMessage(from, finalTextForUser, {});
           }
 
-          if (textoFinal && textoFinal.length > 0 && !skipResponse) {
-            // First, send the explanatory text to the patient
+          for (const fileName of imageFiles) {
             try {
-              await whatsappService.sendWhatsAppMessage(from, textoFinal, {});
-            } catch (sendErr) {
-              console.error('webhookController: failed to send text to patient', sendErr && sendErr.message ? sendErr.message : sendErr);
-            }
-
-            // Then, dispatch any MEDIA images that the prompt requested (in order). Use await to preserve order.
-            if (Array.isArray(mediaKeys) && mediaKeys.length > 0) {
-              try {
-                // derive numeric contact digits from "from"
-                let contactDigits = String(from || '').replace(/\D/g, '');
-                if (contactDigits.length === 9) contactDigits = '51' + contactDigits;
-                for (const mk of mediaKeys) {
-                  try {
-                    const resolved = whatsappService.resolveImageAssetKey ? whatsappService.resolveImageAssetKey(mk) : null;
-                    const keyToSend = resolved || mk;
-                    if (contactDigits) {
-                      await whatsappService.sendWhatsAppImageMessage(contactDigits, keyToSend, '', { fetchImpl: globalThis.fetch });
-                    } else {
-                      // fallback: try sending using the raw 'from' identifier
-                      await whatsappService.sendWhatsAppImageMessage(from, keyToSend, '', { fetchImpl: globalThis.fetch });
-                    }
-                  } catch (imgErr) {
-                    console.error('webhookController: failed to send media', mk, imgErr && imgErr.message ? imgErr.message : imgErr);
-                  }
-                }
-              } catch (e) {
-                console.error('webhookController: error dispatching media images', e && e.message ? e.message : e);
-              }
+              if (!fileName) continue;
+              await enviarImagenWhatsapp(from, fileName);
+            } catch (e) {
+              console.error('webhookController: failed sending image to patient', fileName, e && e.message ? e.message : e);
             }
           }
         } catch (e) {

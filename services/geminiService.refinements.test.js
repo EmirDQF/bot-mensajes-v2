@@ -13,10 +13,10 @@ before(async () => {
 });
 
 describe('geminiService refinements', () => {
-  it('replaces [NOMBRE_CLINICA] with the LUMINZU Dent profile when clinic.name is absent', async () => {
+  it('replaces [NOMBRE_CLINICA] with fallback when clinic.name absent', async () => {
     const prompt = geminiService.buildSystemPromptWithContext('51900000000@s.whatsapp.net', null, null);
     assert.ok(!prompt.includes('[NOMBRE_CLINICA]'));
-    assert.ok(prompt.includes('LUMINZU Dent'));
+    assert.ok(prompt.includes('nuestra clínica dental'));
   });
 
   it('injects confirmed patient name into prompt and removes [NOMBRE_PACIENTE]', async () => {
@@ -27,11 +27,11 @@ describe('geminiService refinements', () => {
     assert.ok(prompt.includes('Manuel'));
   });
 
-  it('getGeminiClient uses config.gemini.maxOutputTokens default 4096', async () => {
+  it('getGeminiClient uses config.gemini.maxOutputTokens default 110', async () => {
     const clientModule = await import('../src/geminiClient.js');
     const config = await import('../config/env.js');
     const maxTokens = config.default.gemini.maxOutputTokens;
-      assert.equal(maxTokens, 4096);
+    assert.equal(maxTokens, 110);
     // we cannot easily assert internal client generationConfig without making a real client, but config is the source
   });
 

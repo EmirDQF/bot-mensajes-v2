@@ -3,11 +3,6 @@
 // - Exposes a config object for the app
 // - Exposes helpers to mask secrets in logs
 
-const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || null;
-const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.VERIFY_TOKEN || null;
-if (phoneNumberId) process.env.WHATSAPP_PHONE_NUMBER_ID = phoneNumberId;
-if (verifyToken) process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = verifyToken;
-
 const required = [
   'GEMINI_API_KEY',
   'GEMINI_MODEL',
@@ -60,31 +55,31 @@ function maskPhone(phone) {
 export default {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 250),
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 110),
   },
-  clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || process.env.CLINIC_NAME || 'LUMINZU Dent',
+  clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || process.env.CLINIC_NAME || 'nuestra clínica dental',
   clinicProfile: {
-    name: process.env.CLINIC_NAME || process.env.CLINIC_NAME_FALLBACK || 'LUMINZU Dent',
-    address: process.env.CLINIC_ADDRESS || process.env.DIRECCION_O_SEDES || '📍 Av. Alameda de la República N° 261 - Huánuco',
-    hours: process.env.CLINIC_HOURS || process.env.HORARIOS || 'Lunes a Sábado: 9:00 a. m. – 8:00 p. m. | Domingo: CERRADO',
-    contactPhone: process.env.CLINIC_CONTACT_PHONE || process.env.NUMERO_RESPALDO || process.env.ADMIN_WHATSAPP_NUMBER || 'Contáctanos por WhatsApp',
-    doctorName: process.env.CLINIC_DOCTOR_NAME || process.env.NOMBRE_DOCTOR_A || 'equipo de LUMINZU Dent',
-    bracketsEvaluationPrice: process.env.CLINIC_BRACKETS_EVAL_PRICE || process.env.PRECIO_EVALUACION_ORTODONCIA || 'S/ 40 (promo)',
-    initialBracketsPrice: process.env.CLINIC_BRACKETS_INITIAL_PRICE || process.env.PRECIO_INICIAL_BRACKETS || 'S/ 600 (promo / requiere evaluación)',
-    monthlyControlPrice: process.env.CLINIC_BRACKETS_MONTHLY_PRICE || process.env.PRECIO_MENSUALIDAD || 'Consulta para definir plan',
-    bracketsTypes: process.env.CLINIC_BRACKETS_TYPES || process.env.TIPOS_BRACKETS || 'Consulta previa para definir plan',
-    cleaningPrice: process.env.CLINIC_CLEANING_PRICE || process.env.PRECIO_LIMPIEZA || 'S/ 150 (promo / kit preventivo)',
-    cleaningIncludes: process.env.CLINIC_CLEANING_DETAILS || process.env.DETALLE_LIMPIEZA || 'Consulta odontológica + profilaxis + destartraje + fluorización + evaluación de ortodoncia',
-    whiteningPrice: process.env.CLINIC_WHITENING_PRICE || process.env.PRECIO_BLANQUEAMIENTO || 'Consulta personalizada',
-    curationsPrice: process.env.CLINIC_CURATIONS_PRICE || process.env.PRECIO_CURACIONES || 'Consulta personalizada',
-    extractionsPrice: process.env.CLINIC_EXTRACTIONS_PRICE || process.env.PRECIO_EXTRACCIONES || 'Consulta personalizada',
+    name: process.env.CLINIC_NAME || process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental',
+    address: process.env.CLINIC_ADDRESS || process.env.DIRECCION_O_SEDES || 'Av. Principal 123, Los Olivos',
+    hours: process.env.CLINIC_HOURS || process.env.HORARIOS || 'Lunes a Sábado de 9:00 AM a 8:00 PM',
+    contactPhone: process.env.CLINIC_CONTACT_PHONE || process.env.NUMERO_RESPALDO || process.env.ADMIN_WHATSAPP_NUMBER || '+51 999 999 999',
+    doctorName: process.env.CLINIC_DOCTOR_NAME || process.env.NOMBRE_DOCTOR_A || 'Dr(a).',
+    bracketsEvaluationPrice: process.env.CLINIC_BRACKETS_EVAL_PRICE || process.env.PRECIO_EVALUACION_ORTODONCIA || 'Gratis / S/ 30',
+    initialBracketsPrice: process.env.CLINIC_BRACKETS_INITIAL_PRICE || process.env.PRECIO_INICIAL_BRACKETS || 'Desde S/ 1,500',
+    monthlyControlPrice: process.env.CLINIC_BRACKETS_MONTHLY_PRICE || process.env.PRECIO_MENSUALIDAD || 'Desde S/ 180',
+    bracketsTypes: process.env.CLINIC_BRACKETS_TYPES || process.env.TIPOS_BRACKETS || 'Metálicos, Estéticos, Autoligados',
+    cleaningPrice: process.env.CLINIC_CLEANING_PRICE || process.env.PRECIO_LIMPIEZA || 'S/ 120',
+    cleaningIncludes: process.env.CLINIC_CLEANING_DETAILS || process.env.DETALLE_LIMPIEZA || 'Ultrasonido + Pulido + Fluorización',
+    whiteningPrice: process.env.CLINIC_WHITENING_PRICE || process.env.PRECIO_BLANQUEAMIENTO || 'Consulta',
+    curationsPrice: process.env.CLINIC_CURATIONS_PRICE || process.env.PRECIO_CURACIONES || 'Consulta',
+    extractionsPrice: process.env.CLINIC_EXTRACTIONS_PRICE || process.env.PRECIO_EXTRACCIONES || 'Consulta',
   },
   whatsapp: {
-    token: process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN || null,
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || null,
+    token: process.env.WHATSAPP_TOKEN || null,
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
     appSecret: process.env.WHATSAPP_APP_SECRET || null,
-    webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.VERIFY_TOKEN || null,
+    webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
   },
   supabase: {
     url: process.env.SUPABASE_URL || null,

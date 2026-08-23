@@ -1,1 +1,0 @@
-feat(pricing-strategy): add 50% discount consultation promo, treatment credit rule and Chatwoot human intervention handling\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

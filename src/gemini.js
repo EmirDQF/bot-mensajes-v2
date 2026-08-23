@@ -1,31 +1,16 @@
 import './envLoader.js';
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { SYSTEM_PROMPT } from './config.js';
-import { createClient } from '@supabase/supabase-js';
 import { saveLead } from './leads.js';
 
 
 const apiKey = process.env.GEMINI_API_KEY;
-const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-// Default session TTL: 24 hours (can be overridden with SESSION_TTL_MS env var)
-const ttlMs = Number(process.env.SESSION_TTL_MS || 24 * 60 * 60 * 1000);
+const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+const ttlMs = 30 * 60 * 1000;
 const contingencyMessage = 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
 const chatSessions = new Map();
 const MAX_HISTORY_MESSAGES = 8;
 let model;
-
-// Supabase optional persistence for chat sessions
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-let supabase = null;
-if (supabaseUrl && supabaseKey) {
-  try {
-    supabase = createClient(supabaseUrl, supabaseKey);
-  } catch (e) {
-    console.warn('No se pudo inicializar Supabase client:', e?.message || e);
-    supabase = null;
-  }
-}
 
 // Inicializa y cachea el modelo con configuración limitada de tokens y temperatura
 // (Evita crear nuevas instancias repetidamente y controla maxOutputTokens para ahorrar tokens).
@@ -40,8 +25,8 @@ function getModel() {
       model: geminiModel,
       systemInstruction: SYSTEM_PROMPT,
       generationConfig: {
-        maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 250),
-        temperature: 0.2,
+        maxOutputTokens: 150,
+        temperature: 0.7,
       },
     });
   }
@@ -73,20 +58,7 @@ function resetSessionTimer(sessionId, sessionEntry) {
   sessionEntry.timer = setTimeout(() => {
     chatSessions.delete(sessionId);
     console.log(`🧹 Historial limpiado por inactividad para ${sessionId}`);
-    // Also attempt to remove persisted session if supabase configured
-    if (supabase) {
-      supabase.from('chat_sessions').delete().eq('id', sessionId).then(({ error }) => {
-        if (error) console.warn('Failed removing persisted session:', error.message || error);
-      }).catch((e) => console.warn('Failed removing persisted session:', e?.message || e));
-    }
   }, ttlMs);
-
-  // Persist updated expiry asynchronously (don't await)
-  if (supabase) {
-    import('./_supabase_helpers.js').then(({ persistSessionToSupabase }) => {
-      persistSessionToSupabase(supabase, sessionId, sessionEntry, ttlMs).catch((e) => console.warn('persistSessionToSupabase error:', e));
-    }).catch((e) => console.warn('Failed to load supabase helpers:', e?.message || e));
-  }
 }
 
 function formatConversationHistory(history) {
@@ -97,7 +69,7 @@ function formatConversationHistory(history) {
         .join(' ')
         .trim();
 
-      const roleLabel = entry.role === 'user' ? 'Cliente' : 'LUMINZU';
+      const roleLabel = entry.role === 'user' ? 'Cliente' : 'Valeria';
       return text ? `${roleLabel}: ${text}` : null;
     })
     .filter(Boolean)
@@ -169,12 +141,9 @@ async function extractLeadData(history) {
       const telefonoMatch = text.match(/(\+?51)?\s*(9\d{8}|\b\d{9}\b)/);
       const telefono = telefonoMatch ? telefonoMatch[2] || telefonoMatch[0] : null;
 
-      // distrito: buscar expresiones más específicas para evitar coincidencias demasiado amplias
-      let distrito = null;
-      const dMatch1 = text.match(/(?:vivo en|soy de|mi distrito es|en el distrito de|estoy en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
-      const dMatch2 = text.match(/\b(?:distrito|zona|barrio|sector)\s*(?:de)?\s*[:\s]*([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
-      if (dMatch1) distrito = dMatch1[1].trim();
-      else if (dMatch2) distrito = dMatch2[1].trim();
+      // distrito: 'vivo en X' or 'en X' (simple heurística)
+      const distritoMatch = text.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || text.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+      const distrito = distritoMatch ? distritoMatch[1].trim() : null;
 
       // fechaHora: buscaremos frases como 'el jueves a las 3pm' o 'puedo el jueves a las 3pm' o 'mañana a las 3'
       const fechaMatch = text.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
@@ -268,11 +237,8 @@ async function extractLeadData(history) {
         const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g, ' ') : null;
         const telefonoMatch = text.match(/(\+?51)?\s*(9\d{8}|\b\d{9}\b)/);
         const telefono = telefonoMatch ? telefonoMatch[2] || telefonoMatch[0] : null;
-        let distrito = null;
-        const dMatch1 = text.match(/(?:vivo en|soy de|mi distrito es|en el distrito de|estoy en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
-        const dMatch2 = text.match(/\b(?:distrito|zona|barrio|sector)\s*(?:de)?\s*[:\s]*([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
-        if (dMatch1) distrito = dMatch1[1].trim();
-        else if (dMatch2) distrito = dMatch2[1].trim();
+        const distritoMatch = text.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || text.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+        const distrito = distritoMatch ? distritoMatch[1].trim() : null;
         const fechaMatch = text.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
         const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
 
@@ -293,7 +259,7 @@ async function extractLeadData(history) {
   }
 }
 
-async function getOrCreateSession(jid) {
+function getOrCreateSession(jid) {
   // Maneja sesiones por número (limpia el sufijo @...), guarda chat y history en memoria
   const sessionId = getSessionId(jid);
   const existingSession = chatSessions.get(sessionId);
@@ -302,33 +268,11 @@ async function getOrCreateSession(jid) {
     return existingSession;
   }
 
-  // Try to load persisted session from Supabase if configured
-  let history = existingSession?.history ?? [];
-  if (supabase) {
-    try {
-      const { loadSessionFromSupabase } = await import('./_supabase_helpers.js');
-      const persisted = await loadSessionFromSupabase(supabase, sessionId);
-      if (persisted && Array.isArray(persisted.history) && persisted.history.length > 0) {
-        history = persisted.history;
-        console.log(`✅ Sesión restaurada desde Supabase para ${sessionId} (entries: ${history.length})`);
-      }
-    } catch (e) {
-      console.warn('Error intentando cargar sesión desde Supabase:', e?.message || e);
-    }
-  }
-
+  const history = existingSession?.history ?? [];
   const chat = getModel().startChat({ history });
   const sessionEntry = { chat, history, timer: null };
   chatSessions.set(sessionId, sessionEntry);
   resetSessionTimer(sessionId, sessionEntry);
-
-  // Persist session asynchronously
-  if (supabase) {
-    import('./_supabase_helpers.js').then(({ persistSessionToSupabase }) => {
-      persistSessionToSupabase(supabase, sessionId, sessionEntry, ttlMs).catch((e) => console.warn('persistSessionToSupabase error:', e));
-    }).catch((e) => console.warn('Failed to load supabase helpers:', e?.message || e));
-  }
-
   return sessionEntry;
 }
 
@@ -449,33 +393,15 @@ function parseFechaHora(textoFecha, fechaReferencia = new Date()) {
   return null;
 }
 
-function normalizeHistoryText(rawText) {
-  if (!rawText || typeof rawText !== 'string') return 'Gracias por tu mensaje. Te ayudamos con tu solicitud.';
-  const cleaned = rawText
-    .replace(/<<<LEAD_JSON>>>[\s\S]*?(?:<<<END_LEAD_JSON>>>|$)/gi, '')
-    .replace(/\[(?:AGENDAR_CITA|BOOK_APPOINTMENT|ENVIAR_IMAGEN|SEND_IMAGE)\s*:\s*[^\]]*\]/gi, '')
-    .replace(/\{\s*"(?:nombre|telefono|distrito|fechaHora|fecha_hora|motivo)"\s*:/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  return cleaned || 'Gracias por tu mensaje. Te ayudamos con tu solicitud.';
-}
-
 export async function obtenerRespuestaIA(jid, mensajeUsuario) {
-  const sessionEntry = await getOrCreateSession(jid);
+  const sessionEntry = getOrCreateSession(jid);
   try {
-    const waId = getSessionId(jid);
-    const contextualMessage = `Número de WhatsApp del paciente: ${waId}\n${mensajeUsuario}`;
-    const result = await sessionEntry.chat.sendMessage(contextualMessage);
-    const rawText = extractTextFromCandidate(result?.response?.candidates?.[0]) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';;
+    const result = await sessionEntry.chat.sendMessage(mensajeUsuario);
+    const texto = extractTextFromCandidate(result?.response?.candidates?.[0]);
 
-    const safeText = normalizeHistoryText(rawText);
-    if (rawText && rawText !== safeText) {
-      console.error('src/gemini.js: raw model output rejected from history to avoid loop', { rawText: rawText.slice(0, 2000) });
-    }
-
-    sessionEntry.history.push({ role: 'user', parts: [{ text: contextualMessage }] });
-    if (rawText) {
-      sessionEntry.history.push({ role: 'model', parts: [{ text: safeText }] });
+    sessionEntry.history.push({ role: 'user', parts: [{ text: mensajeUsuario }] });
+    if (texto) {
+      sessionEntry.history.push({ role: 'model', parts: [{ text: texto }] });
     }
     sessionEntry.history = sessionEntry.history.slice(-MAX_HISTORY_MESSAGES);
     resetSessionTimer(getSessionId(jid), sessionEntry);
@@ -501,9 +427,8 @@ export async function obtenerRespuestaIA(jid, mensajeUsuario) {
       }
     }
 
-    const finalText = normalizeHistoryText(rawText);
     return {
-      texto: finalText,
+      texto: texto || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?',
       leadResult,
     };
   } catch (error) {
