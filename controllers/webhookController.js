@@ -342,11 +342,36 @@ export default async function webhookController(req, res, next) {
           }
         }
 
-        // If the model failed and returned an unhelpful fallback text, replace with a friendly professional reply
+        // If the model failed and returned an unhelpful fallback text, replace with a friendly professional reply that includes patient name and clinic
         const fallbackRegex = /no pude procesar|hubo un problema procesando|disculpa,? no|no puedo procesar/i;
         let replyTextToSend = cleanedTexto;
+
+        // Try to determine patient name: prefer leadData, then contact display name, then session history
+        let patientName = (leadData && leadData.nombre) || contact?.name || null;
+        if (!patientName) {
+          try {
+            const sessionForContact = (() => { try { return geminiService.getOrCreateSession((contactDigits || '') + '@s.whatsapp.net'); } catch (e) { return null; } })();
+            if (sessionForContact && Array.isArray(sessionForContact.history)) {
+              for (let i = sessionForContact.history.length - 1; i >= 0; i--) {
+                const h = sessionForContact.history[i];
+                if (h.role === 'user') {
+                  const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
+                  const parsed = geminiService.extractLeadDataFromText ? geminiService.extractLeadDataFromText(t) : null;
+                  if (parsed && parsed.nombre && geminiService.isValidName && geminiService.isValidName(parsed.nombre)) {
+                    patientName = parsed.nombre;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) { patientName = patientName || null; }
+        }
+
+        const clinicDisplayName = (typeof clinic !== 'undefined' && clinic?.name) ? clinic.name : clinicName;
+
         if (fallbackRegex.test(replyTextToSend)) {
-          replyTextToSend = '¡Hola! Gracias por escribir. Te comparto fotos de ejemplo para que puedas ver resultados. ¿Deseas que te ayude a agendar una cita?';
+          const namePart = patientName ? `${patientName}, ` : '';
+          replyTextToSend = `¡Hola ${patientName ? patientName : 'estimado/a paciente'}! Te comparto fotos de ejemplo de ${clinicDisplayName} para que puedas ver resultados. ¿Deseas que te ayude a agendar una cita?`;
         }
 
         // First send one image (if any) to the patient, then the text so the patient sees the photo immediately
@@ -563,11 +588,15 @@ export default async function webhookController(req, res, next) {
           }
           finalTextForUser = finalTextForUser.replace(/\s{2,}/g, ' ').trim();
 
-          // If model returned an unhelpful fallback, substitute a friendly professional reply
+          // If model returned an unhelpful fallback, substitute a friendly professional reply that includes name and clinic
           const fallbackRegex = /no pude procesar|hubo un problema procesando|disculpa,? no|no puedo procesar/i;
           let replyText = finalTextForUser;
+
+          const clinicDisplayName = (typeof clinic !== 'undefined' && clinic?.name) ? clinic.name : clinicName;
+          const namePart = patientName ? `${patientName}, ` : '';
+
           if (fallbackRegex.test(replyText)) {
-            replyText = '¡Hola! Gracias por escribir. Te comparto fotos de ejemplo para que veas resultados. ¿Te gustaría que te ayude a agendar una cita?';
+            replyText = `¡Hola ${patientName ? patientName : 'estimado/a paciente'}! Te comparto fotos de ejemplo de ${clinicDisplayName} para que veas resultados. ¿Te gustaría que te ayude a agendar una cita?`;
           }
 
           // Send one image first (if any), then the reply text so the user sees the photo immediately
