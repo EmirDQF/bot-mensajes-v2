@@ -83,6 +83,23 @@ function safeParseAgendaPayload(raw) {
   }
 }
 
+// Fallback mapping: when the model doesn't include [ENVIAR_IMAGEN] tags, use keywords from the user's message
+function mapKeywordsToImages(userText) {
+  if (!userText || typeof userText !== 'string') return [];
+  const t = userText.toLowerCase();
+  const images = [];
+  if (/bracket|ortodoncia|frenillos|brackets|alineador/i.test(t)) images.push('ortodoncia_antes_despues.jpeg');
+  if (/carilla|carillas|carilla dental/i.test(t)) images.push('carillas.jpeg');
+  if (/implante|implantes/i.test(t)) images.push('implantes.jpeg');
+  if (/protesis|pr[oó]tesis|pr[oó]tesis dental/i.test(t)) images.push('protesis.jpeg');
+  if (/endodoncia|conducto|tratamient[oó]n de conductos/i.test(t)) images.push('endodoncia.jpeg');
+  if (/limpieza|profilaxis|kit preventivo|kit_preventivo|mantenimiento/i.test(t)) images.push('kit_preventivo.jpeg');
+  if (/ubicaci|direcci|donde queda|direcci[oó]n|fachada|ubicacion/i.test(t)) images.push('ubicacion.jpeg');
+  if (/promo|promoci[oó]n|oferta/i.test(t)) images.push('promo_consulta.jpeg');
+  // Ensure uniqueness and limit to 3 images to avoid spamming
+  return [...new Set(images)].slice(0, 3);
+}
+
 async function persistAgendaPayload(payload, context = {}) {
   if (!payload || typeof payload !== 'object') return null;
 
@@ -307,7 +324,12 @@ export default async function webhookController(req, res, next) {
         const convId = conversation?.id || p?.conversation?.id;
         const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
         const cleanedTexto = stripInstructionTags(extractPlainText(texto));
-        const { imageFiles, agendaPayloads } = extractInstructionTags(texto);
+        const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(texto);
+
+        // Determine final image files: prefer model-provided tags, otherwise fallback based on user's message keywords
+        const finalImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
+          ? modelImageFiles
+          : mapKeywordsToImages(text);
 
         for (const rawAgenda of agendaPayloads) {
           try {
@@ -320,14 +342,22 @@ export default async function webhookController(req, res, next) {
           }
         }
 
-        if (accountId && convId && apiToken) {
-          await chatwootService.sendMessageToConversation(accountId, convId, apiToken, cleanedTexto);
-        } else if (contactDigits) {
-          if (cleanedTexto) await whatsappService.sendWhatsAppMessage(contactDigits, cleanedTexto, {});
+        // If the model failed and returned an unhelpful fallback text, replace with a friendly professional reply
+        const fallbackRegex = /no pude procesar|hubo un problema procesando|disculpa,? no|no puedo procesar/i;
+        let replyTextToSend = cleanedTexto;
+        if (fallbackRegex.test(replyTextToSend)) {
+          replyTextToSend = '¡Hola! Gracias por escribir. Te comparto fotos de ejemplo para que puedas ver resultados. ¿Deseas que te ayude a agendar una cita?';
         }
 
-        for (const fileName of imageFiles) {
+        if (accountId && convId && apiToken) {
+          await chatwootService.sendMessageToConversation(accountId, convId, apiToken, replyTextToSend);
+        } else if (contactDigits) {
+          if (replyTextToSend) await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, {});
+        }
+
+        for (const fileName of finalImageFiles || []) {
           try {
+            if (!fileName) continue;
             if (contactDigits) await enviarImagenWhatsapp(contactDigits, fileName);
           } catch (e) {
             console.error('webhookController: failed sending image via chatwoot fallback', fileName, e && e.message ? e.message : e);
@@ -483,8 +513,13 @@ export default async function webhookController(req, res, next) {
           // Ensure admin-only alert text is never forwarded to the patient.
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
-          const { imageFiles, agendaPayloads } = extractInstructionTags(textoFinal);
+          const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(textoFinal);
           const sanitizedText = stripInstructionTags(textoFinal);
+
+          // Determine final image files: prefer model-provided tags, otherwise fallback based on original user message
+          const finalImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
+            ? modelImageFiles
+            : mapKeywordsToImages(messageText);
 
           // Handle AGENDAR_CITA payloads safely and without breaking the user response.
           for (const rawAgenda of agendaPayloads) {
@@ -527,11 +562,18 @@ export default async function webhookController(req, res, next) {
           }
           finalTextForUser = finalTextForUser.replace(/\s{2,}/g, ' ').trim();
 
-          if (finalTextForUser && finalTextForUser.length > 0 && !skipResponse) {
-            await whatsappService.sendWhatsAppMessage(from, finalTextForUser, {});
+          // If model returned an unhelpful fallback, substitute a friendly professional reply
+          const fallbackRegex = /no pude procesar|hubo un problema procesando|disculpa,? no|no puedo procesar/i;
+          let replyText = finalTextForUser;
+          if (fallbackRegex.test(replyText)) {
+            replyText = '¡Hola! Gracias por escribir. Te comparto fotos de ejemplo para que veas resultados. ¿Te gustaría que te ayude a agendar una cita?';
           }
 
-          for (const fileName of imageFiles) {
+          if (replyText && replyText.length > 0 && !skipResponse) {
+            await whatsappService.sendWhatsAppMessage(from, replyText, {});
+          }
+
+          for (const fileName of finalImageFiles || []) {
             try {
               if (!fileName) continue;
               await enviarImagenWhatsapp(from, fileName);
