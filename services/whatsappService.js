@@ -350,23 +350,6 @@ export async function sendWhatsAppReplyWithOptionalImage(toPhone, text, options 
   return await sendWhatsAppMessageOrImage(phoneNumberId, toPhone, String(text || ''));
 }
 
-// Compatibility exports: default object and CommonJS module.exports when available
-const whatsappServiceExports = {
-  sendWhatsAppMessageOrImage,
-  sendWhatsAppReplyWithOptionalImage,
-  sendWhatsAppMessage,
-  sendWhatsAppImageMessage,
-};
-
-export default whatsappServiceExports;
-
-try {
-  if (typeof module !== 'undefined' && module && module.exports) {
-    module.exports = Object.assign(module.exports || {}, whatsappServiceExports);
-  }
-} catch (e) {
-  // ignore in ESM environments
-}
 
 
 export async function sendWhatsAppMessage(toPhone, text, options = {}) {
