@@ -474,11 +474,51 @@ export default async function webhookController(req, res, next) {
         let clinic = null;
         if (phoneNumberId) {
           try {
-            const client = getSupabaseClient();
-            const { data } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
-            clinic = data || null;
+            // Try to obtain a Supabase client from services/leadService.js to respect existing factory
+            let client = null;
+            try {
+              const mod = await import('../services/leadService.js');
+              if (mod && typeof mod.getSupabaseClient === 'function') {
+                client = mod.getSupabaseClient();
+              }
+            } catch (impErr) {
+              // Dynamic import failed or leadService not available in this context; fall back to creating a client from env if possible
+              try {
+                const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+                const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+                if (rawUrl && key) client = createClient(rawUrl, key);
+              } catch (cErr) {
+                // ignore and fallback below
+              }
+            }
+
+            if (client) {
+              const { data } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
+              clinic = data || null;
+            } else {
+              // Graceful fallback: provide a minimal default clinic object so processing continues
+              clinic = clinic || {
+                id: null,
+                name: 'LUMINZU',
+                address: process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco',
+                chatwoot_inbox_id: null,
+                chatwoot_account_id: null,
+                chatwoot_api_token: process.env.CHATWOOT_API_TOKEN || null,
+                waba_phone_number_id: phoneNumberId,
+              };
+            }
           } catch (e) {
             console.error('webhookController: error looking up clinic by waba_phone_number_id', e && e.message ? e.message : e);
+            // Fallback to default minimal clinic so bot response is not interrupted
+            clinic = clinic || {
+              id: null,
+              name: 'LUMINZU',
+              address: process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco',
+              chatwoot_inbox_id: null,
+              chatwoot_account_id: null,
+              chatwoot_api_token: process.env.CHATWOOT_API_TOKEN || null,
+              waba_phone_number_id: phoneNumberId,
+            };
           }
         }
  
