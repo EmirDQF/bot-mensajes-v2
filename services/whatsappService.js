@@ -6,7 +6,7 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.WHATSAPP_TIMEOUT_MS || 8000);
 const DEFAULT_MAX_RETRIES = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
 const BACKOFF_MS = [500, 1500]; // exponential/backoff sequence for retries
 
-const PUBLIC_IMAGE_BASE_URL = (process.env.PUBLIC_IMAGE_BASE_URL || 'https://bot-mensajes-dental.onrender.com/public').replace(/\/$/, '');
+const PUBLIC_IMAGE_BASE_URL = (process.env.PUBLIC_IMAGE_BASE_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/$/, '');
 
 const IMAGE_MAP = {
   'promo_consulta': 'LUMINZU/promo_consulta.jpeg',
@@ -97,6 +97,14 @@ export function stripSendImageTag(text) {
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
+
+export function extractImageFilenameFromTag(text) {
+  if (!text || typeof text !== 'string') return null;
+  const match = text.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i);
+  if (!match || !match[1]) return null;
+  return match[1].trim();
+}
+
 
 export function resolvePublicImageUrl(imageKey) {
   if (!imageKey || typeof imageKey !== 'string') return null;
@@ -276,6 +284,24 @@ export async function sendWhatsAppImageMessage(toPhone, imageKey, text = '', opt
 
 export async function sendWhatsAppReplyWithOptionalImage(toPhone, text, options = {}) {
   const cleanText = typeof text === 'string' ? text : '';
+
+  // First, check for explicit filename tag [ENVIAR_IMAGEN: filename.ext]
+  const filename = extractImageFilenameFromTag(cleanText);
+  if (filename) {
+    const strippedText = stripSendImageTag(cleanText);
+    const session = options && options.session ? options.session : null;
+    const sentImages = session && session.sentImages instanceof Set ? session.sentImages : null;
+    if (sentImages && sentImages.has(filename)) {
+      if (strippedText.trim().length > 0) return await sendWhatsAppMessage(toPhone, strippedText, options);
+      return null;
+    }
+    if (sentImages) sentImages.add(filename);
+    const base = PUBLIC_IMAGE_BASE_URL;
+    const link = `${base}/images/${encodeURIComponent(filename)}`;
+    return await sendWhatsAppImageMessage(toPhone, link, strippedText, options);
+  }
+
+  // Fallback: legacy image key parsing/lookup
   const imageKey = parseSendImageTag(cleanText);
   if (!imageKey) {
     if (cleanText.trim().length > 0) {
