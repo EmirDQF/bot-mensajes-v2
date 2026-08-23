@@ -5,7 +5,7 @@ const TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000); // 3
 const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 3600 * 1000); // 7 days
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
-const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Principal LUMINZU 123';
+const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco';
 
 const VALERIA_SYSTEM_PROMPT = `Eres Valeria, asistente virtual y especialista en atención odontológica de la Clínica Odontológica LUMINZU.
 Tu misión es orientar con criterio odontológico técnico pero cercano, mostrar casos clínicos reales mediante fotos y agendar citas completas.

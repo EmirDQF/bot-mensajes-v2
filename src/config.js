@@ -1,4 +1,4 @@
-export const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Principal LUMINZU 123';
+export const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco';
 
 export const CLINIC_CONFIG = {
   clinicName: 'LUMINZU',

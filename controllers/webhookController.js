@@ -349,19 +349,20 @@ export default async function webhookController(req, res, next) {
           replyTextToSend = '¡Hola! Gracias por escribir. Te comparto fotos de ejemplo para que puedas ver resultados. ¿Deseas que te ayude a agendar una cita?';
         }
 
+        // First send one image (if any) to the patient, then the text so the patient sees the photo immediately
+        const imageToSend = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null;
+        if (imageToSend && contactDigits) {
+          try {
+            await enviarImagenWhatsapp(contactDigits, imageToSend);
+          } catch (e) {
+            console.error('webhookController: failed sending image via chatwoot fallback', imageToSend, e && e.message ? e.message : e);
+          }
+        }
+
         if (accountId && convId && apiToken) {
           await chatwootService.sendMessageToConversation(accountId, convId, apiToken, replyTextToSend);
         } else if (contactDigits) {
           if (replyTextToSend) await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, {});
-        }
-
-        for (const fileName of finalImageFiles || []) {
-          try {
-            if (!fileName) continue;
-            if (contactDigits) await enviarImagenWhatsapp(contactDigits, fileName);
-          } catch (e) {
-            console.error('webhookController: failed sending image via chatwoot fallback', fileName, e && e.message ? e.message : e);
-          }
         }
       } catch (e) {
         console.error('webhookController: failed to send reply via chatwoot/whatsapp', e && e.message ? e.message : e);
@@ -569,17 +570,18 @@ export default async function webhookController(req, res, next) {
             replyText = '¡Hola! Gracias por escribir. Te comparto fotos de ejemplo para que veas resultados. ¿Te gustaría que te ayude a agendar una cita?';
           }
 
-          if (replyText && replyText.length > 0 && !skipResponse) {
-            await whatsappService.sendWhatsAppMessage(from, replyText, {});
+          // Send one image first (if any), then the reply text so the user sees the photo immediately
+          const imageToSend = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null;
+          if (imageToSend) {
+            try {
+              await enviarImagenWhatsapp(from, imageToSend);
+            } catch (e) {
+              console.error('webhookController: failed sending image to patient', imageToSend, e && e.message ? e.message : e);
+            }
           }
 
-          for (const fileName of finalImageFiles || []) {
-            try {
-              if (!fileName) continue;
-              await enviarImagenWhatsapp(from, fileName);
-            } catch (e) {
-              console.error('webhookController: failed sending image to patient', fileName, e && e.message ? e.message : e);
-            }
+          if (replyText && replyText.length > 0 && !skipResponse) {
+            await whatsappService.sendWhatsAppMessage(from, replyText, {});
           }
         } catch (e) {
           console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);
