@@ -91,9 +91,10 @@ export async function enviarImagenWhatsapp(numeroDestino, nombreArchivo) {
         },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
+          recipient_type: 'individual',
           to: numeroDestino,
           type: 'image',
-          image: { id: mediaId },
+          image: { id: mediaId }
         }),
       });
     } catch (networkErr) {
