@@ -137,48 +137,101 @@ app.get('/panel/data', requierePassword, (req, res) => {
   res.json(agruparPorPaciente(messagesLog));
 });
 
+const PANEL_CONFIG = {
+  clinicName: process.env.CLINIC_NAME || 'LUMINZU',
+  doctorName: process.env.DOCTOR_NAME || 'Dr. Frank',
+  doctorMessage: process.env.DOCTOR_INTERVENTION_MESSAGE || 'Hola soy el Dr. Frank',
+  accentColor: process.env.PANEL_ACCENT_COLOR || '#25d366',
+  accentDark: process.env.PANEL_ACCENT_DARK || '#0ea65a',
+  bgColor: process.env.PANEL_BG_COLOR || '#0b1220',
+  panelSurface: process.env.PANEL_SURFACE || '#111827',
+  panelSurfaceAlt: process.env.PANEL_SURFACE_ALT || '#172033',
+  bubbleIn: process.env.PANEL_BUBBLE_IN || '#1f2a37',
+  bubbleOut: process.env.PANEL_BUBBLE_OUT || '#123524',
+  panelTitle: process.env.PANEL_TITLE || 'Panel LUMINZU',
+};
+
 const PANEL_HTML = `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Panel LUMINZU</title>
+  <title>${PANEL_CONFIG.panelTitle}</title>
   <style>
     :root {
-      --bg:#0b0f14; --sidebar:#111720; --border:#1f2733;
-      --text:#e6e8ec; --muted:#8a90a2; --accent:#25d366;
-      --bubble-in:#1f2430; --bubble-out:#123524;
+      --bg: ${PANEL_CONFIG.bgColor};
+      --surface: ${PANEL_CONFIG.panelSurface};
+      --surface-alt: ${PANEL_CONFIG.panelSurfaceAlt};
+      --border: rgba(148, 163, 184, 0.22);
+      --text: #e5edf8;
+      --muted: #94a3b8;
+      --accent: ${PANEL_CONFIG.accentColor};
+      --accent-strong: ${PANEL_CONFIG.accentDark};
+      --bubble-in: ${PANEL_CONFIG.bubbleIn};
+      --bubble-out: ${PANEL_CONFIG.bubbleOut};
+      --shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
     }
     * { box-sizing:border-box; margin:0; padding:0; }
-    body { font-family:-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden; }
+    body {
+      font-family:-apple-system,"Segoe UI",Roboto,sans-serif;
+      background:radial-gradient(circle at top, rgba(37, 211, 102, 0.15), transparent 30%), var(--bg);
+      color:var(--text); height:100vh; overflow:hidden;
+    }
     .app { display:flex; height:100vh; }
-    .sidebar { width:340px; flex-shrink:0; background:var(--sidebar); border-right:1px solid var(--border); display:flex; flex-direction:column; }
-    .sidebar-header { padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-    .sidebar-header h1 { font-size:17px; font-weight:700; }
-    .sidebar-header span { font-size:12px; color:var(--muted); }
-    .lista-chats { flex:1; overflow-y:auto; }
-    .item-chat { display:flex; gap:12px; padding:12px 16px; cursor:pointer; border-bottom:1px solid var(--border); }
-    .item-chat:hover, .item-chat.activo { background:#17202b; }
-    .avatar { width:42px; height:42px; border-radius:50%; background:var(--accent); color:#06210f; display:flex; align-items:center; justify-content:center; font-weight:700; flex-shrink:0; }
+    .sidebar {
+      width:360px; flex-shrink:0; background:rgba(15, 23, 42, 0.72); border-right:1px solid var(--border);
+      display:flex; flex-direction:column; backdrop-filter: blur(12px);
+    }
+    .sidebar-header {
+      padding:18px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;
+      background:linear-gradient(180deg, rgba(18, 30, 48, 0.8), rgba(15, 23, 42, 0.4));
+    }
+    .sidebar-header h1 { font-size:17px; font-weight:800; letter-spacing:0.04em; }
+    .sidebar-header span {
+      font-size:11px; color:var(--muted); background:rgba(148, 163, 184, 0.08); border:1px solid var(--border);
+      border-radius:999px; padding:5px 9px; min-width:90px; text-align:center;
+    }
+    .lista-chats { flex:1; overflow-y:auto; padding:8px; }
+    .item-chat {
+      display:flex; gap:12px; padding:12px 12px; cursor:pointer; border-radius:14px; border:1px solid transparent;
+      transition:all .2s ease; margin-bottom:8px;
+    }
+    .item-chat:hover { background:rgba(148, 163, 184, 0.06); border-color:var(--border); }
+    .item-chat.activo { background:linear-gradient(180deg, rgba(37,211,102,0.14), rgba(15,23,42,0.2)); border-color:rgba(37,211,102,0.25); }
+    .avatar {
+      width:42px; height:42px; border-radius:50%; background:linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color:#06210f; display:flex; align-items:center; justify-content:center; font-weight:800; flex-shrink:0; box-shadow:var(--shadow);
+    }
     .item-info { flex:1; min-width:0; }
-    .item-top { display:flex; justify-content:space-between; gap:8px; }
-    .item-nombre { font-weight:600; font-size:14px; }
+    .item-top { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    .item-nombre { font-weight:700; font-size:14px; }
     .item-hora { font-size:11px; color:var(--muted); flex-shrink:0; }
-    .item-preview { font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .item-preview { margin-top:4px; font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .vacio-lista { padding:20px; color:var(--muted); font-size:13px; text-align:center; }
     .chat-area { flex:1; display:flex; flex-direction:column; }
-    .chat-vacio { flex:1; display:flex; align-items:center; justify-content:center; color:var(--muted); }
+    .chat-vacio {
+      flex:1; display:flex; align-items:center; justify-content:center; color:var(--muted); background:linear-gradient(180deg, rgba(15,23,42,0.35), rgba(15,23,42,0.1));
+    }
     .chat-abierto { flex:1; display:none; flex-direction:column; }
-    .chat-header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border); background:var(--sidebar); }
+    .chat-header {
+      display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--border);
+      background:rgba(17, 24, 39, 0.9); box-shadow:0 8px 16px rgba(15,23,42,0.15);
+    }
     .btn-volver { display:none; background:none; border:none; color:var(--text); font-size:20px; cursor:pointer; }
     .chat-info h2 { font-size:15px; }
     .chat-info span { font-size:12px; color:var(--muted); }
-    .btn-intervenir { margin-left:auto; background:var(--accent); color:#06210f; text-decoration:none; font-weight:600; font-size:13px; padding:8px 14px; border-radius:8px; }
-    .chat-mensajes { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:8px; }
-    .burbuja { max-width:70%; padding:8px 12px; border-radius:10px; font-size:14px; line-height:1.4; }
-    .burbuja.paciente { align-self:flex-start; background:var(--bubble-in); }
-    .burbuja.bot { align-self:flex-end; background:var(--bubble-out); }
-    .burbuja .hora { display:block; font-size:10px; color:var(--muted); margin-top:4px; }
+    .btn-intervenir {
+      margin-left:auto; background:linear-gradient(135deg, var(--accent), var(--accent-strong)); color:#06210f; text-decoration:none;
+      font-weight:700; font-size:13px; padding:9px 14px; border-radius:10px; box-shadow:0 10px 20px rgba(37,211,102,0.35);
+    }
+    .chat-mensajes { flex:1; overflow-y:auto; padding:18px 18px 24px; display:flex; flex-direction:column; gap:12px; }
+    .burbuja {
+      max-width:72%; padding:10px 12px; border-radius:16px; font-size:14px; line-height:1.5; box-shadow:0 10px 18px rgba(15,23,42,0.12);
+    }
+    .burbuja.paciente { align-self:flex-start; background:var(--bubble-in); border-bottom-left-radius:6px; }
+    .burbuja.bot { align-self:flex-end; background:var(--bubble-out); border-bottom-right-radius:6px; }
+    .burbuja p { white-space:pre-wrap; word-break:break-word; }
+    .burbuja .hora { display:block; font-size:10px; color:var(--muted); margin-top:5px; }
     @media (max-width:768px) {
       .sidebar { width:100%; }
       .chat-area { display:none; }
@@ -191,7 +244,7 @@ const PANEL_HTML = `<!DOCTYPE html>
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div class="sidebar-header"><h1>LUMINZU</h1><span id="contador"></span></div>
+      <div class="sidebar-header"><h1>${PANEL_CONFIG.clinicName.toUpperCase()}</h1><span id="contador"></span></div>
       <div class="lista-chats" id="lista-chats"></div>
     </aside>
     <main class="chat-area">
@@ -208,9 +261,11 @@ const PANEL_HTML = `<!DOCTYPE html>
     </main>
   </div>
   <script>
+    const PANEL_BRAND = ${JSON.stringify(PANEL_CONFIG.clinicName)};
+    const DOCTOR_NAME = ${JSON.stringify(PANEL_CONFIG.doctorName)};
+    const TEXTO_INTERVENCION = encodeURIComponent(${JSON.stringify(PANEL_CONFIG.doctorMessage)});
     let pacientes = [];
     let chatSeleccionado = null;
-    const TEXTO_INTERVENCION = encodeURIComponent('Hola soy el Dr. Frank');
 
     async function cargarDatos() {
       try {
@@ -235,11 +290,12 @@ const PANEL_HTML = `<!DOCTYPE html>
       cont.innerHTML = pacientes.map(function (p) {
         const ultimo = p.mensajes[p.mensajes.length - 1];
         const activo = p.numero === chatSeleccionado ? ' activo' : '';
+        const preview = ultimo ? ultimo.mensaje : 'Sin mensajes aún';
         return '<div class="item-chat' + activo + '" data-numero="' + escapeHtml(p.numero) + '">' +
           '<div class="avatar">' + inicial(p.nombre) + '</div>' +
           '<div class="item-info">' +
             '<div class="item-top"><span class="item-nombre">' + escapeHtml(p.nombre) + '</span><span class="item-hora">' + formatearHora(ultimo && ultimo.timestamp) + '</span></div>' +
-            '<div class="item-preview">' + escapeHtml(ultimo ? ultimo.mensaje : '') + '</div>' +
+            '<div class="item-preview">' + escapeHtml(preview) + '</div>' +
           '</div></div>';
       }).join('');
       cont.querySelectorAll('.item-chat').forEach(function (el) {
@@ -264,10 +320,11 @@ const PANEL_HTML = `<!DOCTYPE html>
       document.getElementById('chat-nombre').textContent = p.nombre;
       document.getElementById('chat-numero').textContent = p.numero;
       document.getElementById('btn-intervenir').href = 'https://wa.me/' + p.numero.replace(/[^0-9]/g, '') + '?text=' + TEXTO_INTERVENCION;
+      document.getElementById('btn-intervenir').setAttribute('title', 'Intervenir con ' + DOCTOR_NAME);
       const cont = document.getElementById('chat-mensajes');
       cont.innerHTML = p.mensajes.map(m =>
-        '<div class="burbuja paciente"><p>' + escapeHtml(m.mensaje) + '</p><span class="hora">' + formatearHora(m.timestamp) + '</span></div>' +
-        '<div class="burbuja bot"><p>' + escapeHtml(m.respuesta) + '</p></div>'
+        '<div class="burbuja paciente"><p>' + escapeHtml(m.mensaje || '') + '</p><span class="hora">' + formatearHora(m.timestamp) + '</span></div>' +
+        '<div class="burbuja bot"><p>' + escapeHtml(m.respuesta || '') + '</p><span class="hora">' + formatearHora(m.timestamp) + '</span></div>'
       ).join('');
       cont.scrollTop = cont.scrollHeight;
     }
@@ -285,6 +342,7 @@ const PANEL_HTML = `<!DOCTYPE html>
       return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    document.title = PANEL_BRAND + ' | Panel';
     cargarDatos();
     setInterval(cargarDatos, 4000);
   </script>
