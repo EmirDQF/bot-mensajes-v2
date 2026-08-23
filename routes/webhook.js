@@ -3,6 +3,7 @@ import rateLimiter from '../middleware/rateLimiter.js';
 import config from '../config/env.js';
 import { obtenerRespuestaIA } from '../src/gemini.js';
 import whatsappService from '../services/whatsappService.js';
+import { appendChatAuditEntry } from '../src/chatAudit.js';
 
 const router = express.Router();
 
@@ -61,6 +62,10 @@ router.post('/', rateLimiter(), async (req, res) => {
     const phoneNumberId = String(value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || '').trim();
     const msgId = message?.id || 'unknown';
     const text = message?.text?.body || message?.button?.text || message?.interactive?.button_reply?.title || '';
+    const contactName = value?.contacts?.[0]?.profile?.name || value?.contacts?.[0]?.name || 'Paciente';
+    const imageAttachment = message?.type === 'image'
+      ? (message?.image?.filename || message?.image?.name || message?.image?.caption || null)
+      : null;
 
     console.log('[WEBHOOK MESSAGE] from=', from, 'phone_number_id=', phoneNumberId, 'id=', msgId, 'text=', text);
 
@@ -76,6 +81,19 @@ router.post('/', rateLimiter(), async (req, res) => {
     const replyText = texto || 'Gracias por tu mensaje.';
     const imageName = extractImageTag(replyText);
     const cleanedText = stripImageTag(replyText);
+
+    try {
+      appendChatAuditEntry({
+        name: contactName || 'Paciente',
+        phone: from,
+        userMessage: text,
+        botReply: cleanedText || replyText,
+        timestamp: new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit' }).format(new Date()),
+        imageAttachment: imageAttachment || null,
+      });
+    } catch (auditErr) {
+      console.warn('[AUDIT LOG] Falló la auditoría del webhook:', auditErr?.message || auditErr);
+    }
 
     try {
       const payload = imageName

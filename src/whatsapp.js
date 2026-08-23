@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { obtenerRespuestaIA } from './gemini.js';
 import { saveLead } from './leads.js';
+import { appendChatAuditEntry } from './chatAudit.js';
 
 // Cloud API sender using fetch (Node 18+/global fetch)
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
@@ -147,6 +148,19 @@ export async function processWebhookEvent(body, rawBodyBuf, headers) {
     const { texto: respuesta, leadResult } = await obtenerRespuestaIA(remoteJid, messageText);
     console.log(`🧠 Camila response for ${from}: ${respuesta}`);
     console.log(`📌 Lead result for ${from}:`, leadResult);
+
+    try {
+      appendChatAuditEntry({
+        name: 'Paciente',
+        phone: from,
+        userMessage: messageText,
+        botReply: respuesta,
+        timestamp: new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit' }).format(new Date()),
+        imageAttachment: message?.type === 'image' ? (message?.image?.filename || message?.image?.name || message?.image?.caption || null) : null,
+      });
+    } catch (auditErr) {
+      console.warn('[AUDIT LOG] No se pudo guardar la interacción en whatsapp.js:', auditErr?.message || auditErr);
+    }
 
     // send response back to user
     await sendWhatsAppMessage(from, respuesta);

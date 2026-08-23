@@ -6,6 +6,8 @@ import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
 const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL || 'https://bot-mensajes-dental.onrender.com';
+const chatAuditLog = [];
+globalThis.chatAuditLog = chatAuditLog;
 
 app.use('/images', express.static(path.join(process.cwd(), 'LUMINZU')));
 app.locals.baseUrl = baseUrl.replace(/\/$/, '');
@@ -87,6 +89,239 @@ app.get('/health', (req, res) => {
 
 app.get('/ping', (req, res) => {
   res.json({ ok: true, message: 'pong', timestamp: new Date().toISOString() });
+});
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+app.get('/panel', (req, res) => {
+  try {
+    const log = Array.isArray(globalThis.chatAuditLog) ? globalThis.chatAuditLog : [];
+    const cards = log.length
+      ? log.map((entry) => {
+          const name = escapeHtml(entry?.name || 'Paciente');
+          const phone = escapeHtml(entry?.phone || '');
+          const time = escapeHtml(entry?.timestamp || '');
+          const patientMessage = escapeHtml(entry?.userMessage || '');
+          const assistantReply = escapeHtml(entry?.botReply || '');
+          const imageAttachment = entry?.imageAttachment ? escapeHtml(entry.imageAttachment) : null;
+          const attachmentBadge = imageAttachment
+            ? `<span class="attachment-tag">📎 Adjunto: ${imageAttachment}</span>`
+            : '';
+
+          return `
+            <article class="conversation-card">
+              <div class="conversation-header">
+                <div>
+                  <h2>${name}</h2>
+                  <div class="meta-row">
+                    <span>📞 ${phone || 'Sin teléfono'}</span>
+                    <span>🕒 ${time || 'Ahora'}</span>
+                  </div>
+                </div>
+                <a class="wa-button" href="https://wa.me/${encodeURIComponent(phone || '')}" target="_blank" rel="noopener noreferrer">📲 Intervenir en WhatsApp</a>
+              </div>
+              <div class="message-block patient">
+                <div class="message-label">Paciente</div>
+                <p>${patientMessage || 'Sin mensaje'}</p>
+              </div>
+              <div class="message-block bot">
+                <div class="message-label">Asistente</div>
+                <p>${assistantReply || 'Sin respuesta'}</p>
+              </div>
+              ${attachmentBadge ? `<div class="attachment-row">${attachmentBadge}</div>` : ''}
+            </article>
+          `;
+        }).join('')
+      : `<div class="empty-state">Esperando nuevas interacciones desde WhatsApp...</div>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="refresh" content="4" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panel de administración</title>
+    <style>
+      :root {
+        --bg: #111b21;
+        --panel: #202c33;
+        --panel-strong: #182229;
+        --panel-bot: #005c4b;
+        --accent: #00a884;
+        --text: #e9edef;
+        --muted: #8696a0;
+        --border: rgba(255,255,255,0.08);
+        --shadow: 0 18px 40px rgba(0,0,0,0.28);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: Arial, sans-serif; }
+      body {
+        background:
+          radial-gradient(circle at top, rgba(0, 168, 132, 0.14), transparent 18%),
+          var(--bg);
+      }
+      .container {
+        width: min(1100px, calc(100% - 24px));
+        margin: 0 auto;
+        padding: 24px 0 48px;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .topbar h1 {
+        margin: 0;
+        font-size: clamp(1.5rem, 3vw, 2.4rem);
+        letter-spacing: -0.03em;
+      }
+      .ring {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(0, 168, 132, 0.14);
+        border: 1px solid rgba(0, 168, 132, 0.32);
+        color: var(--text);
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+      }
+      .ring::before {
+        content: '';
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 16px rgba(0, 168, 132, 0.8);
+      }
+      .conversation-list {
+        display: grid;
+        gap: 18px;
+      }
+      .conversation-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+      }
+      .conversation-header {
+        display: flex;
+        gap: 14px;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 14px;
+      }
+      .conversation-header h2 {
+        margin: 0 0 8px;
+        font-size: clamp(1.1rem, 2vw, 1.5rem);
+      }
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .wa-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent);
+        color: #081b18;
+        text-decoration: none;
+        border-radius: 10px;
+        padding: 11px 14px;
+        font-weight: 700;
+        font-size: 0.9rem;
+        box-shadow: 0 10px 22px rgba(0, 168, 132, 0.25);
+        white-space: nowrap;
+      }
+      .message-block {
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin-top: 12px;
+      }
+      .message-block.patient {
+        background: var(--panel-strong);
+        border: 1px solid rgba(255,255,255,0.04);
+      }
+      .message-block.bot {
+        background: var(--panel-bot);
+      }
+      .message-label {
+        font-size: 0.76rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        opacity: 0.8;
+        margin-bottom: 8px;
+      }
+      .message-block p {
+        margin: 0;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .attachment-row {
+        margin-top: 12px;
+      }
+      .attachment-tag {
+        display: inline-flex;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.06);
+        color: var(--text);
+        border: 1px solid rgba(255,255,255,0.08);
+        font-size: 0.78rem;
+      }
+      .empty-state {
+        background: rgba(32, 44, 51, 0.86);
+        border: 1px dashed rgba(0, 168, 132, 0.7);
+        color: var(--text);
+        border-radius: 16px;
+        padding: 30px 18px;
+        text-align: center;
+        font-size: 1.05rem;
+      }
+      @media (max-width: 640px) {
+        .conversation-header {
+          flex-direction: column;
+        }
+        .wa-button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="topbar">
+        <h1>Panel de administración</h1>
+        <span class="ring">En vivo</span>
+      </div>
+      <main class="conversation-list">
+        ${cards}
+      </main>
+    </div>
+  </body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(html);
+  } catch (error) {
+    console.error('[PANEL ERROR]', error && error.message ? error.message : error);
+    return res.status(500).send('No se pudo renderizar el panel de administración.');
+  }
 });
 
 // One-time endpoint to restore WABA subscription from production (use with caution).
