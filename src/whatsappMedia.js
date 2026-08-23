@@ -10,7 +10,10 @@ export async function subirImagenYObtenerId(nombreArchivo) {
     return null;
   }
 
-  const IMAGENES_DIR = path.resolve(process.cwd(), 'imagenes');
+  // Prefer the LUMINZU folder if it exists, otherwise fall back to imagenes
+  const IMAGENES_DIR = fs.existsSync(path.resolve(process.cwd(), 'LUMINZU'))
+    ? path.resolve(process.cwd(), 'LUMINZU')
+    : path.resolve(process.cwd(), 'imagenes');
   const filePath = path.join(IMAGENES_DIR, nombreArchivo);
 
   if (!fs.existsSync(filePath)) {
@@ -18,8 +21,11 @@ export async function subirImagenYObtenerId(nombreArchivo) {
     return null;
   }
 
+  console.debug(`📁 usando imagen desde: ${filePath}`);
+
   const form = new FormData();
   form.append('messaging_product', 'whatsapp');
+  // Use a Blob so native FormData in Node 18+ works with Buffer content
   form.append('file', new Blob([fs.readFileSync(filePath)], { type: 'image/jpeg' }), nombreArchivo);
 
   const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/media`, {
