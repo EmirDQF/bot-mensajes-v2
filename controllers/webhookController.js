@@ -323,8 +323,10 @@ export default async function webhookController(req, res, next) {
         const accountId = (typeof clinic !== 'undefined' && clinic?.chatwoot_account_id) || payload.account_id || null;
         const convId = conversation?.id || p?.conversation?.id;
         const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
+        // Clean any backslashes that Gemini may inject before extracting instruction tags
+        const textoLimpioGemini = String(texto || '').replace(/\\/g, '');
         const cleanedTexto = stripInstructionTags(extractPlainText(texto));
-        const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(texto);
+        const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(textoLimpioGemini);
 
         // Determine final image files: prefer model-provided tags, otherwise fallback based on user's message keywords
         const finalImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
@@ -539,8 +541,10 @@ export default async function webhookController(req, res, next) {
           // Ensure admin-only alert text is never forwarded to the patient.
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
-          const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(textoFinal);
-          const sanitizedText = stripInstructionTags(textoFinal);
+          // Clean any backslashes that Gemini may inject before extracting instruction tags
+          const textoLimpioGemini = String(textoFinal || '').replace(/\\/g, '');
+          const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(textoLimpioGemini);
+          const sanitizedText = stripInstructionTags(textoLimpioGemini);
 
           // Determine final image files: prefer model-provided tags, otherwise fallback based on original user message
           const finalImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
