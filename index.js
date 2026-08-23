@@ -9,6 +9,7 @@ const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL |
 const chatAuditLog = [];
 globalThis.chatAuditLog = chatAuditLog;
 
+// Serve images publicly before any auth or protective middleware so Meta can fetch them
 app.use('/images', express.static(path.join(process.cwd(), 'LUMINZU')));
 app.use('/public', express.static(path.join(process.cwd(), 'LUMINZU')));
 app.locals.baseUrl = baseUrl.replace(/\/$/, '');

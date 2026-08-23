@@ -334,8 +334,13 @@ export async function sendWhatsAppMessageOrImage(phoneNumberId, to, fullReplyTex
       body: JSON.stringify(payload),
     });
 
+    // Log exact status and raw text from Meta for debugging
+    const metaStatus = response && response.status ? response.status : null;
+    const metaText = response && typeof response.text === 'function' ? await response.text() : '';
+    console.log('[META API STATUS]:', metaStatus, metaText);
+
     let data = null;
-    try { data = response && typeof response.json === 'function' ? await response.json() : null; } catch (e) { data = null; }
+    try { data = metaText ? JSON.parse(metaText) : null; } catch (e) { data = metaText; }
     console.log('[RESPUESTA META CLOUD API]:', JSON.stringify(data, null, 2));
     return data;
   } catch (error) {
