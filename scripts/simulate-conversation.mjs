@@ -27,7 +27,7 @@ async function obtenerRespuestaIA(jid, mensajeUsuario) {
 
   if (/servicios|horari|qué servicios/i.test(mensajeUsuario)) {
     const clinic = config.clinicProfile || {};
-    texto = `Ofrecemos limpieza dental, blanqueamiento, extracción y ortodoncia. Horarios: ${clinic.hours || 'Lunes a Sábado 9:00-19:00'}. Dirección: ${clinic.address || '📍 Av. Alameda de la República 286 - Huánuco'}`;
+    texto = `Ofrecemos limpieza dental, blanqueamiento, extracción y ortodoncia. Horarios: ${clinic.hours || 'Lunes a Sábado 9:00-19:00'}. Dirección: ${clinic.address || '📍 Av. Alameda de la República N° 261 - Huánuco'}`;
   } else if (/agend(ar|o)|cita|limpieza/i.test(lower) && /4:00|4 pm|4pm|4:00 pm/.test(lower)) {
     // Simular creación de cita en Calendar
     const nameMatch = mensajeUsuario.match(/me llamo\s+([A-Za-zÁÉÍÓÚáéíóúñÑ\s]+)/i);
@@ -42,12 +42,12 @@ async function obtenerRespuestaIA(jid, mensajeUsuario) {
       telefono,
       fecha: (new Date()).toISOString(),
       doctor: 'Dr. Juan Pérez',
-      location: config.clinicProfile?.address || 'Av. Alameda de la República 286 - Huánuco'
+      location: config.clinicProfile?.address || 'Av. Alameda de la República N° 261 - Huánuco'
     };
 
     texto = `¡Perfecto ${nombre}! Tu limpieza dental quedó agendada para hoy a las 4:00 PM. Te atenderá ${leadResult.doctor}. Dirección: ${leadResult.location}`;
   } else if (/confirm(a|ar)|doctor|direcci/i.test(lower)) {
-    texto = `Te atenderá ${config.clinicProfile?.doctorName || 'nuestro equipo'}. La dirección es: ${config.clinicProfile?.address || '📍 Av. Alameda de la República 286 - Huánuco'}`;
+    texto = `Te atenderá ${config.clinicProfile?.doctorName || 'nuestro equipo'}. La dirección es: ${config.clinicProfile?.address || '📍 Av. Alameda de la República N° 261 - Huánuco'}`;
   } else {
     texto = 'Disculpa, no entendí tu solicitud. ¿Puedes reformularla, por favor?';
   }

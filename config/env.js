@@ -66,7 +66,7 @@ export default {
   clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || process.env.CLINIC_NAME || 'LUMINZU Dent',
   clinicProfile: {
     name: process.env.CLINIC_NAME || process.env.CLINIC_NAME_FALLBACK || 'LUMINZU Dent',
-    address: process.env.CLINIC_ADDRESS || process.env.DIRECCION_O_SEDES || '📍 Av. Alameda de la República 286 - Huánuco',
+    address: process.env.CLINIC_ADDRESS || process.env.DIRECCION_O_SEDES || '📍 Av. Alameda de la República N° 261 - Huánuco',
     hours: process.env.CLINIC_HOURS || process.env.HORARIOS || 'Lunes a Sábado: 9:00 a. m. – 8:00 p. m. | Domingo: CERRADO',
     contactPhone: process.env.CLINIC_CONTACT_PHONE || process.env.NUMERO_RESPALDO || process.env.ADMIN_WHATSAPP_NUMBER || 'Contáctanos por WhatsApp',
     doctorName: process.env.CLINIC_DOCTOR_NAME || process.env.NOMBRE_DOCTOR_A || 'equipo de LUMINZU Dent',

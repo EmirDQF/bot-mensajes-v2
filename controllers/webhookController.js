@@ -546,7 +546,7 @@ export default async function webhookController(req, res, next) {
                       } catch (e) { return appt.datetime || ''; }
                     })();
 
-                    const alertMessage = `🚨 *NUEVO REGISTRO EN LUMINZU DENT* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Motivo / Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha y Hora solicitada:* ${readableDate}\n📌 *Modalidad:* ${modalityLabel}\n📍 *Sede:* Av. Alameda de la República 286, Huánuco\n\nℹ️ *Acción requerida:* Si el paciente agendó fuera de horario comercial (noche/madrugada), realizar la llamada de 5 minutos a primera hora de la mañana para coordinar detalles.`;
+                    const alertMessage = `🚨 *NUEVO REGISTRO EN LUMINZU DENT* 🗓️\n\n👤 *Paciente:* ${appt.name}\n📱 *Teléfono:* ${appt.phone}\n🦷 *Motivo / Tratamiento:* ${appt.service || 'Evaluación General'}\n📅 *Fecha y Hora solicitada:* ${readableDate}\n📌 *Modalidad:* ${modalityLabel}\n📍 *Sede:* Av. Alameda de la República N° 261, Huánuco\n\nℹ️ *Acción requerida:* Si el paciente agendó fuera de horario comercial (noche/madrugada), realizar la llamada de 5 minutos a primera hora de la mañana para coordinar detalles.`;
 
                     try {
                       try {
