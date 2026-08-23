@@ -93,8 +93,10 @@ function mapKeywordsToImages(userText) {
   if (/implante|implantes/i.test(t)) images.push('implantes.jpeg');
   if (/protesis|pr[oó]tesis|pr[oó]tesis dental/i.test(t)) images.push('protesis.jpeg');
   if (/endodoncia|conducto|tratamient[oó]n de conductos/i.test(t)) images.push('endodoncia.jpeg');
+  if (/odontopediatr|niñ|niños|pediatr/i.test(t)) images.push('odontopediatria.jpeg');
+  if (/fachada|consultorio|consultorio|clinica|clínica|instalaciones/i.test(t)) images.push('fachada.jpeg');
   if (/limpieza|profilaxis|kit preventivo|kit_preventivo|mantenimiento/i.test(t)) images.push('kit_preventivo.jpeg');
-  if (/ubicaci|direcci|donde queda|direcci[oó]n|fachada|ubicacion/i.test(t)) images.push('ubicacion.jpeg');
+  if (/ubicaci|direcci|donde queda|direcci[oó]n|ubicacion/i.test(t)) images.push('ubicacion.jpeg');
   if (/promo|promoci[oó]n|oferta/i.test(t)) images.push('promo_consulta.jpeg');
   // Ensure uniqueness and limit to 3 images to avoid spamming
   return [...new Set(images)].slice(0, 3);
