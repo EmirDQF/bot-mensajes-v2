@@ -513,7 +513,7 @@ function extractTextFromParsedJson(parsed) {
 // === LIMPIEZA DE STRINGS JSON EN geminiService.js ===
 export function sanitizeModelTextOutput(rawText) {
   if (!rawText || typeof rawText !== 'string') return '';
-  
+
   let cleaned = rawText.trim();
 
   // 1. Eliminar etiquetas LEAD_JSON (completas o truncadas por el modelo)
@@ -954,7 +954,7 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1, opti
   throw lastErr || new Error('client failed');
 }
 
-function safeHistoryText(rawText, fallbackMessage = 'Gracias por tu mensaje. Te ayudamos con tu solicitud.') {
+export function safeHistoryText(rawText, fallbackMessage = 'Gracias por tu mensaje. Te ayudamos con tu solicitud.') {
   if (!rawText || typeof rawText !== 'string') return fallbackMessage;
   const cleaned = sanitizeModelTextOutput(rawText).trim();
   if (cleaned) return cleaned;
@@ -967,7 +967,7 @@ function safeHistoryText(rawText, fallbackMessage = 'Gracias por tu mensaje. Te 
   return withoutStructured || fallbackMessage;
 }
 
-function shouldRetryStructuredParse(rawText) {
+export function shouldRetryStructuredParse(rawText) {
   if (!rawText || typeof rawText !== 'string') return false;
   return /<<<LEAD_JSON>>>|\[AGENDAR_CITA:|\[BOOK_APPOINTMENT:|\{\s*"(?:nombre|telefono|distrito|fechaHora|fecha_hora|motivo)"\s*:/i.test(rawText);
 }
