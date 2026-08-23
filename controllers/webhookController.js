@@ -525,14 +525,16 @@ export default async function webhookController(req, res, next) {
         let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
         let leadData = null;
         let skipResponse = false;
+        // Ensure gemini result is available outside try/catch scope to avoid ReferenceError when Promise.race throws
+        let geminiResult = null;
         try {
-          const result = await Promise.race([geminiPromise, timeoutPromise]);
-          if (result) {
-            if (result.skipResponse) {
+          geminiResult = await Promise.race([geminiPromise, timeoutPromise]);
+          if (geminiResult) {
+            if (geminiResult.skipResponse) {
               skipResponse = true;
             } else {
-              texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
-              leadData = result.leadData || null;
+              texto = geminiResult.texto || geminiResult.text || (typeof geminiResult === 'string' ? geminiResult : texto);
+              leadData = geminiResult.leadData || null;
             }
           }
         } catch (e) {
@@ -540,11 +542,11 @@ export default async function webhookController(req, res, next) {
           if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
           // On failure, fallback message is already in texto
         }
- 
+  
         if (skipResponse) {
           return;
         }
- 
+  
         // Save lead if leadData is present. Use the remitente phone ('from') as the canonical source-of-truth for telefono.
         let leadResult = null;
         if (leadData) {
@@ -554,17 +556,32 @@ export default async function webhookController(req, res, next) {
               console.warn('webhookController: no remitente phone available in WhatsApp event; skipping lead save to avoid using model-extracted phone');
             } else {
               const shouldConfirm = typeof messageText === 'string' && geminiService.isExplicitConfirmation(messageText);
-              if (!result.skipLeadPersistence) {
-                leadResult = await leadService.saveLead({
-                  telefono: telefonoKey,
-                  nombre: leadData.nombre,
-                  distrito: leadData.distrito,
-                  fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
-                  fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-                  confirmed: shouldConfirm,
-                  clinicId: clinic?.id || null,
-                  clinic: clinic || null,
-                });
+              // Only attempt persistence if the Gemini response did not request skipping lead persistence
+              const shouldPersistLead = !(geminiResult && geminiResult.skipLeadPersistence);
+              if (shouldPersistLead) {
+                try {
+                  leadResult = await leadService.saveLead({
+                    telefono: telefonoKey,
+                    nombre: leadData.nombre,
+                    distrito: leadData.distrito,
+                    fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+                    fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+                    confirmed: shouldConfirm,
+                    clinicId: clinic?.id || null,
+                    clinic: clinic || null,
+                  });
+                } catch (dbErr) {
+                  // Log DB errors but do not let them interrupt message sending
+                  console.error('webhookController: leadService.saveLead failed', dbErr && (dbErr.message || dbErr));
+                }
+              }
+              // If user explicitly confirmed, force an admin notify regardless (best-effort)
+              if (shouldConfirm && leadResult && leadResult.lead) {
+                try {
+                  await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+                } catch (err) {
+                  console.error('webhookController: forced admin notify after explicit confirmation failed', err && err.message ? err.message : err);
+                }
               }
             }
           } catch (e) {
