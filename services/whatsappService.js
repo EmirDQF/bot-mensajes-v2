@@ -334,13 +334,14 @@ export async function sendWhatsAppMessageOrImage(phoneNumberId, to, fullReplyTex
       body: JSON.stringify(payload),
     });
 
-    // Log exact status and raw text from Meta for debugging
-    const metaStatus = response && response.status ? response.status : null;
-    const metaText = response && typeof response.text === 'function' ? await response.text() : '';
-    console.log('[META API STATUS]:', metaStatus, metaText);
+    // Raw logging requested: payload, HTTP status and raw response body from Meta
+    console.log('[PAYLOAD ENVIADO]:', JSON.stringify(payload));
+    console.log('[META HTTP STATUS]:', response && response.status ? response.status : null);
+    const metaBody = response && typeof response.text === 'function' ? await response.text() : '';
+    console.log('[META RAW RESPONSE]:', metaBody);
 
     let data = null;
-    try { data = metaText ? JSON.parse(metaText) : null; } catch (e) { data = metaText; }
+    try { data = metaBody ? JSON.parse(metaBody) : null; } catch (e) { data = metaBody; }
     console.log('[RESPUESTA META CLOUD API]:', JSON.stringify(data, null, 2));
     return data;
   } catch (error) {
