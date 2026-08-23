@@ -141,9 +141,12 @@ async function extractLeadData(history) {
       const telefonoMatch = text.match(/(\+?51)?\s*(9\d{8}|\b\d{9}\b)/);
       const telefono = telefonoMatch ? telefonoMatch[2] || telefonoMatch[0] : null;
 
-      // distrito: 'vivo en X' or 'en X' (simple heurística)
-      const distritoMatch = text.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || text.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
-      const distrito = distritoMatch ? distritoMatch[1].trim() : null;
+      // distrito: buscar expresiones más específicas para evitar coincidencias demasiado amplias
+      let distrito = null;
+      const dMatch1 = text.match(/(?:vivo en|soy de|mi distrito es|en el distrito de|estoy en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+      const dMatch2 = text.match(/\b(?:distrito|zona|barrio|sector)\s*(?:de)?\s*[:\s]*([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+      if (dMatch1) distrito = dMatch1[1].trim();
+      else if (dMatch2) distrito = dMatch2[1].trim();
 
       // fechaHora: buscaremos frases como 'el jueves a las 3pm' o 'puedo el jueves a las 3pm' o 'mañana a las 3'
       const fechaMatch = text.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
@@ -237,8 +240,11 @@ async function extractLeadData(history) {
         const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g, ' ') : null;
         const telefonoMatch = text.match(/(\+?51)?\s*(9\d{8}|\b\d{9}\b)/);
         const telefono = telefonoMatch ? telefonoMatch[2] || telefonoMatch[0] : null;
-        const distritoMatch = text.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i) || text.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
-        const distrito = distritoMatch ? distritoMatch[1].trim() : null;
+        let distrito = null;
+        const dMatch1 = text.match(/(?:vivo en|soy de|mi distrito es|en el distrito de|estoy en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+        const dMatch2 = text.match(/\b(?:distrito|zona|barrio|sector)\s*(?:de)?\s*[:\s]*([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
+        if (dMatch1) distrito = dMatch1[1].trim();
+        else if (dMatch2) distrito = dMatch2[1].trim();
         const fechaMatch = text.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)|\d{1,2}\s+de\s+\w+)(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
         const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
 
