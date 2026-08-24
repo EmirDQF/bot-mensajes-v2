@@ -262,6 +262,7 @@ function openLoginModal() {
       return;
     }
     window.__panelAuth = 'Basic ' + btoa(`${u}:${p}`);
+    try { localStorage.setItem('panelAuth', window.__panelAuth); } catch (e) { console.warn('localStorage not available', e); }
     closeModal();
     // start polling now that we have credentials
     startPolling();
@@ -281,11 +282,47 @@ function openLoginModal() {
   modal.addEventListener('keydown', onKeydown);
 }
 
-// Ensure login modal shows if not authenticated
-if (!authHeader()) {
-  // defer showing modal until DOM ready
-  window.addEventListener('load', () => openLoginModal());
+// Initialize auth from localStorage if present
+function initAuthFromStorage() {
+  try {
+    const stored = localStorage.getItem('panelAuth');
+    if (stored) {
+      window.__panelAuth = stored;
+      return true;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return false;
 }
+
+// Ensure login modal shows if not authenticated
+window.addEventListener('load', () => {
+  const had = initAuthFromStorage();
+  if (!had) {
+    openLoginModal();
+  } else {
+    // start polling immediately
+    startPolling();
+  }
+
+  // Wire logout button
+  const logoutBtn = document.getElementById('logoutBtn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      try { localStorage.removeItem('panelAuth'); } catch (e) { /* ignore */ }
+      window.__panelAuth = null;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      // clear data and UI
+      conversationData.length = 0;
+      renderConversationList();
+      const chatMessagesEl = document.getElementById('chatMessages');
+      if (chatMessagesEl) chatMessagesEl.innerHTML = '';
+      // show login modal
+      openLoginModal();
+    });
+  }
+});
 
 async function fetchConversationsFromApi() {
   try {
