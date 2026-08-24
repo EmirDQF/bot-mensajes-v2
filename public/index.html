@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOT MONITOR — CQPHARMA</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Supabase JS Client for Client-Side Realtime -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#22c55e',
+              600: '#16a34a',
+              900: '#14532d',
+            },
+            dark: {
+              bg: '#0b0f19',
+              sidebar: '#111827',
+              card: '#1f2937',
+              border: '#374151',
+              hover: '#1f2937'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #0b0f19; color: #f3f4f6; font-family: system-ui, -apple-system, sans-serif; }
+    .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scroll::-webkit-scrollbar-track { background: #111827; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden select-none">
+
+  <!-- HEADER / NAVBAR -->
+  <header class="h-14 border-b border-gray-800 bg-[#111827] px-4 sm:px-6 flex items-center justify-between z-20">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold">
+        <i data-lucide="bot" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="font-extrabold text-sm sm:text-base tracking-wide text-white">BOT MONITOR</span>
+          <span class="text-[10px] bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded border border-emerald-800 font-semibold">CQPHARMA</span>
+        </div>
+        <p class="text-[10px] text-gray-400 hidden sm:block">Panel de Control de Atención Automatizada • Modo Solo Lectura</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 sm:gap-5 text-xs">
+      <!-- Status Badge -->
+      <div id="liveStatusIndicator" class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-800/80 text-emerald-400 font-medium">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="statusText">🟢 LIVE</span>
+      </div>
+
+      <!-- Security Lock Tag -->
+      <div class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded bg-gray-800 text-gray-300 text-[11px] border border-gray-700">
+        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-blue-400"></i>
+        <span>READ-ONLY MODE</span>
+      </div>
+
+      <!-- Sync Time -->
+      <div class="text-[11px] text-gray-400 font-mono hidden lg:block">
+        Sync: <span id="lastSyncClock">--:--:--</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WRAPPER -->
+  <div class="flex-1 flex overflow-hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="w-16 md:w-60 border-r border-gray-800 bg-[#111827] flex flex-col justify-between p-2 md:p-4 z-10">
+      <nav class="space-y-1.5">
+        <button id="navConvsBtn" onclick="switchTab('conversations')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-all">
+          <i data-lucide="message-square" class="w-4 h-4 shrink-0"></i>
+          <span class="hidden md:inline">Conversaciones</span>
+        </button>
+
+        <button id="navActivityBtn" onclick="switchTab('activity')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800/60 hover:text-gray-200 text-xs font-medium transition-all">
+          <i data-lucide="activity" class="w-4 h-4 shrink-0"></i>
+          <span class="hidden md:inline">Actividad</span>
+        </button>
+
+        <button id="navStatsBtn" onclick="switchTab('stats')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800/60 hover:text-gray-200 text-xs font-medium transition-all">
+          <i data-lucide="bar-chart-3" class="w-4 h-4 shrink-0"></i>
+          <span class="hidden md:inline">Estadísticas</span>
+        </button>
+      </nav>
+
+      <!-- BOT STATUS CARD -->
+      <div class="hidden md:block bg-[#1f2937]/50 rounded-xl p-3 border border-gray-800 space-y-2 text-xs">
+        <div class="flex items-center justify-between font-semibold">
+          <span class="text-gray-300">BOT STATUS</span>
+          <span class="flex items-center gap-1 text-emerald-400 text-[11px]">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ONLINE
+          </span>
+        </div>
+        <div class="text-[11px] text-gray-400 space-y-1 font-mono">
+          <div class="flex justify-between">
+            <span>Servicio:</span>
+            <span class="text-gray-200 truncate max-w-[90px]">Render</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Uptime:</span>
+            <span id="botUptime" class="text-gray-200">--</span>
+          </div>
+          <div class="flex justify-between">
+            <span>Mensajes HOY:</span>
+            <span id="botMsgCount" class="text-emerald-400 font-bold">0</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- TAB 1: CONVERSATIONS CONTAINER -->
+    <div id="tabConversations" class="flex-1 flex overflow-hidden">
+      
+      <!-- COLUMN 2: CONVERSATIONS LIST -->
+      <section id="convListSection" class="w-full md:w-80 lg:w-96 border-r border-gray-800 flex flex-col bg-[#0b0f19] shrink-0">
+        
+        <!-- Search Input -->
+        <div class="p-3 border-b border-gray-800 space-y-2">
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-gray-500 absolute left-3 top-2.5"></i>
+            <input id="searchInput" type="text" placeholder="Buscar por nombre, +51, mensaje..." 
+                   class="w-full bg-[#111827] text-xs pl-9 pr-3 py-2 rounded-lg border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 transition">
+          </div>
+
+          <!-- Quick Filters Bar -->
+          <div class="flex gap-1 overflow-x-auto custom-scroll pb-1 text-[11px]">
+            <button onclick="applyFilter('all')" id="filterBtn-all" class="px-2.5 py-1 rounded-md bg-emerald-600/30 text-emerald-300 font-medium whitespace-nowrap border border-emerald-500/40">Todas</button>
+            <button onclick="applyFilter('24h')" id="filterBtn-24h" class="px-2.5 py-1 rounded-md bg-gray-800 text-gray-400 hover:text-gray-200 whitespace-nowrap border border-gray-700">24 horas</button>
+            <button onclick="applyFilter('images')" id="filterBtn-images" class="px-2.5 py-1 rounded-md bg-gray-800 text-gray-400 hover:text-gray-200 whitespace-nowrap border border-gray-700">Con Imágenes</button>
+            <button onclick="applyFilter('files')" id="filterBtn-files" class="px-2.5 py-1 rounded-md bg-gray-800 text-gray-400 hover:text-gray-200 whitespace-nowrap border border-gray-700">Con Archivos</button>
+          </div>
+        </div>
+
+        <!-- Conversations List Scrollable -->
+        <div id="conversationsContainer" class="flex-1 overflow-y-auto custom-scroll divide-y divide-gray-800/60">
+          <!-- Loaded dynamically -->
+          <div class="p-8 text-center text-gray-500 text-xs flex flex-col items-center gap-2">
+            <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-emerald-500"></i>
+            <span>Cargando conversaciones...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- COLUMN 3: MAIN READ-ONLY CHAT PANEL -->
+      <main id="chatMainSection" class="hidden md:flex flex-1 flex-col bg-[#080c14] relative">
+        
+        <!-- Chat Header -->
+        <div id="chatHeader" class="h-14 border-b border-gray-800 px-4 sm:px-6 flex items-center justify-between bg-[#111827]/70 backdrop-blur-md">
+          <div class="flex items-center gap-3">
+            <button onclick="backToListOnMobile()" class="md:hidden text-gray-400 hover:text-white p-1">
+              <i data-lucide="arrow-left" class="w-5 h-5"></i>
+            </button>
+            <div id="chatAvatar" class="w-9 h-9 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center font-bold text-xs text-white">
+              ?
+            </div>
+            <div>
+              <h2 id="activeContactName" class="text-xs sm:text-sm font-bold text-white">Selecciona una conversación</h2>
+              <p id="activeContactPhone" class="text-[11px] text-gray-400 font-mono">Haz clic en la lista izquierda para monitorear el chat</p>
+            </div>
+          </div>
+
+          <div id="activeContactBadges" class="hidden flex items-center gap-2">
+            <span class="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-medium flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Bot Activo
+            </span>
+          </div>
+        </div>
+
+        <!-- Messages History View Container -->
+        <div id="messagesHistory" class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scroll">
+          <div class="h-full flex flex-col items-center justify-center text-gray-500 text-xs gap-3">
+            <i data-lucide="messages-square" class="w-12 h-12 text-gray-700"></i>
+            <p>Ninguna conversación seleccionada.</p>
+          </div>
+        </div>
+
+        <!-- READ-ONLY NOTICE BANNER (replaces send box) -->
+        <div class="border-t border-gray-800 bg-[#111827]/90 px-4 py-2.5 flex items-center justify-between text-[11px] text-gray-400">
+          <div class="flex items-center gap-2">
+            <i data-lucide="lock" class="w-3.5 h-3.5 text-amber-400"></i>
+            <span><strong>INTERFAZ DE SOLO LECTURA:</strong> Las respuestas automáticas son gestionadas en tiempo real por la IA del Bot en WhatsApp.</span>
+          </div>
+          <span class="font-mono text-emerald-400 font-semibold hidden lg:inline">CQPHARMA BOT</span>
+        </div>
+      </main>
+    </div>
+
+    <!-- TAB 2: ACTIVITY LOG -->
+    <div id="tabActivity" class="hidden flex-1 overflow-y-auto p-6 custom-scroll bg-[#0b0f19]">
+      <div class="max-w-4xl mx-auto space-y-4">
+        <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+          <div>
+            <h1 class="text-base font-bold text-white flex items-center gap-2">
+              <i data-lucide="activity" class="w-5 h-5 text-emerald-400"></i> ACTIVIDAD DEL BOT EN TIEMPO REAL
+            </h1>
+            <p class="text-xs text-gray-400">Registro en vivo de eventos, mensajes recibidos y respuestas generadas.</p>
+          </div>
+          <button onclick="fetchActivityLogs()" class="text-xs bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded border border-gray-700 text-gray-200 flex items-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar Log
+          </button>
+        </div>
+
+        <div id="activityLogStream" class="space-y-2 font-mono text-xs">
+          <!-- Activity entries -->
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: STATISTICS -->
+    <div id="tabStats" class="hidden flex-1 overflow-y-auto p-6 custom-scroll bg-[#0b0f19]">
+      <div class="max-w-5xl mx-auto space-y-6">
+        <div class="border-b border-gray-800 pb-3">
+          <h1 class="text-base font-bold text-white flex items-center gap-2">
+            <i data-lucide="bar-chart-3" class="w-5 h-5 text-emerald-400"></i> ESTADÍSTICAS DEL BOT
+          </h1>
+          <p class="text-xs text-gray-400">Métricas calculadas a partir de conversaciones y procesamiento real.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="bg-[#111827] p-4 rounded-xl border border-gray-800 space-y-1">
+            <p class="text-xs text-gray-400">Conversaciones Hoy</p>
+            <h3 id="statConvsToday" class="text-2xl font-bold text-white">0</h3>
+            <p class="text-[10px] text-emerald-400">🟢 Registradas en base de datos</p>
+          </div>
+
+          <div class="bg-[#111827] p-4 rounded-xl border border-gray-800 space-y-1">
+            <p class="text-xs text-gray-400">Mensajes Recibidos (Clientes)</p>
+            <h3 id="statIncomingToday" class="text-2xl font-bold text-blue-400">0</h3>
+            <p class="text-[10px] text-gray-500">Solicitudes procesadas</p>
+          </div>
+
+          <div class="bg-[#111827] p-4 rounded-xl border border-gray-800 space-y-1">
+            <p class="text-xs text-gray-400">Respuestas del Bot</p>
+            <h3 id="statOutgoingToday" class="text-2xl font-bold text-emerald-400">0</h3>
+            <p class="text-[10px] text-gray-500">Respuestas automatizadas</p>
+          </div>
+
+          <div class="bg-[#111827] p-4 rounded-xl border border-gray-800 space-y-1">
+            <p class="text-xs text-gray-400">Tiempo Promedio Resp.</p>
+            <h3 id="statAvgTime" class="text-2xl font-bold text-purple-400">1.2s</h3>
+            <p class="text-[10px] text-gray-500">Latencia estimada de IA</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- MESSAGE INSPECTION MODAL -->
+  <div id="messageModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-[#111827] border border-gray-700 w-full max-w-lg rounded-xl overflow-hidden shadow-2xl space-y-4 p-5">
+      <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i data-lucide="info" class="w-4 h-4 text-emerald-400"></i> Detalle Técnico del Mensaje
+        </h3>
+        <button onclick="closeMessageModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div id="modalContent" class="space-y-3 font-mono text-xs text-gray-300">
+        <!-- Technical fields loaded here -->
+      </div>
+      <div class="pt-2 text-right">
+        <button onclick="closeMessageModal()" class="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-xs text-white rounded border border-gray-700">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Global Application State
+    const urlParams = new URLSearchParams(window.location.search);
+    const MONITOR_KEY = urlParams.get('key') || 'frank2026';
+    
+    let state = {
+      activeTab: 'conversations',
+      conversations: [],
+      activeConversationId: null,
+      messages: [],
+      filter: 'all',
+      searchQuery: '',
+      isOnline: true,
+      lastSync: new Date()
+    };
+
+    // Supabase Realtime Client setup (Optional direct connection if keys present)
+    let supabaseClient = null;
+
+    // Initialize Dashboard
+    document.addEventListener('DOMContentLoaded', async () => {
+      lucide.createIcons();
+      updateClock();
+      setInterval(updateClock, 1000);
+
+      // Load initial conversations list and stats
+      await fetchConversations();
+      await fetchStats();
+
+      // Setup Polling / Sync Loop (10 seconds fallback for maximum compatibility)
+      setInterval(async () => {
+        await fetchConversations(true);
+        if (state.activeConversationId) {
+          await fetchMessages(state.activeConversationId, true);
+        }
+        await fetchStats();
+      }, 10000);
+    });
+
+    // Update Live Sync Clock
+    function updateClock() {
+      document.getElementById('lastSyncClock').innerText = new Date().toLocaleTimeString();
+    }
+
+    // Switch Main Tabs
+    function switchTab(tabName) {
+      state.activeTab = tabName;
+      document.getElementById('tabConversations').classList.toggle('hidden', tabName !== 'conversations');
+      document.getElementById('tabActivity').classList.toggle('hidden', tabName !== 'activity');
+      document.getElementById('tabStats').classList.toggle('hidden', tabName !== 'stats');
+
+      // Update Nav Buttons Styling
+      const btns = {
+        conversations: document.getElementById('navConvsBtn'),
+        activity: document.getElementById('navActivityBtn'),
+        stats: document.getElementById('navStatsBtn')
+      };
+
+      Object.keys(btns).forEach(key => {
+        if (key === tabName) {
+          btns[key].className = 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-all';
+        } else {
+          btns[key].className = 'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:bg-gray-800/60 hover:text-gray-200 text-xs font-medium transition-all';
+        }
+      });
+
+      if (tabName === 'activity') fetchActivityLogs();
+      if (tabName === 'stats') fetchStats();
+    }
+
+    // Fetch Conversations from API
+    async function fetchConversations(silent = false) {
+      try {
+        const query = `/api/conversations?key=${encodeURIComponent(MONITOR_KEY)}&search=${encodeURIComponent(state.searchQuery)}&filter=${encodeURIComponent(state.filter)}`;
+                const res = await fetch(query, { headers: { 'x-monitor-key': MONITOR_KEY } });
+        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+        
+        const data = await res.json();
+        state.conversations = data;
+        state.isOnline = true;
+        updateStatusIndicator('ONLINE');
+        renderConversationsList();
+      } catch (err) {
+        console.warn('API fetch error, switching to reconnecting status:', err);
+        state.isOnline = false;
+        updateStatusIndicator('OFFLINE');
+      }
+    }
+
+    // Update Status Badge Indicator
+    function updateStatusIndicator(status) {
+      const statusEl = document.getElementById('liveStatusIndicator');
+      const textEl = document.getElementById('statusText');
+      if (status === 'ONLINE') {
+        statusEl.className = 'flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-800/80 text-emerald-400 font-medium';
+        textEl.innerText = '🟢 LIVE';
+      } else {
+        statusEl.className = 'flex items-center gap-2 px-2.5 py-1 rounded-full bg-rose-950/80 border border-rose-800/80 text-rose-400 font-medium';
+        textEl.innerText = '🔴 OFFLINE';
+      }
+    }
+
+    // Render Conversations List in Sidebar
+    function renderConversationsList() {
+      const container = document.getElementById('conversationsContainer');
+      if (!state.conversations || state.conversations.length === 0) {
+        container.innerHTML = `
+          <div class="p-8 text-center text-gray-500 text-xs">
+            No se encontraron conversaciones.
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = state.conversations.map(c => {
+        const isActive = c.id === state.activeConversationId;
+        const initial = (c.contact_name || '?').charAt(0).toUpperCase();
+        const timeStr = c.updated_at ? new Date(c.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        const lastMsgText = c.latest_message ? c.latest_message.content : 'Sin mensajes aún';
+
+        return `
+          <div onclick="selectConversation('${c.id}')" 
+               class="p-3.5 cursor-pointer hover:bg-gray-800/50 transition-colors border-l-2 ${isActive ? 'bg-gray-800/80 border-emerald-500' : 'border-transparent'}">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-emerald-400 shrink-0">
+                ${initial}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex justify-between items-baseline mb-0.5">
+                  <h4 class="text-xs font-semibold text-white truncate">${escapeHtml(c.contact_name)}</h4>
+                  <span class="text-[10px] text-gray-500 font-mono ml-2 shrink-0">${timeStr}</span>
+                </div>
+                <p class="text-[11px] text-gray-400 font-mono truncate">${escapeHtml(c.phone)}</p>
+                <p class="text-[11px] text-gray-500 truncate mt-0.5">${escapeHtml(lastMsgText)}</p>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Select Conversation and Fetch Message History
+    async function selectConversation(id) {
+      state.activeConversationId = id;
+      renderConversationsList();
+
+      const conv = state.conversations.find(c => c.id === id);
+      if (conv) {
+        document.getElementById('activeContactName').innerText = conv.contact_name || 'Contacto';
+        document.getElementById('activeContactPhone').innerText = conv.phone || '';
+        document.getElementById('activeContactBadges').classList.remove('hidden');
+        document.getElementById('chatAvatar').innerText = (conv.contact_name || '?').charAt(0).toUpperCase();
+      }
+
+      // Show Chat panel on mobile when selected
+      document.getElementById('chatMainSection').classList.remove('hidden');
+      document.getElementById('convListSection').classList.add('hidden', 'md:flex');
+
+      await fetchMessages(id);
+    }
+
+    // Mobile Navigation: Back to Conversation List
+    function backToListOnMobile() {
+      document.getElementById('chatMainSection').classList.add('hidden');
+      document.getElementById('convListSection').classList.remove('hidden');
+    }
+
+    // Fetch Messages for Selected Conversation
+    async function fetchMessages(convId, silent = false) {
+      try {
+        const res = await fetch(`/api/conversations/${convId}/messages?key=${encodeURIComponent(MONITOR_KEY)}`, { headers: { 'x-monitor-key': MONITOR_KEY } });
+        if (!res.ok) return;
+        const messages = await res.json();
+        state.messages = messages;
+        renderMessagesHistory();
+      } catch (err) {
+        console.error('Error loading messages history:', err);
+      }
+    }
+
+    // Render Message History Stream
+    function renderMessagesHistory() {
+      const container = document.getElementById('messagesHistory');
+      if (!state.messages || state.messages.length === 0) {
+        container.innerHTML = `<div class="p-8 text-center text-gray-500 text-xs">Sin historial de mensajes.</div>`;
+        return;
+      }
+
+      container.innerHTML = state.messages.map(m => {
+        const isBot = m.direction === 'outgoing';
+        const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        
+        let mediaSnippet = '';
+        if (m.message_type === 'image' && m.media_url) {
+          mediaSnippet = `<img src="${escapeHtml(m.media_url)}" class="max-w-xs rounded-lg mb-2 border border-gray-700 cursor-pointer hover:opacity-90 transition" onclick="window.open('${escapeHtml(m.media_url)}', '_blank')" />`;
+        } else if (m.message_type === 'audio') {
+          mediaSnippet = `<div class="flex items-center gap-2 p-2 bg-gray-900/60 rounded border border-gray-800 text-amber-400 text-xs mb-2">
+                            <i data-lucide="mic" class="w-4 h-4"></i> <span>🎤 Audio recibido</span>
+                          </div>`;
+        } else if (m.message_type === 'document') {
+          mediaSnippet = `<div class="flex items-center gap-2 p-2 bg-gray-900/60 rounded border border-gray-800 text-blue-400 text-xs mb-2">
+                            <i data-lucide="file-text" class="w-4 h-4"></i> <span>📄 Documento adjunto</span>
+                          </div>`;
+        }
+
+        return `
+          <div class="flex flex-col ${isBot ? 'items-end' : 'items-start'}">
+            <div class="flex items-center gap-1.5 mb-1 text-[10px] uppercase font-mono tracking-wider ${isBot ? 'text-emerald-400' : 'text-blue-400'}">
+              <span>${isBot ? '🤖 BOT (Automático)' : '👤 CLIENTE'}</span>
+            </div>
+
+            <div onclick='inspectMessage(${JSON.stringify(m).replace(/'/g, "&apos;")})'
+                 class="group relative max-w-sm sm:max-w-md md:max-w-lg p-3 rounded-xl text-xs leading-relaxed cursor-pointer transition ${isBot ? 'bg-emerald-950/40 text-gray-100 border border-emerald-800/50 rounded-tr-none' : 'bg-[#111827] text-gray-200 border border-gray-800 rounded-tl-none'}">
+              ${mediaSnippet}
+              <div class="whitespace-pre-wrap">${escapeHtml(m.content || '')}</div>
+              <div class="flex justify-between items-center gap-4 mt-1.5 pt-1 border-t border-gray-800/50 text-[9px] text-gray-500 font-mono">
+                <span>Click para inspeccionar</span>
+                <span>${timeStr}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // Inspect Message Details Modal
+    function inspectMessage(msg) {
+      const modal = document.getElementById('messageModal');
+      const content = document.getElementById('modalContent');
+      
+      content.innerHTML = `
+        <div class="grid grid-cols-3 gap-1 border-b border-gray-800 pb-1">
+          <span class="text-gray-500">ID:</span>
+          <span class="col-span-2 text-white truncate">${escapeHtml(msg.id)}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-1 border-b border-gray-800 pb-1">
+          <span class="text-gray-500">Origen:</span>
+          <span class="col-span-2 font-bold ${msg.direction === 'outgoing' ? 'text-emerald-400' : 'text-blue-400'}">${msg.direction === 'outgoing' ? 'BOT' : 'CLIENTE'}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-1 border-b border-gray-800 pb-1">
+          <span class="text-gray-500">Tipo:</span>
+          <span class="col-span-2 text-white">${escapeHtml(msg.message_type || 'text')}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-1 border-b border-gray-800 pb-1">
+          <span class="text-gray-500">Timestamp:</span>
+          <span class="col-span-2 text-white">${escapeHtml(msg.timestamp)}</span>
+        </div>
+        <div class="grid grid-cols-3 gap-1">
+          <span class="text-gray-500">Conv ID:</span>
+          <span class="col-span-2 text-gray-400 truncate">${escapeHtml(msg.conversation_id)}</span>
+        </div>
+      `;
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeMessageModal() {
+      document.getElementById('messageModal').classList.add('hidden');
+    }
+
+    // Apply Quick Filters
+    function applyFilter(filterName) {
+      state.filter = filterName;
+      ['all', '24h', 'images', 'files'].forEach(f => {
+        const btn = document.getElementById(`filterBtn-${f}`);
+        if (f === filterName) {
+          btn.className = 'px-2.5 py-1 rounded-md bg-emerald-600/30 text-emerald-300 font-medium whitespace-nowrap border border-emerald-500/40';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded-md bg-gray-800 text-gray-400 hover:text-gray-200 whitespace-nowrap border border-gray-700';
+        }
+      });
+      fetchConversations();
+    }
+
+    // Search input handler
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      state.searchQuery = e.target.value;
+      fetchConversations();
+    });
+
+    // Fetch Stats
+    async function fetchStats() {
+      try {
+        const res = await fetch(`/api/stats?key=${encodeURIComponent(MONITOR_KEY)}`, { headers: { 'x-monitor-key': MONITOR_KEY } });
+        if (!res.ok) return;
+        const stats = await res.json();
+
+        document.getElementById('statConvsToday').innerText = stats.conversationsToday || 0;
+        document.getElementById('statIncomingToday').innerText = stats.messagesIncomingToday || 0;
+        document.getElementById('statOutgoingToday').innerText = stats.messagesOutgoingToday || 0;
+        document.getElementById('botMsgCount').innerText = (stats.messagesIncomingToday || 0) + (stats.messagesOutgoingToday || 0);
+        
+        const uptimeHours = (stats.uptimeSeconds / 3600).toFixed(1);
+        document.getElementById('botUptime').innerText = `${uptimeHours} hrs`;
+      } catch (e) {
+        console.warn('Error fetching stats:', e);
+      }
+    }
+
+    // Fetch Activity Log Stream
+    async function fetchActivityLogs() {
+      try {
+        const res = await fetch(`/api/activity?key=${encodeURIComponent(MONITOR_KEY)}`, { headers: { 'x-monitor-key': MONITOR_KEY } });
+        if (!res.ok) return;
+        const logs = await res.json();
+        const stream = document.getElementById('activityLogStream');
+
+        if (!logs || logs.length === 0) {
+          stream.innerHTML = `<div class="text-gray-500">Sin registros de actividad recientes.</div>`;
+          return;
+        }
+
+        stream.innerHTML = logs.map(l => `
+          <div class="p-2.5 bg-[#111827] rounded border border-gray-800 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <span class="${l.type === 'INCOMING' ? 'text-blue-400' : 'text-emerald-400'} font-bold">
+                [${l.type}]
+              </span>
+              <span class="text-gray-200">${escapeHtml(l.details)}</span>
+            </div>
+            <span class="text-gray-500 text-[10px]">${new Date(l.timestamp).toLocaleTimeString()}</span>
+          </div>
+        `).join('');
+      } catch (e) {
+        console.warn('Error fetching activity:', e);
+      }
+    }
+
+    // Utility: HTML Escaper to prevent XSS
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
