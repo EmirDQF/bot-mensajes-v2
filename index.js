@@ -1,4 +1,6 @@
 import express from 'express';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
 import './src/envLoader.js';
 import webhookRouter from './routes/webhook.js';
 import panelRouter from './routes/panel.js';
@@ -7,6 +9,65 @@ import path from 'path';
 import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
+
+app.use(cors({ origin: true, credentials: true }));
+app.options(/.*/, cors({ origin: true, credentials: true }));
+
+const supabase =
+  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+    : null;
+
+async function getSupabaseConversations() {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('*')
+    .order('last_message_at', { ascending: false });
+
+  if (error) {
+    console.warn('Supabase conversations query failed:', error.message || error);
+    return [];
+  }
+
+  return data || [];
+}
+
+async function getSupabaseMessages(conversationId) {
+  if (!supabase || !conversationId) return [];
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', String(conversationId))
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.warn('Supabase messages query failed:', error.message || error);
+    return [];
+  }
+
+  return data || [];
+}
+
+app.get('/api/conversations', async (req, res) => {
+  try {
+    const conversations = await getSupabaseConversations();
+    return res.json(conversations);
+  } catch (error) {
+    console.error('GET /api/conversations failed:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+app.get('/api/conversations/:id/messages', async (req, res) => {
+  try {
+    const messages = await getSupabaseMessages(req.params.id);
+    return res.json(messages);
+  } catch (error) {
+    console.error('GET /api/conversations/:id/messages failed:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
 
 const publicDir = path.join(process.cwd(), 'public');
 const luminzuDir = path.join(process.cwd(), 'LUMINZU');

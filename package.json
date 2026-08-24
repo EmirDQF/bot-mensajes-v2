@@ -19,6 +19,7 @@
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.30.0",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
     "qrcode-terminal": "^0.12.0"
   }
