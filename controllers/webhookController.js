@@ -9,6 +9,59 @@ import { enviarImagenWhatsapp } from '../src/whatsappMedia.js';
 import { createClient } from '@supabase/supabase-js';
 
 // Helper: upsert a message into chat_sessions.history
+async function getSupabaseClient() {
+  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  if (!rawUrl || !key) return null;
+  return createClient(rawUrl, key);
+}
+
+async function persistToSupabaseConversation({ conversationId, contactNumber, contactName, sender, text, mediaUrl, timestamp }) {
+  const supabase = await getSupabaseClient();
+  if (!supabase || !conversationId) return null;
+
+  const normalizedId = String(conversationId).trim();
+  const phone = contactNumber || normalizedId;
+  const ts = timestamp || new Date().toISOString();
+  const lastMessage = text && String(text).trim().length ? String(text).trim() : (mediaUrl ? '[Imagen]' : 'Mensaje');
+
+  try {
+    const { error: upsertErr } = await supabase.from('conversations').upsert({
+      conversation_id: normalizedId,
+      contact_number: phone,
+      contact_name: contactName || phone,
+      last_message: lastMessage,
+      last_message_at: ts,
+      created_at: ts
+    }, { onConflict: 'conversation_id' });
+
+    if (upsertErr) {
+      console.warn('persistToSupabaseConversation upsert failed:', upsertErr);
+      return null;
+    }
+
+    const { error: insertErr } = await supabase.from('messages').insert({
+      conversation_id: normalizedId,
+      contact_number: phone,
+      sender,
+      text: text || null,
+      media_url: mediaUrl || null,
+      media_type: mediaUrl ? 'image' : 'text',
+      created_at: ts
+    });
+
+    if (insertErr) {
+      console.warn('persistToSupabaseConversation insert failed:', insertErr);
+      return null;
+    }
+
+    return true;
+  } catch (e) {
+    console.warn('persistToSupabaseConversation failed:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
 async function persistToChatSessions(sessionIdentifier, entry) {
   try {
     const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
@@ -549,7 +602,7 @@ export default async function webhookController(req, res, next) {
     }
 
     const incomingType = message?.type === 'image' ? 'image' : 'text';
-    const incomingMediaUrl = message?.type === 'image' && message?.image?.link ? message.image.link : null;
+    const incomingMediaUrl = message?.type === 'image' && (message?.image?.link || message?.image?.url || null) ? (message.image.link || message.image.url) : null;
     await notifyMonitorPanel({
       conversation_id: from,
       contact_name: value?.contacts?.[0]?.profile?.name || null,
@@ -558,6 +611,15 @@ export default async function webhookController(req, res, next) {
       content: messageText || null,
       media_url: incomingMediaUrl,
       timestamp: new Date().toISOString(),
+    });
+    await persistToSupabaseConversation({
+      conversationId: from,
+      contactNumber: from,
+      contactName: value?.contacts?.[0]?.profile?.name || from,
+      sender: 'user',
+      text: messageText,
+      mediaUrl: incomingMediaUrl,
+      timestamp: new Date().toISOString()
     });
 
     // At this point we have validated "from" and "messageText".
@@ -797,14 +859,25 @@ export default async function webhookController(req, res, next) {
             await whatsappService.sendWhatsAppMessage(from, replyText, {});
           }
 
+          const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;
+          const replyImageUrl = imageToSend && replyMediaBase ? `${replyMediaBase.replace(/\/+$/, '')}/${encodeURIComponent(imageToSend)}` : null;
           await notifyMonitorPanel({
             conversation_id: from,
             contact_name: patientName || value?.contacts?.[0]?.profile?.name || null,
             sender: 'bot',
             type: imageToSend ? 'image' : 'text',
             content: replyText || null,
-            media_url: null,
+            media_url: replyImageUrl,
             timestamp: new Date().toISOString(),
+          });
+          await persistToSupabaseConversation({
+            conversationId: from,
+            contactNumber: from,
+            contactName: patientName || value?.contacts?.[0]?.profile?.name || from,
+            sender: 'bot',
+            text: replyText || null,
+            mediaUrl: replyImageUrl,
+            timestamp: new Date().toISOString()
           });
 
           // Persist bot reply (text and/or image) into chat_sessions

@@ -36,6 +36,10 @@ export default function App(){
     // load conversations
     fetchConversations()
 
+    const poller = setInterval(() => {
+      fetchConversations()
+    }, 3000)
+
     // connect socket with auth
     const socket = io(API_URL, { auth: { username: auth.username, password: auth.password } })
     socketRef.current = socket
@@ -81,20 +85,21 @@ export default function App(){
       })
     })
 
-    return ()=>{ socket.disconnect(); delete axios.defaults.headers.common['Authorization'] }
+    return ()=>{ clearInterval(poller); socket.disconnect(); delete axios.defaults.headers.common['Authorization'] }
   }, [auth, selected])
 
   async function fetchConversations(){
     try{
       const res = await axios.get(`${API_URL}/api/conversations`)
+      console.log('Conversations loaded:', res.data)
       setConversations(res.data)
       const firstId = res.data.length ? getConversationId(res.data[0]) : null
       if (firstId && (!selected || !res.data.some(c => getConversationId(c) === selected))) {
         setSelected(firstId)
       }
-    }catch(e){
-      console.error('fetchConversations error', e)
-      if(e.response && e.response.status === 401){
+    }catch(err){
+      console.error('Error fetching conversations:', err)
+      if(err.response && err.response.status === 401){
         alert('Unauthorized. Please login again.')
         setAuth(null)
       }
@@ -105,12 +110,13 @@ export default function App(){
     setSelected(id)
     try{
       const res = await axios.get(`${API_URL}/api/conversations/${encodeURIComponent(id)}/messages`)
+      console.log('Messages loaded for conversation', id, res.data)
       setMessages(res.data)
       // join room (optional)
       if(socketRef.current) socketRef.current.emit('join:conversation', id)
-    }catch(e){
-      console.error('openConversation error', e)
-      if(e.response && e.response.status === 401){
+    }catch(err){
+      console.error('Error fetching conversation messages:', err)
+      if(err.response && err.response.status === 401){
         alert('Unauthorized. Please login again.')
         setAuth(null)
       }
