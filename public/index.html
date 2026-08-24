@@ -365,6 +365,12 @@
         state.conversations = data;
         state.isOnline = true;
         updateStatusIndicator('ONLINE');
+        // Auto-select first conversation if none selected
+        if (state.conversations && state.conversations.length > 0 && !state.activeConversationId) {
+          // selectConversation will render list and fetch messages
+          await selectConversation(state.conversations[0].id);
+          return;
+        }
         renderConversationsList();
       } catch (err) {
         console.warn('API fetch error, switching to reconnecting status:', err);

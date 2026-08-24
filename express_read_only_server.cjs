@@ -37,6 +37,66 @@ async function fetchMessagesByConversationId(id) {
   if (!supabase) return { data: [], table: null, idCol: null };
   let lastError = null;
   for (const table of possibleMessageTables) {
+    try {
+      // Build OR clause for possible id columns (e.g. conversation_id.eq.<id>,contact_number.eq.<id>)
+      const orClause = possibleIdColumns.map(col => `${col}.eq.${id}`).join(',');
+
+      // Try an OR query across common id columns first
+      const { data, error, status } = await supabase
+        .from(table)
+        .select('*')
+        .or(orClause)
+        .order('id', { ascending: true });
+
+      // Log raw response for debugging
+      console.log(`[Supabase] query -> table=${table} or=${orClause} status=${status} error=${error ? error.message : null}`);
+      console.log('[Supabase] raw response data sample:', Array.isArray(data) ? data.slice(0, 5) : data);
+
+      if (error) {
+        lastError = error;
+        // continue trying other tables
+        continue;
+      }
+
+      if (data && data.length >= 0) {
+        // Normalize fields
+        const normalized = (data || []).map(row => {
+          const content = possibleContentFields.map(f => row[f]).find(v => v != null);
+          const senderVal = possibleSenderFields.map(f => row[f]).find(v => v != null);
+          // Derive direction if possible
+          let direction = row.direction || undefined;
+          if (direction == null) {
+            if (typeof senderVal === 'boolean') {
+              direction = senderVal ? 'outgoing' : 'incoming';
+            } else if (typeof senderVal === 'string') {
+              const low = senderVal.toLowerCase();
+              if (['bot', 'system', 'outgoing'].includes(low)) direction = 'outgoing';
+              if (['user', 'incoming', 'customer'].includes(low)) direction = 'incoming';
+            }
+          }
+
+          return Object.assign({}, row, {
+            _raw_table: table,
+            _raw_id_column: possibleIdColumns.find(c => row[c] != null) || null,
+            content: content,
+            sender: senderVal,
+            direction: direction,
+            timestamp: row.timestamp || row.created_at || row.updated_at || null
+          });
+        });
+
+        return { data: normalized, table, idCol: possibleIdColumns.find(c => normalized.some(r => r[c] != null) ) };
+      }
+    } catch (err) {
+      // record and continue
+      console.warn(`[Supabase] exception while querying table=${table}:`, err && err.message ? err.message : err);
+      lastError = err;
+      continue;
+    }
+  }
+
+  // Fallback: try per-column queries (older behavior)
+  for (const table of possibleMessageTables) {
     for (const idCol of possibleIdColumns) {
       try {
         const { data, error, status } = await supabase
@@ -45,22 +105,18 @@ async function fetchMessagesByConversationId(id) {
           .eq(idCol, id)
           .order('timestamp', { ascending: true });
 
-        // Log raw response for debugging
-        console.log(`[Supabase] query -> table=${table} idCol=${idCol} status=${status} error=${error ? error.message : null}`);
+        console.log(`[Supabase] fallback query -> table=${table} idCol=${idCol} status=${status} error=${error ? error.message : null}`);
         console.log('[Supabase] raw response data sample:', Array.isArray(data) ? data.slice(0, 5) : data);
 
         if (error) {
           lastError = error;
-          // continue trying other id columns / tables
           continue;
         }
 
         if (data && data.length >= 0) {
-          // Normalize fields
           const normalized = (data || []).map(row => {
             const content = possibleContentFields.map(f => row[f]).find(v => v != null);
             const senderVal = possibleSenderFields.map(f => row[f]).find(v => v != null);
-            // Derive direction if possible
             let direction = row.direction || undefined;
             if (direction == null) {
               if (typeof senderVal === 'boolean') {
@@ -85,7 +141,6 @@ async function fetchMessagesByConversationId(id) {
           return { data: normalized, table, idCol };
         }
       } catch (err) {
-        // record and continue
         console.warn(`[Supabase] exception while querying table=${table} idCol=${idCol}:`, err && err.message ? err.message : err);
         lastError = err;
         continue;
@@ -365,7 +420,36 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
     }
 
     console.log(`[Messages] fetched ${Array.isArray(result.data) ? result.data.length : 0} rows for id=${id}, table=${result.table}, idCol=${result.idCol}`);
-    res.json(result.data || []);
+
+    // Map to simplified shape expected by frontend: { id, sender, text, created_at }
+    const mapped = (result.data || []).map(m => {
+      const senderRaw = m.sender || m.role || null;
+      let sender = 'user';
+      if (typeof senderRaw === 'string') {
+        const s = senderRaw.toLowerCase();
+        if (s === 'bot' || s === 'system' || s === 'outgoing') sender = 'bot';
+        else if (s === 'user' || s === 'incoming' || s === 'customer') sender = 'user';
+        else sender = senderRaw;
+      } else if (typeof m.from_me === 'boolean') {
+        sender = m.from_me ? 'bot' : 'user';
+      } else if (typeof m.is_bot === 'boolean') {
+        sender = m.is_bot ? 'bot' : 'user';
+      }
+
+      const text = m.body || m.text || m.content || m.message || '';
+      const created_at = m.created_at || m.timestamp || m.updated_at || null;
+
+      return {
+        id: m.id,
+        sender,
+        text,
+        created_at,
+        // expose conversation id for debugging frontend
+        conversation_id: m.conversation_id || m.chat_id || m.contact_number || m.phone || null
+      };
+    });
+
+    res.json(mapped);
   } catch (err) {
     console.error('Error fetching messages:', err);
     res.status(500).json({ error: err.message });
