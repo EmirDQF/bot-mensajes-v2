@@ -1,0 +1,22 @@
+*{box-sizing:border-box;font-family:Inter,system-ui,Arial,Helvetica,sans-serif}
+html,body,#root{height:100%;margin:0}
+.app{display:flex;height:100vh}
+.sidebar{width:320px;border-right:1px solid #ddd;display:flex;flex-direction:column}
+.sidebar-header{padding:12px;font-weight:600;border-bottom:1px solid #eee}
+.conversation-list{overflow:auto}
+.conversation-item{padding:12px;border-bottom:1px solid #f2f2f2;cursor:pointer}
+.conversation-item.selected{background:#f0f8ff}
+.conv-title{font-weight:600}
+.conv-preview{color:#666;font-size:13px}
+.conv-time{font-size:11px;color:#999}
+.chat{flex:1;display:flex;flex-direction:column}
+.chat-header{padding:12px;border-bottom:1px solid #eee}
+.chat-list{flex:1;overflow:auto;padding:12px;background:#fafafa}
+.message-bubble{max-width:65%;padding:8px;border-radius:8px;margin:8px 0;position:relative}
+.message-bubble.user{align-self:flex-start;background:#fff;border:1px solid #eee}
+.message-bubble.bot{align-self:flex-end;background:#dcf8c6}
+.message-time{font-size:11px;color:#666;margin-top:6px}
+.thumb{max-width:200px;border-radius:6px;cursor:pointer}
+.chat-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#666}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center}
+.lightbox img{max-width:90%;max-height:90%}
