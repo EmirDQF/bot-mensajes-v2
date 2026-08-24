@@ -233,17 +233,76 @@ function addIncomingMessage() {
   renderThread();
 }
 
-function startPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
+function authHeader() {
+  if (!window.__panelAuth) {
+    const val = prompt('Introduce credenciales para el panel (user:pass)');
+    if (!val) return null;
+    window.__panelAuth = 'Basic ' + btoa(val);
   }
+  return window.__panelAuth;
+}
 
-  pollTimer = setInterval(() => {
-    const activeConversation = getConversationById(selectedConversationId);
-    if (activeConversation && activeConversation.messages.length > 0) {
-      addIncomingMessage();
+async function fetchConversationsFromApi() {
+  try {
+    const h = authHeader(); if (!h) return;
+    const res = await fetch('/api/panel/conversations', { headers: { Authorization: h } });
+    if (!res.ok) return;
+    const list = await res.json();
+    // map to local conversationData shape
+    conversationData.length = 0;
+    for (const c of list) {
+      const phoneId = String(c.phone || '').replace(/\D/g, '') || String(c.phone || '');
+      conversationData.push({
+        id: phoneId,
+        name: c.name || c.phone || phoneId,
+        phone: c.phone || phoneId,
+        formattedPhone: c.phone || phoneId,
+        avatar: (c.name || c.phone || '').charAt(0).toUpperCase() || 'C',
+        status: c.status || null,
+        lastSeen: c.timestamp ? (Number(String(c.timestamp).length > 10 ? c.timestamp : c.timestamp * 1000) ) : Date.now(),
+        messages: []
+      });
     }
-  }, 4000);
+    renderConversationList();
+    if (!selectedConversationId && conversationData.length) {
+      selectedConversationId = conversationData[0].id;
+      await fetchMessagesFromApi(selectedConversationId);
+      renderConversationList();
+      renderThread();
+    }
+  } catch (e) {
+    console.error('fetchConversationsFromApi error', e);
+  }
+}
+
+async function fetchMessagesFromApi(phone) {
+  try {
+    const h = authHeader(); if (!h) return;
+    const res = await fetch(`/api/panel/messages/${encodeURIComponent(phone)}`, { headers: { Authorization: h } });
+    if (!res.ok) return;
+    const msgs = await res.json();
+    const conv = conversationData.find((c) => String(c.phone).replace(/\D/g,'') === String(phone).replace(/\D/g,''));
+    if (!conv) return;
+    conv.messages = msgs.map((m) => ({
+      sender: (m.from && String(m.from).toLowerCase().includes('bot')) || (m.from === 'panel') ? 'bot' : 'patient',
+      text: m.text || null,
+      image: (m.image && String(m.image).startsWith('/LUMINZU/')) ? String(m.image).replace(/^\/LUMINZU\//,'') : (m.image ? String(m.image) : null),
+      timestamp: m.timestamp || null
+    }));
+    renderThread();
+  } catch (e) {
+    console.error('fetchMessagesFromApi error', e);
+  }
+}
+
+function startPolling() {
+  // immediate fetch then polling every 2.5s
+  if (pollTimer) clearInterval(pollTimer);
+  (async () => { await fetchConversationsFromApi(); if (selectedConversationId) await fetchMessagesFromApi(selectedConversationId); })();
+  pollTimer = setInterval(async () => {
+    await fetchConversationsFromApi();
+    if (selectedConversationId) await fetchMessagesFromApi(selectedConversationId);
+  }, 2500);
 }
 
 interveneButtonEl.addEventListener('click', () => {
