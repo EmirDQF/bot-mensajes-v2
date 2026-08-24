@@ -52,6 +52,10 @@
         </header>
 
         <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+        <div class="chat-footer" id="chatFooter">
+          <input id="messageInput" class="message-input" placeholder="Escribe un mensaje aquí..." aria-label="Mensaje" />
+          <button id="sendBtn" class="send-btn" title="Enviar">✈</button>
+        </div>
       </main>
     </div>
 
@@ -77,6 +81,50 @@
     </div>
 
     <style>
+      :root{--bg:#0b141a;--sidebar:#111b21;--panelHeader:#202c33;--muted:#8696a0;--accent:#00a884;--bot:#005c4b;--patient:#202c33}
+      html,body{height:100%;margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e9edef}
+      .app-shell{display:flex;height:100vh;overflow:hidden}
+      .sidebar{width:380px;background:var(--sidebar);border-right:1px solid #202c33;display:flex;flex-direction:column}
+      .sidebar-header{background:var(--panelHeader);padding:12px 14px;display:flex;align-items:center;justify-content:space-between}
+      .brand-block{display:flex;align-items:center;gap:12px}
+      .brand-logo{width:40px;height:40px;border-radius:8px;object-fit:cover}
+      .brand-text h1{margin:0;font-size:16px;color:#e9edef}
+      .status-pill{color:var(--accent);align-self:center;font-weight:600}
+      .search-wrap{padding:12px;background:var(--sidebar)}
+      .search-wrap input{width:100%;padding:10px;border-radius:10px;border:none;background:#202c33;color:#e9edef}
+      .conversation-list{overflow:auto;padding:8px 0}
+      .conversation-item{cursor:pointer;padding:12px 16px;border-bottom:1px solid #202c33;display:flex;gap:12px;align-items:center}
+      .conversation-item:hover{background:#2a3942}
+      .conversation-item.is-active{background:#2a3942}
+      .avatar{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#001; font-weight:700}
+      .conversation-item__main{flex:1;min-width:0}
+      .conversation-item__main h3{margin:0;color:#e9edef;font-size:14px}
+      .conversation-item__snippet{margin:4px 0 0 0;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .conversation-item__time{color:var(--muted);font-size:12px}
+
+      .chat-panel{flex:1;display:flex;flex-direction:column;background:var(--bg)}
+      .chat-header{background:var(--panelHeader);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #202c33}
+      .chat-header__identity{display:flex;align-items:center;gap:12px}
+      .avatar--header{width:40px;height:40px;border-radius:8px;background:#0ea5a4;color:#001;display:flex;align-items:center;justify-content:center}
+      .chat-header__actions{display:flex;align-items:center;gap:8px}
+      .bot-status{color:var(--muted)}
+      .intervene-btn{background:linear-gradient(135deg,#10b981 0%,#0f766e 100%);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}
+
+      .chat-messages{flex:1;overflow-y:auto;padding:20px 40px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
+      .message-row{display:flex}
+      .message-row--patient{justify-content:flex-start}
+      .message-row--bot{justify-content:flex-end}
+      .message-bubble{max-width:65%;padding:8px 12px;border-radius:8px;box-shadow:0 1px 0.5px rgba(11,20,26,.13);position:relative}
+      .message-row--patient .message-bubble{background:var(--patient);color:#e9edef;border-top-left-radius:0}
+      .message-row--bot .message-bubble{background:var(--bot);color:#e9edef;border-top-right-radius:0}
+      .message-meta{font-size:11px;color:var(--muted);margin-top:6px;text-align:right}
+      .message-image{max-width:280px;border-radius:12px;display:block;margin-bottom:6px;cursor:pointer}
+
+      .chat-footer{background:var(--panelHeader);padding:10px 16px;display:flex;gap:10px;align-items:center}
+      .message-input{flex:1;padding:10px 14px;border-radius:8px;border:none;background:#2a3942;color:#fff}
+      .send-btn{width:42px;height:42px;border-radius:50%;background:var(--accent);border:none;color:#001;font-weight:700;cursor:pointer}
+
+      /* login modal */
       .login-modal{position:fixed;inset:0;background:rgba(2,6,23,0.7);display:flex;align-items:center;justify-content:center;z-index:9999}
       .login-modal[aria-hidden="true"]{display:none}
       .login-modal__content{width:360px;padding:20px;border-radius:12px;background:linear-gradient(180deg,#071025,#06111a);box-shadow:0 10px 40px rgba(2,6,23,0.6);color:#e6eef8}

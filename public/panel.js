@@ -406,6 +406,41 @@ lightboxEl.addEventListener('click', (event) => {
 
 searchInputEl.addEventListener('input', renderConversationList);
 
+// Wire send button and input
+const messageInputEl = document.getElementById('messageInput');
+const sendBtnEl = document.getElementById('sendBtn');
+async function sendMessageToApi(phone, text) {
+  try {
+    const h = authHeader(); if (!h) return null;
+    const res = await fetch('/api/panel/send-message', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: h }, body: JSON.stringify({ phone, text }) });
+    const j = await res.json();
+    if (!res.ok) { console.warn('send failed', j); return null; }
+    return j;
+  } catch (e) { console.error('sendMessageToApi error', e); return null; }
+}
+
+if (sendBtnEl && messageInputEl) {
+  sendBtnEl.addEventListener('click', async () => {
+    const text = String(messageInputEl.value || '').trim();
+    if (!text) return;
+    const phone = selectedConversationId || (conversationData[0] && conversationData[0].phone);
+    if (!phone) return alert('Seleccione un chat');
+    sendBtnEl.disabled = true;
+    const result = await sendMessageToApi(phone, text);
+    sendBtnEl.disabled = false;
+    if (result) {
+      messageInputEl.value = '';
+      await fetchMessagesFromApi(phone);
+    }
+  });
+
+  messageInputEl.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); sendBtnEl.click();
+    }
+  });
+}
+
 selectConversation(selectedConversationId);
 renderConversationList();
 startPolling();
