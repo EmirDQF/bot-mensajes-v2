@@ -8,6 +8,50 @@ import { getGeminiClient } from '../src/geminiClient.js';
 import { enviarImagenWhatsapp } from '../src/whatsappMedia.js';
 import { createClient } from '@supabase/supabase-js';
 
+// Helper: upsert a message into chat_sessions.history
+async function persistToChatSessions(sessionIdentifier, entry) {
+  try {
+    const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+    const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+    if (!rawUrl || !key) return null;
+    const client = createClient(rawUrl, key);
+
+    // Normalize session id as digits string when possible
+    const sessionId = String(sessionIdentifier || '').replace(/\D/g, '') || String(sessionIdentifier || '');
+
+    // Read existing session
+    let { data: existing, error: exErr } = await client.from('chat_sessions').select('id, history').eq('id', sessionId).maybeSingle();
+    if (exErr) {
+      // If table doesn't exist or other error, bail gracefully
+      const msg = String(exErr.message || '').toLowerCase();
+      if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
+      console.warn('persistToChatSessions read error', exErr);
+      return null;
+    }
+
+    let history = [];
+    if (existing && existing.history) {
+      history = Array.isArray(existing.history) ? existing.history : JSON.parse(existing.history || '[]');
+    }
+
+    history.push(entry);
+
+    // Upsert session row
+    const upsertPayload = { id: sessionId, history, updated_at: new Date().toISOString() };
+    const { error: upErr } = await client.from('chat_sessions').upsert([upsertPayload], { onConflict: 'id' });
+    if (upErr) {
+      const msg = String(upErr.message || '').toLowerCase();
+      if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
+      console.warn('persistToChatSessions upsert error', upErr);
+    }
+    return true;
+  } catch (e) {
+    console.warn('persistToChatSessions failed', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+
 function extractPlainText(input) {
   let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
 
@@ -216,6 +260,15 @@ export default async function webhookController(req, res, next) {
 
       // If user requests human or conversation unassigned, mark for human handover
       const text = (message && (message.content || message.body || message.message)) ? (message.content || message.body || message.message) : (p?.content || null);
+      // Persist incoming chatwoot message into chat_sessions
+      try {
+        if (contactDigits && text) {
+          await persistToChatSessions(contactDigits, { from: 'patient', text: String(text).trim(), phone: contactDigits, timestamp: new Date().toISOString() });
+        }
+      } catch (e) {
+        console.warn('webhookController: failed to persist incoming chatwoot message to chat_sessions', e && e.message ? e.message : e);
+      }
+
       const wantsHuman = typeof text === 'string' && /asesor|humano|asesora|hablar con|asesor(a)?/i.test(text);
       if (wantsHuman || (!assigneeId && convStatus === 'open')) {
         try {
@@ -392,6 +445,16 @@ export default async function webhookController(req, res, next) {
           await chatwootService.sendMessageToConversation(accountId, convId, apiToken, replyTextToSend);
         } else if (contactDigits) {
           if (replyTextToSend) await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, {});
+        }
+
+        // Persist bot reply into chat_sessions
+        try {
+          if (contactDigits) {
+            const imgName = imageToSend ? String(imageToSend).split(/[\\/]/).pop() : null;
+            await persistToChatSessions(contactDigits, { from: 'bot', text: replyTextToSend || null, image: imgName, phone: contactDigits, timestamp: new Date().toISOString() });
+          }
+        } catch (e) {
+          console.warn('webhookController: failed to persist bot reply to chat_sessions', e && e.message ? e.message : e);
         }
       } catch (e) {
         console.error('webhookController: failed to send reply via chatwoot/whatsapp', e && e.message ? e.message : e);
@@ -593,6 +656,15 @@ export default async function webhookController(req, res, next) {
 
         // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
         try {
+          // Persist incoming WhatsApp patient message into chat_sessions
+          try {
+            if (from && messageText) {
+              await persistToChatSessions(from, { from: 'patient', text: String(messageText).trim(), phone: from, timestamp: new Date().toISOString() });
+            }
+          } catch (e) {
+            console.warn('webhookController: failed to persist incoming whatsapp message to chat_sessions', e && e.message ? e.message : e);
+          }
+
           // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
           let textoFinal = extractPlainText(texto);
 
@@ -674,6 +746,14 @@ export default async function webhookController(req, res, next) {
 
           if (replyText && replyText.length > 0 && !skipResponse) {
             await whatsappService.sendWhatsAppMessage(from, replyText, {});
+          }
+
+          // Persist bot reply (text and/or image) into chat_sessions
+          try {
+            const imgName = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? String(finalImageFiles[0]).split(/[\\/]/).pop() : null;
+            await persistToChatSessions(from, { from: 'bot', text: replyText || null, image: imgName, phone: from, timestamp: new Date().toISOString() });
+          } catch (e) {
+            console.warn('webhookController: failed to persist bot reply to chat_sessions', e && e.message ? e.message : e);
           }
         } catch (e) {
           console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);
