@@ -59,6 +59,30 @@
       <img id="lightboxImage" src="" alt="Vista previa de imagen" />
     </div>
 
+    <!-- Login modal -->
+    <div id="loginModal" class="login-modal" aria-hidden="true">
+      <div class="login-modal__content">
+        <h3>Acceso al Panel</h3>
+        <p>Introduce usuario y contraseña para acceder al panel de monitoreo.</p>
+        <div style="width:100%;display:flex;flex-direction:column;gap:8px;margin-top:12px">
+          <input id="loginUser" type="text" placeholder="Usuario" style="padding:10px;border-radius:6px;border:1px solid #233044;background:#071025;color:#fff" />
+          <input id="loginPass" type="password" placeholder="Contraseña" style="padding:10px;border-radius:6px;border:1px solid #233044;background:#071025;color:#fff" />
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+            <button id="loginCancel" type="button" style="background:#374151">Cancelar</button>
+            <button id="loginSubmit" type="button" style="background:linear-gradient(135deg,#10b981 0%,#0f766e 100%);">Iniciar sesión</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      .login-modal{position:fixed;inset:0;background:rgba(2,6,23,0.7);display:flex;align-items:center;justify-content:center;z-index:9999}
+      .login-modal[aria-hidden="true"]{display:none}
+      .login-modal__content{width:360px;padding:20px;border-radius:12px;background:linear-gradient(180deg,#071025,#06111a);box-shadow:0 10px 40px rgba(2,6,23,0.6);color:#e6eef8}
+      .login-modal__content h3{margin:0 0 6px 0}
+      .login-modal__content p{margin:0;color:#94a3b8}
+    </style>
+
     <script src="/panel.js"></script>
   </body>
 </html>

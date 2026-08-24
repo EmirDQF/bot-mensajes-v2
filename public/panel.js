@@ -234,12 +234,57 @@ function addIncomingMessage() {
 }
 
 function authHeader() {
-  if (!window.__panelAuth) {
-    const val = prompt('Introduce credenciales para el panel (user:pass)');
-    if (!val) return null;
-    window.__panelAuth = 'Basic ' + btoa(val);
+  return window.__panelAuth || null;
+}
+
+function openLoginModal() {
+  const modal = document.getElementById('loginModal');
+  const userEl = document.getElementById('loginUser');
+  const passEl = document.getElementById('loginPass');
+  const submit = document.getElementById('loginSubmit');
+  const cancel = document.getElementById('loginCancel');
+
+  modal.setAttribute('aria-hidden', 'false');
+  userEl.focus();
+
+  function closeModal() {
+    modal.setAttribute('aria-hidden', 'true');
+    submit.removeEventListener('click', onSubmit);
+    cancel.removeEventListener('click', onCancel);
+    modal.removeEventListener('keydown', onKeydown);
   }
-  return window.__panelAuth;
+
+  function onSubmit() {
+    const u = String(userEl.value || '').trim();
+    const p = String(passEl.value || '').trim();
+    if (!u || !p) {
+      alert('Usuario y contraseña son requeridos');
+      return;
+    }
+    window.__panelAuth = 'Basic ' + btoa(`${u}:${p}`);
+    closeModal();
+    // start polling now that we have credentials
+    startPolling();
+  }
+
+  function onCancel() {
+    closeModal();
+  }
+
+  function onKeydown(e) {
+    if (e.key === 'Enter') onSubmit();
+    if (e.key === 'Escape') onCancel();
+  }
+
+  submit.addEventListener('click', onSubmit);
+  cancel.addEventListener('click', onCancel);
+  modal.addEventListener('keydown', onKeydown);
+}
+
+// Ensure login modal shows if not authenticated
+if (!authHeader()) {
+  // defer showing modal until DOM ready
+  window.addEventListener('load', () => openLoginModal());
 }
 
 async function fetchConversationsFromApi() {
