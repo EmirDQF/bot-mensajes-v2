@@ -51,6 +51,43 @@ async function persistToChatSessions(sessionIdentifier, entry) {
   }
 }
 
+async function notifyMonitorPanel({ conversation_id, contact_name, sender, type, content, media_url, timestamp }) {
+  const panelBaseUrl = (process.env.PANEL_BACKEND_URL || process.env.MONITOR_PANEL_BACKEND_URL || process.env.PANEL_URL || 'https://monitor-panel-backend.onrender.com').replace(/\/+$/, '');
+  const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
+  const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
+  if (!panelBaseUrl || !username || !password) {
+    return;
+  }
+
+  try {
+    const authHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+    const body = {
+      conversation_id: String(conversation_id || '').trim(),
+      contact_name: contact_name || null,
+      sender,
+      type: type || 'text',
+      content: content || null,
+      media_url: media_url || null,
+      timestamp: timestamp || new Date().toISOString(),
+    };
+
+    const res = await fetch(`${panelBaseUrl}/api/hook`, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res || !res.ok) {
+      const text = res && typeof res.text === 'function' ? await res.text() : '';
+      console.warn('Panel hook failed:', res && res.status ? res.status : 'unknown', text || '');
+    }
+  } catch (e) {
+    console.warn('notifyMonitorPanel failed (non-blocking):', e && e.message ? e.message : e);
+  }
+}
 
 function extractPlainText(input) {
   let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
@@ -511,6 +548,18 @@ export default async function webhookController(req, res, next) {
       return;
     }
 
+    const incomingType = message?.type === 'image' ? 'image' : 'text';
+    const incomingMediaUrl = message?.type === 'image' && message?.image?.link ? message.image.link : null;
+    await notifyMonitorPanel({
+      conversation_id: from,
+      contact_name: value?.contacts?.[0]?.profile?.name || null,
+      sender: 'user',
+      type: incomingType,
+      content: messageText || null,
+      media_url: incomingMediaUrl,
+      timestamp: new Date().toISOString(),
+    });
+
     // At this point we have validated "from" and "messageText".
     // Respond immediately to Meta to avoid retries/duplication.
     if (!res || !res.headersSent) {
@@ -747,6 +796,16 @@ export default async function webhookController(req, res, next) {
           if (replyText && replyText.length > 0 && !skipResponse) {
             await whatsappService.sendWhatsAppMessage(from, replyText, {});
           }
+
+          await notifyMonitorPanel({
+            conversation_id: from,
+            contact_name: patientName || value?.contacts?.[0]?.profile?.name || null,
+            sender: 'bot',
+            type: imageToSend ? 'image' : 'text',
+            content: replyText || null,
+            media_url: null,
+            timestamp: new Date().toISOString(),
+          });
 
           // Persist bot reply (text and/or image) into chat_sessions
           try {

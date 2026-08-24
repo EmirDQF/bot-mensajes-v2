@@ -7,9 +7,21 @@ const { Server } = require('socket.io');
 const db = require('./db');
 
 const app = express();
+
+function parseCorsOrigins() {
+  const raw = process.env.CORS_ORIGIN || '';
+  if (!raw || raw.trim() === '*') return true;
+  return raw.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
 // Configure CORS: in production set CORS_ORIGIN to the frontend URL (e.g. https://<frontend>.onrender.com)
-const corsOrigin = process.env.CORS_ORIGIN || '*';
-app.use(cors({ origin: corsOrigin }));
+const corsOrigins = parseCorsOrigins();
+app.use(cors({
+  origin: corsOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(bodyParser.json({ limit: '5mb' }));
 
 // Basic auth middleware for all /api routes
@@ -40,7 +52,11 @@ app.use(basicAuth);
 const port = process.env.PORT || 3001;
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: {
+    origin: corsOrigins,
+    credentials: true,
+    methods: ['GET', 'POST']
+  }
 });
 
 // Socket.IO authentication: expect handshake auth { username, password }
@@ -66,11 +82,22 @@ io.use((socket, next) => {
 (async () => { await db.init(); })();
 
 // When db emits message_saved, broadcast to sockets
+
 db.emitter.on('message_saved', (message) => {
-  // Emit an event with the new message
-  io.emit('message', message);
-  // Also emit an update for conversation list
-  io.emit('conversation:update', { conversation_id: message.conversation_id, last_message_at: message.created_at, preview: message.type === 'image' ? '📷 Image' : (message.content || '') });
+  const preview = message.type === 'image' ? '📷 Image' : (message.content || '');
+  const payload = {
+    ...message,
+    conversation_id: message.conversation_id,
+    created_at: message.created_at || message.timestamp || new Date().toISOString()
+  };
+
+  io.emit('message', payload);
+  io.emit('new_message', payload);
+  io.emit('conversation:update', {
+    conversation_id: message.conversation_id,
+    last_message_at: payload.created_at,
+    preview
+  });
 });
 
 // Public endpoints

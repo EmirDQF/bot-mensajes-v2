@@ -7,12 +7,24 @@ import Login from './components/Login'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
+function getConversationId(conv){
+  return conv?.conversation_id ?? conv?.id ?? null
+}
+
 export default function App(){
   const [conversations, setConversations] = useState([])
   const [selected, setSelected] = useState(null)
   const [messages, setMessages] = useState([])
   const [auth, setAuth] = useState(null) // { username, password }
   const socketRef = useRef(null)
+
+  useEffect(()=>{
+    if (!conversations.length) return
+    const firstId = getConversationId(conversations[0])
+    if (!selected || !conversations.some(c => getConversationId(c) === selected)) {
+      setSelected(firstId)
+    }
+  }, [conversations, selected])
 
   useEffect(()=>{
     if(!auth) return // don't connect until authenticated
@@ -35,23 +47,28 @@ export default function App(){
       }
     })
 
-    socket.on('message', (msg) => {
-      // update messages if open
+    const handleIncomingMessage = (msg) => {
+      const conversationId = getConversationId({ conversation_id: msg.conversation_id, id: msg.conversation_id }) || msg.conversation_id
       setConversations(prev => {
-        const found = prev.find(c => c.id === msg.conversation_id)
+        const found = prev.find(c => getConversationId(c) === conversationId)
         const preview = msg.type === 'image' ? '📷 Image' : (msg.content || '')
         if(found){
-          return [{...found, last_message_at: msg.created_at, preview}, ...prev.filter(c=>c.id!==found.id)]
+          return [{...found, last_message_at: msg.created_at || msg.timestamp, preview}, ...prev.filter(c => getConversationId(c) !== conversationId)]
         }
-        // new conversation
-        const conv = { id: msg.conversation_id, contact_number: msg.conversation_id, contact_name: msg.contact_name || msg.conversation_id, last_message_at: msg.created_at, preview }
+        const conv = { id: conversationId, conversation_id: conversationId, contact_number: conversationId, contact_name: msg.contact_name || conversationId, last_message_at: msg.created_at || msg.timestamp, preview }
         return [conv, ...prev]
       })
 
-      if(msg.conversation_id === selected){
-        setMessages(prev => [...prev, msg])
+      if (conversationId === selected) {
+        setMessages(prev => {
+          const exists = prev.some(item => item.id === msg.id || (item.created_at === (msg.created_at || msg.timestamp) && item.content === msg.content && item.sender === msg.sender))
+          return exists ? prev : [...prev, msg]
+        })
       }
-    })
+    }
+
+    socket.on('message', handleIncomingMessage)
+    socket.on('new_message', handleIncomingMessage)
 
     socket.on('conversation:update', (data) => {
       setConversations(prev => {
@@ -71,6 +88,10 @@ export default function App(){
     try{
       const res = await axios.get(`${API_URL}/api/conversations`)
       setConversations(res.data)
+      const firstId = res.data.length ? getConversationId(res.data[0]) : null
+      if (firstId && (!selected || !res.data.some(c => getConversationId(c) === selected))) {
+        setSelected(firstId)
+      }
     }catch(e){
       console.error('fetchConversations error', e)
       if(e.response && e.response.status === 401){
