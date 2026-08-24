@@ -216,8 +216,56 @@ app.get('/api/conversations', async (req, res) => {
     const { data, error } = await query;
     if (error) throw error;
 
-    // Ensure each conversation has messages: if not provided by the join, try fetching from possible message tables
+    // If the conversations table is empty, build the conversation list directly from the messages table
     let conversations = data || [];
+    if ((!conversations || conversations.length === 0) && supabase) {
+      try {
+        // Query recent messages (descending by id so the first seen per conversation is the latest)
+        const { data: msgRows, error: msgErr } = await supabase
+          .from('messages')
+          .select('*')
+          .order('id', { ascending: false })
+          .limit(2000);
+
+        if (msgErr) {
+          console.warn('[Supabase] error fetching messages to build conversations:', msgErr.message || msgErr);
+        } else if (msgRows && msgRows.length > 0) {
+          const convMap = {};
+          for (const r of msgRows) {
+            const convId = r.conversation_id || r.chat_id || r.contact_number || r.phone || r.phone_number;
+            if (!convId) continue;
+            if (!convMap[convId]) {
+              // First encountered = latest due to ordering
+              const content = (r.body || r.text || r.content || r.message) || '';
+              const direction = r.sender ? (String(r.sender).toLowerCase() === 'user' ? 'incoming' : 'outgoing') : (r.direction || null);
+              convMap[convId] = {
+                id: convId,
+                contact_name: convId,
+                phone: r.contact_number || r.phone || null,
+                created_at: r.created_at || r.timestamp || null,
+                updated_at: r.updated_at || r.timestamp || null,
+                unread: false,
+                messages: [{
+                  id: r.id,
+                  conversation_id: convId,
+                  content: content,
+                  sender: r.sender,
+                  direction: direction,
+                  message_type: r.message_type || null,
+                  timestamp: r.created_at || r.timestamp || null,
+                  _raw: r
+                }]
+              };
+            }
+          }
+          conversations = Object.values(convMap);
+        }
+      } catch (e) {
+        console.warn('[Conversations] exception while building from messages:', e && e.message ? e.message : e);
+      }
+    }
+
+    // Ensure each conversation has messages: if not provided by the join, try fetching from possible message tables
     conversations = await Promise.all((conversations).map(async conv => {
       try {
         if (!conv.messages || conv.messages.length === 0) {
@@ -231,7 +279,7 @@ app.get('/api/conversations', async (req, res) => {
           if (fetched && fetched.error) {
             console.warn('[Supabase] fetchMessagesByConversationId error for conv=', conv.id, fetched.error);
           }
-          conv.messages = (fetched && fetched.data) ? fetched.data : [];
+          conv.messages = (fetched && fetched.data) ? fetched.data : conv.messages || [];
         }
       } catch (e) {
         console.warn('[Conversations] error fetching messages for conv', conv.id, e && e.message ? e.message : e);
@@ -247,11 +295,11 @@ app.get('/api/conversations', async (req, res) => {
       const latestMsg = sortedMsgs[0] || null;
       return {
         id: conv.id,
-        contact_name: conv.contact_name || 'Contacto WhatsApp',
+        contact_name: conv.contact_name || String(conv.id),
         phone: conv.phone,
         status: conv.status || 'active',
         created_at: conv.created_at,
-        updated_at: conv.updated_at,
+        updated_at: conv.updated_at || (latestMsg ? latestMsg.timestamp : null),
         unread: conv.unread || false,
         latest_message: latestMsg ? {
           content: latestMsg.content,
