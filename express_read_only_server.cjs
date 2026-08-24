@@ -27,6 +27,75 @@ if (supabaseUrl && supabaseKey) {
   console.warn('⚠️ SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing. Database endpoints will return fallback state.');
 }
 
+// Helper: try multiple table names and column mappings to fetch and normalize messages
+const possibleMessageTables = ['messages', 'mensajes', 'chat_logs'];
+const possibleIdColumns = ['conversation_id', 'chat_id', 'phone_number'];
+const possibleContentFields = ['content', 'text', 'body', 'message'];
+const possibleSenderFields = ['role', 'sender', 'from_me', 'is_bot'];
+
+async function fetchMessagesByConversationId(id) {
+  if (!supabase) return { data: [], table: null, idCol: null };
+  let lastError = null;
+  for (const table of possibleMessageTables) {
+    for (const idCol of possibleIdColumns) {
+      try {
+        const { data, error, status } = await supabase
+          .from(table)
+          .select('*')
+          .eq(idCol, id)
+          .order('timestamp', { ascending: true });
+
+        // Log raw response for debugging
+        console.log(`[Supabase] query -> table=${table} idCol=${idCol} status=${status} error=${error ? error.message : null}`);
+        console.log('[Supabase] raw response data sample:', Array.isArray(data) ? data.slice(0, 5) : data);
+
+        if (error) {
+          lastError = error;
+          // continue trying other id columns / tables
+          continue;
+        }
+
+        if (data && data.length >= 0) {
+          // Normalize fields
+          const normalized = (data || []).map(row => {
+            const content = possibleContentFields.map(f => row[f]).find(v => v != null);
+            const senderVal = possibleSenderFields.map(f => row[f]).find(v => v != null);
+            // Derive direction if possible
+            let direction = row.direction || undefined;
+            if (direction == null) {
+              if (typeof senderVal === 'boolean') {
+                direction = senderVal ? 'outgoing' : 'incoming';
+              } else if (typeof senderVal === 'string') {
+                const low = senderVal.toLowerCase();
+                if (['bot', 'system', 'outgoing'].includes(low)) direction = 'outgoing';
+                if (['user', 'incoming', 'customer'].includes(low)) direction = 'incoming';
+              }
+            }
+
+            return Object.assign({}, row, {
+              _raw_table: table,
+              _raw_id_column: idCol,
+              content: content,
+              sender: senderVal,
+              direction: direction,
+              timestamp: row.timestamp || row.created_at || row.updated_at || null
+            });
+          });
+
+          return { data: normalized, table, idCol };
+        }
+      } catch (err) {
+        // record and continue
+        console.warn(`[Supabase] exception while querying table=${table} idCol=${idCol}:`, err && err.message ? err.message : err);
+        lastError = err;
+        continue;
+      }
+    }
+  }
+
+  return { data: [], table: null, idCol: null, error: lastError };
+}
+
 // Authentication Middleware - Read-Only Security Guard
 const requireReadAuthentication = (req, res, next) => {
   // Use configured secret or default to a local-testing secret
@@ -147,9 +216,34 @@ app.get('/api/conversations', async (req, res) => {
     const { data, error } = await query;
     if (error) throw error;
 
+    // Ensure each conversation has messages: if not provided by the join, try fetching from possible message tables
+    let conversations = data || [];
+    conversations = await Promise.all((conversations).map(async conv => {
+      try {
+        if (!conv.messages || conv.messages.length === 0) {
+          // Try fetching by conversation id
+          let fetched = await fetchMessagesByConversationId(conv.id);
+          if ((!fetched || !fetched.data || fetched.data.length === 0) && conv.phone) {
+            // Try fetching by phone number as fallback
+            const fetchedPhone = await fetchMessagesByConversationId(conv.phone);
+            if (fetchedPhone && fetchedPhone.data && fetchedPhone.data.length > 0) fetched = fetchedPhone;
+          }
+          if (fetched && fetched.error) {
+            console.warn('[Supabase] fetchMessagesByConversationId error for conv=', conv.id, fetched.error);
+          }
+          conv.messages = (fetched && fetched.data) ? fetched.data : [];
+        }
+      } catch (e) {
+        console.warn('[Conversations] error fetching messages for conv', conv.id, e && e.message ? e.message : e);
+        conv.messages = conv.messages || [];
+      }
+      return conv;
+    }));
+
     // Post-process messages to format latest message snippet
-    let results = (data || []).map(conv => {
-      const sortedMsgs = (conv.messages || []).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    let results = conversations.map(conv => {
+      const msgs = conv.messages || [];
+      const sortedMsgs = msgs.slice().sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       const latestMsg = sortedMsgs[0] || null;
       return {
         id: conv.id,
@@ -163,10 +257,10 @@ app.get('/api/conversations', async (req, res) => {
           content: latestMsg.content,
           timestamp: latestMsg.timestamp,
           direction: latestMsg.direction,
-          type: latestMsg.message_type
+          type: latestMsg.message_type || latestMsg.type || null
         } : null,
-        has_images: (conv.messages || []).some(m => m.message_type === 'image'),
-        has_files: (conv.messages || []).some(m => m.message_type === 'document' || m.message_type === 'audio')
+        has_images: msgs.some(m => (m.message_type === 'image' || m.type === 'image')),
+        has_files: msgs.some(m => (m.message_type === 'document' || m.type === 'document' || m.message_type === 'audio' || m.type === 'audio'))
       };
     });
 
@@ -214,17 +308,19 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
     const { id } = req.params;
     if (!supabase) return res.json([]);
 
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('conversation_id', id)
-      .order('timestamp', { ascending: true });
+    const result = await fetchMessagesByConversationId(id);
 
-    if (error) throw error;
-    res.json(data || []);
+    // If helper reported an error, surface it to the client with details
+    if (result && result.error) {
+      console.error('[Supabase] error querying messages for id=', id, result.error);
+      return res.status(500).json({ error: 'Failed to query messages', details: result.error.message || result.error });
+    }
+
+    console.log(`[Messages] fetched ${Array.isArray(result.data) ? result.data.length : 0} rows for id=${id}, table=${result.table}, idCol=${result.idCol}`);
+    res.json(result.data || []);
   } catch (err) {
     console.error('Error fetching messages:', err);
-    res.status(500).json({ error: 'Failed to fetch messages history', details: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
