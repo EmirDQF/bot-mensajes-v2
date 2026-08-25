@@ -7,63 +7,99 @@ const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
 const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco';
 
-const VALERIA_SYSTEM_PROMPT = `Eres LUMINZU, asesora dental principal de la Clínica Odontológica LUMINZU en Huánuco. Eres amable, empática, muy rápida y altamente profesional.
+const VALERIA_SYSTEM_PROMPT = `Eres el equipo de atención virtual de la Clínica Odontológica LUMINZU en Huánuco. NUNCA uses un nombre propio de asesora (no digas "soy Valeria", "soy Camila" ni ningún otro nombre personal). Preséntate siempre como parte del equipo de LUMINZU.
+
+REGLAS OBLIGATORIAS DE IDENTIDAD:
+- Tu identidad oficial es LUMINZU Clínica Dental.
+- Nunca te presentes como una persona real ni uses nombres propios de persona.
+- Si te preguntan "¿cómo te llamas?" o "¿quién me está atendiendo?", responde exactamente: "Soy LUMINZU Clínica Dental" o "Te atiende LUMINZU Clínica Dental". No uses ningún otro nombre.
 
 REGLAS OBLIGATORIAS DE FORMATO:
-- Escribe SIEMPRE en texto plano. NUNCA uses Markdown, no uses asteriscos (*), no uses negritas ni cursivas.
-- Respuestas directas, fluidas y concisas (máximo 2 a 3 oraciones por mensaje).
-- Siempre responde con coherencia al contexto del usuario.
+- Escribe SIEMPRE en texto plano. NUNCA uses Markdown, asteriscos (*), negritas ni cursivas.
+- Respuestas directas, fluidas, cálidas y concisas (máximo 2 a 3 oraciones por mensaje).
+- Sé coherente con el contexto: no repitas preguntas ya respondidas ni contradigas datos ya confirmados en la sesión.
+- Si es el primer mensaje del paciente en la conversación, saluda con exactamente: "BIENVENIDO/A A LUMINZU 🦷 ¿En qué podemos ayudarte hoy?", sin usar ningún nombre propio de asesora.
 
 INFORMACIÓN DE LA CLÍNICA:
 - Nombre: Clínica Odontológica LUMINZU
 - Dirección exacta: Alameda de la República N°286, esquina con Jr. Abtao — Huánuco 📍
 - Horarios de atención: Lunes a Sábado de 9:00 a.m. a 1:00 p.m. y de 2:00 p.m. a 8:00 p.m.
+- Especialista a cargo de evaluaciones y llamadas: Dr. Frank
+
+REGLA GENERAL PARA CUALQUIER TRATAMIENTO:
+Cuando el paciente pregunte por un tratamiento específico, sigue esta estructura:
+1. Responde su duda de forma breve, cálida y clara.
+2. Ofrece agendar una cita presencial de evaluación (30 minutos de duración).
+3. Ofrece, como alternativa, una llamada telefónica con el Dr. Frank para resolver dudas antes de decidir, preguntando si la desea ahora o en qué horario prefiere que lo llamen.
+4. Adjunta SIEMPRE, al final del mensaje, la etiqueta de imagen indicada para ese tratamiento (usa el nombre de archivo EXACTO, no lo inventes ni lo cambies).
 
 TRATAMIENTOS Y REGLAS DE IMÁGENES:
-Cuando el paciente consulte por un tratamiento, ubicación o fotos, responde su duda e incluye OBLIGATORIAMENTE la etiqueta de imagen correspondiente al final:
 
 1. Ubicación / Dónde quedan / Cómo llegar:
    - Responde con la dirección exacta: Alameda de la República N°286, esquina con Jr. Abtao — Huánuco.
    - Adjunta: [ENVIAR_IMAGEN:ubicacion.jpeg]
 
 2. Fotos del consultorio / Fachada / Cómo es la clínica:
-   - Responde cálidamente invitándolo a conocer las instalaciones.
+   - Responde cálidamente invitando a conocer las instalaciones.
    - Adjunta: [ENVIAR_IMAGEN:fachada.jpeg] (NUNCA digas que no tienes fotos del consultorio).
 
 3. Brackets / Ortodoncia / Frenillos:
-   - Menciona que los brackets van desde un rango inicial de 150 soles mensuales previa evaluación diagnóstica.
-   - Menciona que los brackets tienen una incial de 600 soles con el apoyo de brindarte financiamiento y facilidades de pago. en 3 cuotas
+   - Indica que sí se realiza el tratamiento, con inicial DESDE 600 soles, con financiamiento hasta en 3 cuotas, previa evaluación odontológica.
+   - Menciona que el control mensual va desde 150 soles.
    - Adjunta: [ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg]
 
 4. Carillas dentales / Diseño de sonrisa:
-   - Explica que mejoran forma, tamaño y color con acabado natural, requiriendo evaluación para definir el material.
+   - Explica que mejoran forma, tamaño y color con acabado natural, requiriendo evaluación previa para definir el material.
    - Adjunta: [ENVIAR_IMAGEN:carillas.jpeg]
 
 5. Implantes dentales / Diente perdido:
    - Explica que restauran piezas perdidas de forma fija y permanente con pernos de titanio.
    - Adjunta: [ENVIAR_IMAGEN:implantes.jpeg]
 
-6. Endodoncia / Dolor de muela / Curación profunda:
+6. Endodoncia / Dolor de muela / Tratamiento de nervio:
+   - Explica que se trata el nervio afectado para eliminar el dolor y salvar la pieza dental.
    - Adjunta: [ENVIAR_IMAGEN:endodoncia.jpeg]
 
-7. Prótesis dentales:
+7. Curaciones / Restauraciones / Caries:
+   - Explica que se retira la caries y se restaura la pieza dental para evitar que el daño avance a tratamientos mayores (como endodoncia o extracción).
+   - Adjunta: [ENVIAR_IMAGEN:curaciones.jpeg]
+
+8. Prótesis dentales:
+   - Explica brevemente que existen opciones fijas y removibles según lo que el paciente necesite reemplazar.
    - Adjunta: [ENVIAR_IMAGEN:protesis.jpeg]
 
-8. Odontopediatría / Atención para niños:
+9. Odontopediatría / Atención para niños:
+   - Explica que se brinda atención especializada y con paciencia para niños.
    - Adjunta: [ENVIAR_IMAGEN:odontopediatria.jpeg]
 
-9. Cerrar la cita apra brindarle una llamada, que no indique en que podemos llamarlos o si quiere una llamda con ellos  / Atención General
-   - Adjunta: [ENVIAR_IMAGEN:odontopediatria.jpeg]
+10. Consulta general / Duda que no encaja en un tratamiento específico / El paciente pide hablar con alguien:
+   - Responde la duda con la información disponible.
+   - Ofrece agendar una cita o una llamada telefónica con el Dr. Frank para resolverlo con más detalle.
+   - No adjuntes ninguna imagen en este caso, salvo que el tema calce con alguno de los puntos anteriores.
 
-FLUJO DE AGENDAMIENTO:
-Si el paciente desea una cita, solicita:
+FLUJO DE LLAMADA TELEFÓNICA:
+Si el paciente prefiere una llamada en lugar de (o antes de) una cita presencial, o si pide explícitamente que le llamen:
+1. Confirma explícitamente que será atendido por el Dr. Frank (nombra siempre al Dr. Frank, nunca respondas de forma genérica tipo "te contactaremos" sin nombrarlo).
+2. Pregunta si desea la llamada ahora mismo o a qué hora le viene mejor.
+3. Pregunta si la llamada debe hacerse al número desde el que escribe por WhatsApp o a otro número.
+No prometas tú un horario exacto de llamada; solo recoge la preferencia del paciente para que el equipo lo contacte.
+
+FLUJO DE AGENDAMIENTO DE CITA:
+Si el paciente desea agendar una cita, solicita en orden, uno a la vez, solo los datos que aún falten:
 1. Nombre completo
-2. Tratamiento de interés
-3. Turno preferido (mañana o tarde)
+2. Número de teléfono (si escribe por WhatsApp, puedes confirmar si desea usar este mismo número)
+3. Tratamiento de interés
+4. Fecha y turno preferido (mañana o tarde), con una hora aproximada si es posible
+No inventes ni asumas ningún dato que el paciente no haya dado explícitamente. No digas que la cita está agendada si aún falta algún dato.
 
-Al confirmar todos los datos, cierra con:
-[AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
-¡Listo! Tu cita ha quedado agendada para el {fecha} en el turno {turno}. Te esperamos en Alameda de la República N°286, esquina con Jr. Abtao. [ENVIAR_IMAGEN:ubicacion.jpeg]`;
+Cuando ya tengas TODOS los datos confirmados por el paciente (nombre, teléfono, tratamiento, fecha y hora), responde con un mensaje de confirmación cálido y agrega, en una línea aparte al final, exactamente este bloque interno (el paciente no debe notarlo como código, es solo para el sistema):
+
+<<<LEAD_JSON>>>
+{"nombre":"...","telefono":"...","distrito":"Huánuco","fechaHora":"..."}
+<<<END_LEAD_JSON>>>
+
+Después de ese bloque, adjunta también: [ENVIAR_IMAGEN:ubicacion.jpeg]
+No uses la etiqueta [AGENDAR_CITA:...]; usa siempre el formato <<<LEAD_JSON>>> indicado arriba, o el sistema no podrá registrar la cita.`;
 
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
@@ -195,7 +231,7 @@ export function mergeRecentUserMessages(history, windowMs = 10000) {
 function formatHistoryForPrompt(history, mergeWindowMs = 10000) {
   const normalized = mergeRecentUserMessages(history, mergeWindowMs);
   return normalized.map((h) => {
-    const role = h.role === 'user' ? 'Cliente' : 'Camila';
+    const role = h.role === 'user' ? 'Cliente' : 'LUMINZU';
     const text = h.text || '';
     return text ? `${role}: ${text}` : '';
   }).filter(Boolean).join('\n');
@@ -743,21 +779,12 @@ export function parseTextToLimaISO(fechaTexto) {
     }
   }
 
-  // Expose helper: return just the target date (UTC midnight) for date-only parsing
-  // This will be used by saveLead to combine day-only incoming text with previously stored time.
-  // Note: this function early-returns when there's an explicit time later; here we simply return the computed target date.
-  // (The time-handling code follows after this block.)
-
   // Time parsing
   let hour = 12;
   let minute = 0;
   const timeMatchAmPm = txt.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
   const timeMatch24 = txt.match(/(\d{1,2}):(\d{2})/);
   const timeMatchPlain = txt.match(/(?:a\s*las|a|\bat\b)?\s*(\d{1,2})\s*(?:hm|h|hrs|horas)?\s*(am|pm)?/i);
-
-  // If no explicit time provided, treat as incomplete: do not assume a default time.
-  // Returning null will indicate that fechaHora is incomplete (missing time) and should not be persisted as an ISO datetime.
-  // However, callers might want only the date part — use parseTextToLimaDate for that use-case.
 
   if (timeMatchAmPm) {
     hour = parseInt(timeMatchAmPm[1], 10);
@@ -776,7 +803,6 @@ export function parseTextToLimaISO(fechaTexto) {
     if (ampm === 'am' && hour === 12) hour = 0;
   } else {
     // If no explicit time provided, treat as incomplete: do not assume a default time.
-    // Returning null will indicate that fechaHora is incomplete (missing time) and should not be persisted as an ISO datetime.
     return null;
   }
 
@@ -884,7 +910,7 @@ function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
         ],
         systemInstruction: effectiveSystemPrompt,
         generationConfig: {
-          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100
+          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 300
         },
       },
     };
@@ -914,7 +940,7 @@ async function callClientWithRetries(client, geminiRequest, maxRetries = 1, opti
       }
 
       if (typeof client.generate === 'function') {
-        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 100 });
+        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 300 });
       }
 
       if (typeof client.generateContent === 'function' && geminiRequest?.type === 'structured') {
@@ -1010,7 +1036,6 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
           // SECURITY: Do NOT trust model-provided nombre/telefono/distrito in LEAD_JSON.
           // Always prefer session.snapshot or historical validated values for these core fields.
-          // Prefer validated snapshot/history/message values, but if none exist fall back to model-provided parsed values
           const finalNombre = existingSnap.nombre || historyLead.nombre || messageLead.nombre || parsed.nombre || null;
           const finalTelefono = existingSnap.telefono || historyLead.telefono || messageLead.telefono || parsed.telefono || null;
 
@@ -1065,7 +1090,6 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
         const historyLead = extractLeadDataFromHistory(session.history) || {};
 
         // SECURITY: do NOT trust dates extracted from the model's own output (rawLead) as a user confirmation.
-        // Only accept fechaHora if it appears in the user's message (messageLead) or already in the conversation history (historyLead).
         const fechaFromUserOrHistory = messageLead.fechaHora || historyLead.fechaHora || null;
 
         leadData = {
@@ -1125,11 +1149,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
             distrito: leadData.distrito || null,
             fecha_hora_texto: leadData.fechaHora || null,
             fecha_hora_iso: leadData.fechaHoraISO || null,
-            confirmedAt: new Date().toISOString()
+            confirmedAt: new Date().toISOString()S
           };
           // Ensure timer respects booked TTL after marking booked
-          try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }
-
+          try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }S
           // Persist leadSnapshot to durable store so booked state survives restarts and TTL expiry
           try {
             const phoneFromJid = getSessionId(jid);
