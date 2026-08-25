@@ -1149,7 +1149,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
             distrito: leadData.distrito || null,
             fecha_hora_texto: leadData.fechaHora || null,
             fecha_hora_iso: leadData.fechaHoraISO || null,
-            confirmedAt: new Date().toISOString()S
+            confirmedAt: new Date().toISOString()
           };
           // Ensure timer respects booked TTL after marking booked
           try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }S
@@ -1220,7 +1220,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   } catch (e) {
     const sid = getSessionId(jid);
     const prev = failureCounts.get(sid) || 0;
-    const nowCount = prev + 1;RUN npm ci --omit=dev
+    const nowCount = prev + 1;
     failureCounts.set(sid, nowCount);
 
     if (nowCount >= 2) {
