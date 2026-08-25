@@ -29,7 +29,7 @@ export async function forwardToDashboard(payload) {
           fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, text: text || '', mediaUrl: mediaUrl || null })
+            body: JSON.stringify({ phone, text: text || '', mediaUrl: mediaUrl || null, fromMe: true })
           }).catch((err) => {
             console.warn('forwardToDashboard: /api/bot-reply failed:', err && err.message ? err.message : err);
           });
