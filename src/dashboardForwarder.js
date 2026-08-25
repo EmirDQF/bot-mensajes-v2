@@ -1,38 +1,62 @@
 // Forward webhook/payload data to the external dashboard (non-blocking)
 export async function forwardToDashboard(payload) {
   try {
-    const url = 'https://whatsapp-dashboard-z9jm.onrender.com/api/webhook';
-    let bodyToSend = payload;
+    const dashboardBase = 'https://whatsapp-dashboard-z9jm.onrender.com';
+    let body = payload;
 
-    // If payload is a Buffer (express.raw body), try to parse as JSON, otherwise send as text
+    // Normalize Buffer/raw bodies into JS object when possible
     if (typeof Buffer !== 'undefined' && Buffer.isBuffer(payload)) {
       try {
-        bodyToSend = JSON.parse(payload.toString('utf8'));
+        body = JSON.parse(payload.toString('utf8'));
       } catch (e) {
-        // not JSON, send raw string
-        bodyToSend = { raw: payload.toString('utf8') };
+        body = { raw: payload.toString('utf8') };
       }
     }
 
-    // Ensure outgoing messages are marked as fromMe: true for dashboard sync
-    try {
-      if (bodyToSend && typeof bodyToSend === 'object' && bodyToSend.direction === 'outgoing') {
-        bodyToSend.outgoing = Object.assign({}, bodyToSend.outgoing || {}, { fromMe: true });
+    // If this looks like an outgoing message, call the bot-reply endpoint with normalized shape
+    const isOutgoing = body && (body.direction === 'outgoing' || body.outgoing);
+    if (isOutgoing) {
+      try {
+        const out = body.outgoing || {};
+        const phoneRaw = out.to || out.phone || out.toPhone || out.toPhoneNumber || out.recipient || null;
+        const phone = phoneRaw ? String(phoneRaw).replace(/\D/g, '') : null;
+        const text = out.text || out.body || out.caption || null;
+        const mediaUrl = out.mediaUrl || out.media_url || out.imageUrl || null;
+
+        if (phone) {
+          const url = `${dashboardBase}/api/bot-reply`;
+          // Fire-and-forget POST
+          fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, text: text || '', mediaUrl: mediaUrl || null })
+          }).catch((err) => {
+            console.warn('forwardToDashboard: /api/bot-reply failed:', err && err.message ? err.message : err);
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn('forwardToDashboard: failed preparing outgoing payload:', e && e.message ? e.message : e);
       }
+    }
+
+    // Fallback: post the full payload to the generic webhook endpoint
+    try {
+      const url = `${dashboardBase}/api/webhook`;
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).catch((err) => {
+        console.warn('forwardToDashboard: /api/webhook failed:', err && err.message ? err.message : err);
+      });
     } catch (e) {
-      // ignore
+      // Non-blocking
+      console.warn('forwardToDashboard: fallback post failed:', e && e.message ? e.message : e);
     }
-
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bodyToSend),
-    });
   } catch (err) {
-    // Non-blocking: log and continue
-    try {
-      console.warn('forwardToDashboard failed (non-blocking):', err && err.message ? err.message : err);
-    } catch (e) {}
+    // Defensive logging only
+    try { console.warn('forwardToDashboard failed (non-blocking):', err && err.message ? err.message : err); } catch (e) {}
   }
 }
 
