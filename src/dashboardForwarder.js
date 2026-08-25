@@ -14,6 +14,15 @@ export async function forwardToDashboard(payload) {
       }
     }
 
+    // Ensure outgoing messages are marked as fromMe: true for dashboard sync
+    try {
+      if (bodyToSend && typeof bodyToSend === 'object' && bodyToSend.direction === 'outgoing') {
+        bodyToSend.outgoing = Object.assign({}, bodyToSend.outgoing || {}, { fromMe: true });
+      }
+    } catch (e) {
+      // ignore
+    }
+
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
