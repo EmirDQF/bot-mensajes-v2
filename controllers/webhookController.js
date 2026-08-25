@@ -4,6 +4,7 @@ import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import chatwootService from '../services/chatwootService.js';
+import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { enviarImagenWhatsapp } from '../src/whatsappMedia.js';
 import { createClient } from '@supabase/supabase-js';
@@ -526,6 +527,13 @@ export default async function webhookController(req, res, next) {
         if (imageToSend && contactDigits) {
           try {
             await enviarImagenWhatsapp(contactDigits, imageToSend);
+            try {
+              const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;
+              const mediaUrl = imageToSend && replyMediaBase ? `${replyMediaBase.replace(/\/+$/, '')}/${encodeURIComponent(imageToSend)}` : null;
+              forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: null, mediaUrl } });
+            } catch (e) {
+              /* non-blocking */
+            }
           } catch (e) {
             console.error('webhookController: failed sending image via chatwoot fallback', imageToSend, e && e.message ? e.message : e);
           }
@@ -534,7 +542,12 @@ export default async function webhookController(req, res, next) {
         if (accountId && convId && apiToken) {
           await chatwootService.sendMessageToConversation(accountId, convId, apiToken, replyTextToSend);
         } else if (contactDigits) {
-          if (replyTextToSend) await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, {});
+          if (replyTextToSend) {
+        await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, {});
+        try {
+          forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: replyTextToSend, mediaUrl: null } });
+        } catch (e) { /* non-blocking */ }
+          }
         }
 
         // Persist bot reply into chat_sessions
@@ -850,6 +863,11 @@ export default async function webhookController(req, res, next) {
           if (imageToSend) {
             try {
               await enviarImagenWhatsapp(from, imageToSend);
+              try {
+                const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;
+                const mediaUrl = imageToSend && replyMediaBase ? `${replyMediaBase.replace(/\/+$/, '')}/${encodeURIComponent(imageToSend)}` : null;
+                forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: null, mediaUrl } });
+              } catch (e) { /* non-blocking */ }
             } catch (e) {
               console.error('webhookController: failed sending image to patient', imageToSend, e && e.message ? e.message : e);
             }
@@ -857,6 +875,9 @@ export default async function webhookController(req, res, next) {
 
           if (replyText && replyText.length > 0 && !skipResponse) {
             await whatsappService.sendWhatsAppMessage(from, replyText, {});
+            try {
+              forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: replyText, mediaUrl: null } });
+            } catch (e) { /* non-blocking */ }
           }
 
           const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;

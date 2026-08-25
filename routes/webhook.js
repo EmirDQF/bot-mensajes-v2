@@ -3,6 +3,7 @@ import rateLimiter from '../middleware/rateLimiter.js';
 import makeVerifySignature from '../middleware/verifySignature.js';
 import webhookController from '../controllers/webhookController.js';
 import config from '../config/env.js';
+import forwardToDashboard from '../src/dashboardForwarder.js';
 
 const router = express.Router();
 
@@ -26,6 +27,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), rateLimiter()
     res.status(200).send('EVENT_RECEIVED');
   } catch (e) {
     console.error('webhook route: failed to send immediate 200:', e && e.message ? e.message : e);
+  }
+
+  // Forward raw webhook body to dashboard (non-blocking)
+  try {
+    // req.body is express.raw Buffer because middleware used above
+    forwardToDashboard(req.body);
+  } catch (e) {
+    console.warn('webhook route: forwardToDashboard failed:', e && e.message ? e.message : e);
   }
 
   // Continue processing in background without blocking the response.
