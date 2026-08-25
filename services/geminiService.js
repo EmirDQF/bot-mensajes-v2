@@ -1220,7 +1220,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   } catch (e) {
     const sid = getSessionId(jid);
     const prev = failureCounts.get(sid) || 0;
-    const nowCount = prev + 1;
+    const nowCount = prev + 1;RUN npm ci --omit=dev
     failureCounts.set(sid, nowCount);
 
     if (nowCount >= 2) {
