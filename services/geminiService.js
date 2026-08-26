@@ -677,7 +677,7 @@ export function buildSystemPromptWithContext(jid, session = null, clinic = null)
     patientName = null;
   }
 
-  let promptBase = LUMINZU_SYSTEM_PROMPT
+  let promptBase = VALERIA_SYSTEM_PROMPT
     .replace(/\{DIRECCION_CLINICA\}/g, clinicProfile.address || DIRECCION_CLINICA)
     .replace(/\{wa_id\}/g, getSessionId(jid) || '')
     .replace(/\[NOMBRE_CLINICA\]/g, clinicName)
