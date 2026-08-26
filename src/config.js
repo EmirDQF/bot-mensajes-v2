@@ -9,7 +9,7 @@ export const CLINIC_CONFIG = {
   locations: DIRECCION_CLINICA,
 };
 
-const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/+$/, '');
+const BASE_URL = (process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/+$/, '');
 
 export const TREATMENT_IMAGES = {
   ortodoncia: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
@@ -23,6 +23,8 @@ export const TREATMENT_IMAGES = {
   protesis: `${BASE_URL}/media/protesis.jpeg`,
   odontopediatria: `${BASE_URL}/media/odontopediatria.jpeg`,
   ninos: `${BASE_URL}/media/odontopediatria.jpeg`,
+  limpieza: `${BASE_URL}/media/kit_preventivo.jpeg`,
+  preventivo: `${BASE_URL}/media/kit_preventivo.jpeg`,
   ubicacion: `${BASE_URL}/media/ubicacion.jpeg`,
   mapa: `${BASE_URL}/media/ubicacion.jpeg`,
   fachada: `${BASE_URL}/media/fachada.jpeg`,

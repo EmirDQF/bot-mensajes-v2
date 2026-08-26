@@ -248,6 +248,8 @@ const imageAliases = {
   protesis: 'protesis.jpeg',
   odontopediatria: 'odontopediatria.jpeg',
   ninos: 'odontopediatria.jpeg',
+  limpieza: 'kit_preventivo.jpeg',
+  preventivo: 'kit_preventivo.jpeg',
   ubicacion: 'ubicacion.jpeg',
   mapa: 'ubicacion.jpeg',
   fachada: 'fachada.jpeg',
@@ -272,6 +274,7 @@ function resolveTreatmentImage(userText, botText) {
   if (/endodoncia|conducto/.test(combined)) return TREATMENT_IMAGES.endodoncia;
   if (/protesis|postizo/.test(combined)) return TREATMENT_IMAGES.protesis;
   if (/niñ|pediatr|odontopediatria/.test(combined)) return TREATMENT_IMAGES.odontopediatria;
+  if (/limpieza|profilaxis|preventiv/.test(combined)) return TREATMENT_IMAGES.limpieza;
   if (/donde|ubicacion|dirección|direccion|llegar|mapa/.test(combined)) return TREATMENT_IMAGES.ubicacion;
   if (/fachada|clinica|clínica|local/.test(combined)) return TREATMENT_IMAGES.fachada;
   return null;
