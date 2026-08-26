@@ -1,7 +1,7 @@
 // Forward webhook/payload data to the external dashboard (non-blocking)
 export async function forwardToDashboard(payload) {
   try {
-    const dashboardBase = 'https://whatsapp-dashboard-z9jm.onrender.com';
+    const dashboardBase = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
     let body = payload;
 
     // Normalize Buffer/raw bodies into JS object when possible

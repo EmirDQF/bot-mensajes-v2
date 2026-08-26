@@ -106,7 +106,7 @@ async function persistToChatSessions(sessionIdentifier, entry) {
 }
 
 async function notifyMonitorPanel({ conversation_id, contact_name, sender, type, content, media_url, timestamp }) {
-  const panelBaseUrl = (process.env.PANEL_BACKEND_URL || process.env.MONITOR_PANEL_BACKEND_URL || process.env.PANEL_URL || 'https://monitor-panel-backend.onrender.com').replace(/\/+$/, '');
+  const panelBaseUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
   const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
   const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
   if (!panelBaseUrl || !username || !password) {
@@ -144,7 +144,7 @@ async function notifyMonitorPanel({ conversation_id, contact_name, sender, type,
 }
 
 async function notifyDashboardReply(phone, text, mediaUrl = null, wamid = null) {
-  const dashboardUrl = (process.env.DASHBOARD_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  const dashboardUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
   try {
     const response = await fetch(`${dashboardUrl}/api/bot-reply`, {
       method: 'POST',
@@ -165,6 +165,17 @@ async function notifyDashboardReply(phone, text, mediaUrl = null, wamid = null) 
   } catch (err) {
     console.error('Error sincronizando respuesta con el dashboard:', err?.message || err);
   }
+}
+
+function notifyDashboardIncoming(payload) {
+  const dashboardUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  fetch(`${dashboardUrl}/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch((err) => {
+    console.warn('Error sincronizando mensaje entrante con el dashboard:', err?.message || err);
+  });
 }
 
 function extractPlainText(input) {
@@ -314,6 +325,18 @@ async function persistAgendaPayload(payload, context = {}) {
 // IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
 export default async function webhookController(req, res, next) {
   try {
+    let incomingPayload = req.parsedBody || req.body;
+    if (Buffer.isBuffer(incomingPayload)) {
+      try {
+        incomingPayload = JSON.parse(incomingPayload.toString('utf8'));
+      } catch (error) {
+        incomingPayload = null;
+      }
+    }
+    if (incomingPayload) {
+      notifyDashboardIncoming(incomingPayload);
+    }
+
     // Prefer parsedBody attached by verifySignature middleware; parse defensively
     let payload = null;
     try {
