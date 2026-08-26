@@ -40,9 +40,9 @@ export async function forwardToDashboard(payload) {
       }
     }
 
-    // Fallback: post the full payload to the generic webhook endpoint
+    // Forward incoming WhatsApp payloads to the dashboard webhook.
     try {
-      const url = `${dashboardBase}/api/webhook`;
+      const url = `${dashboardBase}/webhook`;
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

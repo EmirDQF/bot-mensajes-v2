@@ -143,6 +143,30 @@ async function notifyMonitorPanel({ conversation_id, contact_name, sender, type,
   }
 }
 
+async function notifyDashboardReply(phone, text, mediaUrl = null, wamid = null) {
+  const dashboardUrl = (process.env.DASHBOARD_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  try {
+    const response = await fetch(`${dashboardUrl}/api/bot-reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: String(phone).replace(/\D/g, ''),
+        text: text || '',
+        type: mediaUrl ? 'image' : 'text',
+        mediaUrl: mediaUrl || null,
+        wamid: wamid || `bot_${Date.now()}`,
+      }),
+    });
+
+    if (!response.ok) {
+      const responseText = typeof response.text === 'function' ? await response.text() : '';
+      console.warn('Dashboard bot reply sync failed:', response.status, responseText);
+    }
+  } catch (err) {
+    console.error('Error sincronizando respuesta con el dashboard:', err?.message || err);
+  }
+}
+
 function extractPlainText(input) {
   let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
 
@@ -862,11 +886,14 @@ export default async function webhookController(req, res, next) {
           const imageToSend = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null;
           if (imageToSend) {
             try {
-              await enviarImagenWhatsapp(from, imageToSend);
+              const imageSent = await enviarImagenWhatsapp(from, imageToSend);
               try {
                 const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;
                 const mediaUrl = imageToSend && replyMediaBase ? `${replyMediaBase.replace(/\/+$/, '')}/${encodeURIComponent(imageToSend)}` : null;
                 forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: null, mediaUrl } });
+                if (imageSent) {
+                  await notifyDashboardReply(from, '', mediaUrl, null);
+                }
               } catch (e) { /* non-blocking */ }
             } catch (e) {
               console.error('webhookController: failed sending image to patient', imageToSend, e && e.message ? e.message : e);
@@ -874,9 +901,10 @@ export default async function webhookController(req, res, next) {
           }
 
           if (replyText && replyText.length > 0 && !skipResponse) {
-            await whatsappService.sendWhatsAppMessage(from, replyText, {});
+            const sendResult = await whatsappService.sendWhatsAppMessage(from, replyText, {});
             try {
               forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: replyText, mediaUrl: null } });
+              await notifyDashboardReply(from, replyText, null, sendResult?.messages?.[0]?.id || null);
             } catch (e) { /* non-blocking */ }
           }
 
