@@ -239,12 +239,17 @@ function extractInstructionTags(text) {
 const imageAliases = {
   ortodoncia: 'ortodoncia_antes_despues.jpeg',
   brackets: 'ortodoncia_antes_despues.jpeg',
+  frenillos: 'ortodoncia_antes_despues.jpeg',
   carillas: 'carillas.jpeg',
+  estetica: 'carillas.jpeg',
   implantes: 'implantes.jpeg',
   endodoncia: 'endodoncia.jpeg',
+  conducto: 'endodoncia.jpeg',
   protesis: 'protesis.jpeg',
   odontopediatria: 'odontopediatria.jpeg',
+  ninos: 'odontopediatria.jpeg',
   ubicacion: 'ubicacion.jpeg',
+  mapa: 'ubicacion.jpeg',
   fachada: 'fachada.jpeg',
 };
 
@@ -257,6 +262,24 @@ function normalizeImageReference(reference) {
 function getTreatmentImageUrl(filename) {
   const key = Object.entries(imageAliases).find(([, value]) => value === filename)?.[0];
   return key ? TREATMENT_IMAGES[key] : null;
+}
+
+function resolveTreatmentImage(userText, botText) {
+  const combined = `${userText || ''} ${botText || ''}`.toLowerCase();
+  if (/bracket|ortodoncia|frenillo|alinead/.test(combined)) return TREATMENT_IMAGES.brackets;
+  if (/carilla|estetic|diseño de sonrisa/.test(combined)) return TREATMENT_IMAGES.carillas;
+  if (/implante/.test(combined)) return TREATMENT_IMAGES.implantes;
+  if (/endodoncia|conducto/.test(combined)) return TREATMENT_IMAGES.endodoncia;
+  if (/protesis|postizo/.test(combined)) return TREATMENT_IMAGES.protesis;
+  if (/niñ|pediatr|odontopediatria/.test(combined)) return TREATMENT_IMAGES.odontopediatria;
+  if (/donde|ubicacion|dirección|direccion|llegar|mapa/.test(combined)) return TREATMENT_IMAGES.ubicacion;
+  if (/fachada|clinica|clínica|local/.test(combined)) return TREATMENT_IMAGES.fachada;
+  return null;
+}
+
+function getTreatmentImageFilename(url) {
+  const key = Object.entries(TREATMENT_IMAGES).find(([, value]) => value === url)?.[0];
+  return key ? imageAliases[key] : null;
 }
 
 function stripInstructionTags(text) {
@@ -594,7 +617,10 @@ export default async function webhookController(req, res, next) {
         }
 
         // First send one image (if any) to the patient, then the text so the patient sees the photo immediately
-        const imageToSend = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null;
+        const resolvedTreatmentUrl = resolveTreatmentImage(messageText, replyText);
+        const resolvedTreatmentFilename = getTreatmentImageFilename(resolvedTreatmentUrl);
+        const imageToSend = resolvedTreatmentFilename
+          || ((Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null);
         if (imageToSend && contactDigits) {
           try {
             await enviarImagenWhatsapp(contactDigits, imageToSend);
@@ -936,7 +962,7 @@ export default async function webhookController(req, res, next) {
             try {
               const imageSent = await enviarImagenWhatsapp(from, imageToSend);
               try {
-                const mediaUrl = getTreatmentImageUrl(imageToSend);
+                const mediaUrl = resolvedTreatmentUrl || getTreatmentImageUrl(imageToSend);
                 forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: null, mediaUrl } });
                 if (imageSent) {
                   await notifyDashboardReply(from, '', mediaUrl, null);
@@ -955,7 +981,7 @@ export default async function webhookController(req, res, next) {
             } catch (e) { /* non-blocking */ }
           }
 
-          const replyImageUrl = getTreatmentImageUrl(imageToSend);
+          const replyImageUrl = resolvedTreatmentUrl || getTreatmentImageUrl(imageToSend);
           await notifyMonitorPanel({
             conversation_id: from,
             contact_name: patientName || value?.contacts?.[0]?.profile?.name || null,

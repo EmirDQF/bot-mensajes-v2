@@ -14,12 +14,17 @@ const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-denta
 export const TREATMENT_IMAGES = {
   ortodoncia: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
   brackets: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
+  frenillos: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
   carillas: `${BASE_URL}/media/carillas.jpeg`,
+  estetica: `${BASE_URL}/media/carillas.jpeg`,
   implantes: `${BASE_URL}/media/implantes.jpeg`,
   endodoncia: `${BASE_URL}/media/endodoncia.jpeg`,
+  conducto: `${BASE_URL}/media/endodoncia.jpeg`,
   protesis: `${BASE_URL}/media/protesis.jpeg`,
   odontopediatria: `${BASE_URL}/media/odontopediatria.jpeg`,
+  ninos: `${BASE_URL}/media/odontopediatria.jpeg`,
   ubicacion: `${BASE_URL}/media/ubicacion.jpeg`,
+  mapa: `${BASE_URL}/media/ubicacion.jpeg`,
   fachada: `${BASE_URL}/media/fachada.jpeg`,
 };
 
