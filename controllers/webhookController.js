@@ -8,6 +8,7 @@ import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { enviarImagenWhatsapp } from '../src/whatsappMedia.js';
 import { createClient } from '@supabase/supabase-js';
+import { TREATMENT_IMAGES } from '../src/config.js';
 
 // Helper: upsert a message into chat_sessions.history
 async function getSupabaseClient() {
@@ -233,6 +234,29 @@ function extractInstructionTags(text) {
   const imageMatches = [...String(text || '').matchAll(/\[ENVIAR_IMAGEN:([^\]]+)\]/gi)].map((m) => m[1].trim()).filter(Boolean);
   const agendaMatches = [...String(text || '').matchAll(/\[AGENDAR_CITA:(\{.*?\})\]/gi)].map((m) => m[1].trim()).filter(Boolean);
   return { imageFiles: [...new Set(imageMatches)], agendaPayloads: agendaMatches };
+}
+
+const imageAliases = {
+  ortodoncia: 'ortodoncia_antes_despues.jpeg',
+  brackets: 'ortodoncia_antes_despues.jpeg',
+  carillas: 'carillas.jpeg',
+  implantes: 'implantes.jpeg',
+  endodoncia: 'endodoncia.jpeg',
+  protesis: 'protesis.jpeg',
+  odontopediatria: 'odontopediatria.jpeg',
+  ubicacion: 'ubicacion.jpeg',
+  fachada: 'fachada.jpeg',
+};
+
+function normalizeImageReference(reference) {
+  const value = String(reference || '').trim();
+  const key = value.toLowerCase().replace(/\.(jpeg|jpg|png)$/i, '');
+  return imageAliases[key] || value.split(/[\\/]/).pop();
+}
+
+function getTreatmentImageUrl(filename) {
+  const key = Object.entries(imageAliases).find(([, value]) => value === filename)?.[0];
+  return key ? TREATMENT_IMAGES[key] : null;
 }
 
 function stripInstructionTags(text) {
@@ -849,9 +873,10 @@ export default async function webhookController(req, res, next) {
           const sanitizedText = stripInstructionTags(textoLimpioGemini);
 
           // Determine final image files: prefer model-provided tags, otherwise fallback based on original user message
-          const finalImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
+          const requestedImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
             ? modelImageFiles
             : mapKeywordsToImages(messageText);
+          const finalImageFiles = requestedImageFiles.map(normalizeImageReference);
 
           // Handle AGENDAR_CITA payloads safely and without breaking the user response.
           for (const rawAgenda of agendaPayloads) {
@@ -911,8 +936,7 @@ export default async function webhookController(req, res, next) {
             try {
               const imageSent = await enviarImagenWhatsapp(from, imageToSend);
               try {
-                const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;
-                const mediaUrl = imageToSend && replyMediaBase ? `${replyMediaBase.replace(/\/+$/, '')}/${encodeURIComponent(imageToSend)}` : null;
+                const mediaUrl = getTreatmentImageUrl(imageToSend);
                 forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: null, mediaUrl } });
                 if (imageSent) {
                   await notifyDashboardReply(from, '', mediaUrl, null);
@@ -931,8 +955,7 @@ export default async function webhookController(req, res, next) {
             } catch (e) { /* non-blocking */ }
           }
 
-          const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;
-          const replyImageUrl = imageToSend && replyMediaBase ? `${replyMediaBase.replace(/\/+$/, '')}/${encodeURIComponent(imageToSend)}` : null;
+          const replyImageUrl = getTreatmentImageUrl(imageToSend);
           await notifyMonitorPanel({
             conversation_id: from,
             contact_name: patientName || value?.contacts?.[0]?.profile?.name || null,

@@ -9,6 +9,20 @@ export const CLINIC_CONFIG = {
   locations: DIRECCION_CLINICA,
 };
 
+const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/+$/, '');
+
+export const TREATMENT_IMAGES = {
+  ortodoncia: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
+  brackets: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
+  carillas: `${BASE_URL}/media/carillas.jpeg`,
+  implantes: `${BASE_URL}/media/implantes.jpeg`,
+  endodoncia: `${BASE_URL}/media/endodoncia.jpeg`,
+  protesis: `${BASE_URL}/media/protesis.jpeg`,
+  odontopediatria: `${BASE_URL}/media/odontopediatria.jpeg`,
+  ubicacion: `${BASE_URL}/media/ubicacion.jpeg`,
+  fachada: `${BASE_URL}/media/fachada.jpeg`,
+};
+
 export const SYSTEM_PROMPT = `Eres Valeria, asesora dental principal de la Clínica Odontológica LUMINZU en Huánuco. Eres amable, empática, muy rápida y altamente profesional.
 
 REGLAS OBLIGATORIAS DE FORMATO:
