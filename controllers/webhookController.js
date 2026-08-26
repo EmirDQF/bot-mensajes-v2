@@ -240,20 +240,45 @@ const imageAliases = {
   ortodoncia: 'ortodoncia_antes_despues.jpeg',
   brackets: 'ortodoncia_antes_despues.jpeg',
   frenillos: 'ortodoncia_antes_despues.jpeg',
+  ortodoncia1: 'ortodoncia_antes_despues1.jpeg',
+  ortodoncia2: 'ortodoncia_antes_despues2.jpeg',
+  ortodoncia3: 'ortodoncia_antes_despues3.jpeg',
+  ortodoncia_kids: 'ortodoncia_antes_despues4.jpeg',
   carillas: 'carillas.jpeg',
   estetica: 'carillas.jpeg',
+  diseno_sonrisa: 'carillas.jpeg',
   implantes: 'implantes.jpeg',
   endodoncia: 'endodoncia.jpeg',
   conducto: 'endodoncia.jpeg',
   protesis: 'protesis.jpeg',
   odontopediatria: 'odontopediatria.jpeg',
   ninos: 'odontopediatria.jpeg',
+  kit_preventivo: 'kit_preventivo.jpeg',
   limpieza: 'kit_preventivo.jpeg',
   preventivo: 'kit_preventivo.jpeg',
+  promo: 'promo_consulta.jpeg',
+  consulta: 'promo_consulta.jpeg',
   ubicacion: 'ubicacion.jpeg',
   mapa: 'ubicacion.jpeg',
+  direccion: 'ubicacion.jpeg',
   fachada: 'fachada.jpeg',
+  logo: 'logo.jpeg',
 };
+
+const orthodontiaImages = [
+  'ortodoncia_antes_despues.jpeg',
+  'ortodoncia_antes_despues1.jpeg',
+  'ortodoncia_antes_despues2.jpeg',
+  'ortodoncia_antes_despues3.jpeg',
+  'ortodoncia_antes_despues4.jpeg',
+];
+let orthodontiaImageIndex = 0;
+
+function nextOrthodontiaImage() {
+  const image = orthodontiaImages[orthodontiaImageIndex % orthodontiaImages.length];
+  orthodontiaImageIndex += 1;
+  return image;
+}
 
 function normalizeImageReference(reference) {
   const value = String(reference || '').trim();
@@ -268,13 +293,16 @@ function getTreatmentImageUrl(filename) {
 
 function resolveTreatmentImage(userText, botText) {
   const combined = `${userText || ''} ${botText || ''}`.toLowerCase();
-  if (/bracket|ortodoncia|frenillo|alinead/.test(combined)) return TREATMENT_IMAGES.brackets;
+  if (/bracket|ortodoncia|frenillo|alinead/.test(combined)) {
+    return getTreatmentImageUrl(nextOrthodontiaImage());
+  }
   if (/carilla|estetic|diseño de sonrisa/.test(combined)) return TREATMENT_IMAGES.carillas;
   if (/implante/.test(combined)) return TREATMENT_IMAGES.implantes;
   if (/endodoncia|conducto/.test(combined)) return TREATMENT_IMAGES.endodoncia;
   if (/protesis|postizo/.test(combined)) return TREATMENT_IMAGES.protesis;
   if (/niñ|pediatr|odontopediatria/.test(combined)) return TREATMENT_IMAGES.odontopediatria;
   if (/limpieza|profilaxis|preventiv/.test(combined)) return TREATMENT_IMAGES.limpieza;
+  if (/promo|promoci[oó]n|oferta|primera consulta|consulta inicial/.test(combined)) return TREATMENT_IMAGES.promo;
   if (/donde|ubicacion|dirección|direccion|llegar|mapa/.test(combined)) return TREATMENT_IMAGES.ubicacion;
   if (/fachada|clinica|clínica|local/.test(combined)) return TREATMENT_IMAGES.fachada;
   return null;
@@ -308,7 +336,7 @@ function mapKeywordsToImages(userText) {
   if (!userText || typeof userText !== 'string') return [];
   const t = userText.toLowerCase();
   const images = [];
-  if (/bracket|ortodoncia|frenillos|brackets|alineador/i.test(t)) images.push('ortodoncia_antes_despues.jpeg');
+  if (/bracket|ortodoncia|frenillos|brackets|alineador/i.test(t)) images.push(nextOrthodontiaImage());
   if (/carilla|carillas|carilla dental/i.test(t)) images.push('carillas.jpeg');
   if (/implante|implantes/i.test(t)) images.push('implantes.jpeg');
   if (/protesis|pr[oó]tesis|pr[oó]tesis dental/i.test(t)) images.push('protesis.jpeg');
@@ -628,8 +656,7 @@ export default async function webhookController(req, res, next) {
           try {
             await enviarImagenWhatsapp(contactDigits, imageToSend);
             try {
-              const replyMediaBase = process.env.PUBLIC_MEDIA_BASE_URL || process.env.MEDIA_BASE_URL || null;
-              const mediaUrl = imageToSend && replyMediaBase ? `${replyMediaBase.replace(/\/+$/, '')}/${encodeURIComponent(imageToSend)}` : null;
+              const mediaUrl = getTreatmentImageUrl(imageToSend);
               forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: null, mediaUrl } });
             } catch (e) {
               /* non-blocking */
@@ -960,7 +987,10 @@ export default async function webhookController(req, res, next) {
           }
 
           // Send one image first (if any), then the reply text so the user sees the photo immediately
-          const imageToSend = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null;
+          const resolvedTreatmentUrl = resolveTreatmentImage(messageText, textoFinal);
+          const resolvedTreatmentFilename = getTreatmentImageFilename(resolvedTreatmentUrl);
+          const imageToSend = resolvedTreatmentFilename
+            || ((Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null);
           if (imageToSend) {
             try {
               const imageSent = await enviarImagenWhatsapp(from, imageToSend);

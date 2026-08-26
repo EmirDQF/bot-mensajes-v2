@@ -9,25 +9,50 @@ export const CLINIC_CONFIG = {
   locations: DIRECCION_CLINICA,
 };
 
-const BASE_URL = (process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/+$/, '');
+const BASE_URL = (process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_BASE_URL || 'https://bot-mensajes-dental.onrender.com').replace(/\/+$/, '');
 
 export const TREATMENT_IMAGES = {
+  // Carillas / Estética
+  carillas: `${BASE_URL}/media/carillas.jpeg`,
+  estetica: `${BASE_URL}/media/carillas.jpeg`,
+  diseno_sonrisa: `${BASE_URL}/media/carillas.jpeg`,
+
+  // Ortodoncia / Brackets
   ortodoncia: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
   brackets: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
   frenillos: `${BASE_URL}/media/ortodoncia_antes_despues.jpeg`,
-  carillas: `${BASE_URL}/media/carillas.jpeg`,
-  estetica: `${BASE_URL}/media/carillas.jpeg`,
+  ortodoncia1: `${BASE_URL}/media/ortodoncia_antes_despues1.jpeg`,
+  ortodoncia2: `${BASE_URL}/media/ortodoncia_antes_despues2.jpeg`,
+  ortodoncia3: `${BASE_URL}/media/ortodoncia_antes_despues3.jpeg`,
+  ortodoncia_kids: `${BASE_URL}/media/ortodoncia_antes_despues4.jpeg`,
+
+  // Implantes
   implantes: `${BASE_URL}/media/implantes.jpeg`,
+
+  // Endodoncia / Conducto
   endodoncia: `${BASE_URL}/media/endodoncia.jpeg`,
   conducto: `${BASE_URL}/media/endodoncia.jpeg`,
+
+  // Prótesis
   protesis: `${BASE_URL}/media/protesis.jpeg`,
+
+  // Odontopediatría / Niños
   odontopediatria: `${BASE_URL}/media/odontopediatria.jpeg`,
   ninos: `${BASE_URL}/media/odontopediatria.jpeg`,
+
+  // Promociones y Prevención
+  kit_preventivo: `${BASE_URL}/media/kit_preventivo.jpeg`,
   limpieza: `${BASE_URL}/media/kit_preventivo.jpeg`,
   preventivo: `${BASE_URL}/media/kit_preventivo.jpeg`,
+  promo: `${BASE_URL}/media/promo_consulta.jpeg`,
+  consulta: `${BASE_URL}/media/promo_consulta.jpeg`,
+
+  // Ubicación y Fachada
   ubicacion: `${BASE_URL}/media/ubicacion.jpeg`,
   mapa: `${BASE_URL}/media/ubicacion.jpeg`,
+  direccion: `${BASE_URL}/media/ubicacion.jpeg`,
   fachada: `${BASE_URL}/media/fachada.jpeg`,
+  logo: `${BASE_URL}/media/logo.jpeg`,
 };
 
 export const SYSTEM_PROMPT = `Eres Valeria, asesora dental principal de la Clínica Odontológica LUMINZU en Huánuco. Eres amable, empática, muy rápida y altamente profesional.
