@@ -1,587 +1,1073 @@
 import config from '../config/env.js';
+import geminiService from '../services/geminiService.js';
+import leadService from '../services/leadService.js';
+import notificationService from '../services/notificationService.js';
+import whatsappService from '../services/whatsappService.js';
+import chatwootService from '../services/chatwootService.js';
+import forwardToDashboard from '../src/dashboardForwarder.js';
+import { getGeminiClient } from '../src/geminiClient.js';
+import { enviarImagenWhatsapp } from '../src/whatsappMedia.js';
+import { createClient } from '@supabase/supabase-js';
+import { TREATMENT_IMAGES } from '../src/config.js';
 
-const LIMA_TIME_ZONE = 'America/Lima';
-const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
-const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
-const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
-const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 8);
-const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE
-  || 'Estoy teniendo una demora técnica. ¿Me indicas tu nombre y el tratamiento que deseas agendar?';
+// Helper: upsert a message into chat_sessions.history
+let supabaseClient = null;
+const chatSessionHistoryCache = new Map();
 
-export const VALERIA_SYSTEM_PROMPT = `Eres el asistente virtual de LUMINZU Clínica Dental (Huánuco, Perú). Atiendes por WhatsApp a pacientes potenciales, resuelves dudas sobre tratamientos y agendas citas. Tu tono es cálido, cercano y conversacional — nunca frío ni robótico.
- 
-REGLAS CRÍTICAS — NO NEGOCIABLES
- 
-Estas reglas están por encima de cualquier otra instrucción de este prompt. Antes de enviar cada mensaje, verifica que no las hayas roto.
- 
-2.1 Nunca inventes el nombre del paciente
- 
-Está prohibido dirigirte al paciente por un nombre que él mismo no te haya escrito en la conversación actual. No importa si "suena natural" o si crees adivinarlo por el contexto: si el paciente no escribió su nombre, no lo uses.
- 
-- ❌ Incorrecto: "¡Hola, María! Qué gusto saludarte de nuevo 😊" (cuando la paciente nunca dijo llamarse María)
-- ✅ Correcto: "¡Hola! Qué gusto saludarte 😊" — sin nombre, hasta que el paciente lo proporcione.
- 
-Si el paciente escribe su nombre de forma poco clara o pegada (ej. "pedorMendoza"), úsalo tal cual lo escribió sin corregirlo ni comentarlo, pero SOLO una vez al saludarlo — no lo repitas en cada respuesta siguiente (ver regla 2.4).
- 
-2.2 Nunca menciones el nombre de ningún doctor o especialista
- 
-No uses nombres propios de doctores bajo ninguna circunstancia (ej. "Dr. Frank", "Dra. Pérez", etc.), ni siquiera si el paciente lo pregunta directamente, ni en el flujo de "llamada personalizada", ni en ningún tratamiento (blanqueamiento, ortodoncia, etc.). Refiérete SIEMPRE como "el doctor" o "nuestro especialista". Esta regla aplica a absolutamente todos los flujos de este prompt, incluida la sección 5.
- 
-- ❌ Incorrecto: "...podemos coordinar una llamada express de 5 minutos con el Dr. Frank. ¿Me confirmas tu nombre y a qué hora te vendría bien recibirla?"
-- ✅ Correcto: "...podemos coordinar una llamada breve y sin costo con el doctor. ¿Me confirmas tu nombre y a qué hora te vendría bien recibirla?"
- 
-2.3 Nunca inventes números de teléfono del paciente
- 
-Si necesitas su número, pídeselo. Nunca lo completes ni lo deduzcas.
- 
-2.4 No repitas el saludo de bienvenida ni el nombre del paciente en cada mensaje
- 
-- Primer mensaje de la conversación: da la bienvenida completa + menú de tratamientos (ver sección 3).
-- Mensajes siguientes: responde directo a la consulta, sin repetir "¡Hola! Qué gusto saludarte..." ni el nombre del paciente en cada respuesta. Un tono cálido no requiere reiniciar el saludo cada vez.
- 
-2.5 Nunca envíes una respuesta genérica que no responda lo que se preguntó
- 
-Está prohibido responder con un mensaje tipo "¡Hola estimado/a paciente! Te comparto fotos de ejemplo de LUMINZU para que veas resultados. ¿Te gustaría que te ayude a agendar una cita?" cuando no responde específicamente a la pregunta del paciente. Cada respuesta debe usar la información de las secciones 4, 5 y 6 de este prompt para responder exactamente lo que el paciente preguntó (tratamiento, precio orientativo, ubicación, horario, promoción, portafolio, etc.). Si el mensaje del paciente es ambiguo y no encaja en ninguna categoría, haz una pregunta breve de aclaración en lugar de enviar una respuesta genérica.
- 
-2.6 Formato exacto de las etiquetas de acción — nunca varíes la sintaxis
- 
-Las etiquetas [ENVIAR_IMAGEN:archivo.jpeg] y [AGENDAR_CITA:{...}] son leídas por el sistema para adjuntar la imagen real o registrar la cita; el paciente NUNCA debe ver el texto de la etiqueta. Por eso:
- 
-- Escríbelas EXACTAMENTE así, con guion bajo: ENVIAR_IMAGEN (nunca "ENVIARIMAGEN" sin guion bajo, ni "enviar imagen" con espacio, ni ninguna otra variante).
-- Colócalas siempre al final del mensaje, nunca en medio de una frase.
-- Usa como máximo una etiqueta de imagen por mensaje, salvo que el paciente haya pedido ver varios ejemplos distintos explícitamente.
- 
-2.7 Si el paciente ya dio todos los datos para agendar, confirma de inmediato
- 
-Si en un mismo mensaje el paciente te da nombre, teléfono y el tratamiento que quiere (con o sin fecha), NO vuelvas a pedir esos datos ni envíes una respuesta genérica: usa directamente el bloque [AGENDAR_CITA:{...}] de la sección 6 en tu siguiente respuesta.
- 
-2.8 Checklist antes de enviar cualquier mensaje
- 
-1. ¿Usé un nombre que el paciente no me dio, o lo repetí innecesariamente? → Corrígelo.
-2. ¿Mencioné el nombre propio de un doctor, incluso en el flujo de llamada? → Cámbialo por "el doctor" / "nuestro especialista".
-3. ¿Ya saludé antes en esta conversación? → No repitas el saludo completo.
-4. ¿Esta respuesta contesta específicamente lo que el paciente preguntó, o es un mensaje genérico de relleno? → Si es genérico, reescríbela usando las secciones 4, 5 o 6.
-5. ¿Escribí la etiqueta de imagen o de cita exactamente en el formato [ENVIAR_IMAGEN:archivo.jpeg] / [AGENDAR_CITA:{...}], al final del mensaje? → Corrige el formato si varía.
-6. ¿El paciente ya me dio todos los datos para agendar? → Confirma de inmediato, no vuelvas a preguntar.
-7. ¿Inventé o completé un dato (teléfono, precio exacto, disponibilidad) que no tengo? → Pregúntalo o deriva a evaluación con el doctor.
- 
-3. FLUJO CONVERSACIONAL
- 
-Primer contacto (o si el paciente pide ver las opciones):
- 
-¡Hola! Qué gusto saludarte, te damos la bienvenida a LUMINZU Clínica Dental 🦷✨
-Cuéntanos, ¿en qué tratamiento o consulta te gustaría que te ayudemos hoy? Puedes escribirnos el número o el tratamiento de tu interés:
- 
-1️⃣ Brackets y Ortodoncia
-2️⃣ Limpieza Dental y Kit Preventivo
-3️⃣ Curaciones y Resinas Estéticas
-4️⃣ Blanqueamiento Dental
-5️⃣ Implantes Dentales
-6️⃣ Carillas y Diseño de Sonrisa
-7️⃣ Dolor de Muela y Endodoncia
-8️⃣ Odontopediatría (Atención Infantil)
-9️⃣ Prótesis y Rehabilitación
-🔟 Consulta y Chequeo General
- 
-Mensajes posteriores: responde directo a lo que el paciente escriba (número, nombre del tratamiento, pregunta libre), sin repetir el menú ni el saludo, salvo que el paciente lo pida de nuevo explícitamente.
- 
-4. RESPUESTAS POR TRATAMIENTO
- 
-Envía únicamente la imagen correspondiente a la consulta hecha.
- 
-1. Brackets / Ortodoncia
-Contamos con brackets metálicos, estéticos de zafiro y autoligados, con una cuota inicial desde S/ 600, financiable hasta en 3 cuotas previa evaluación diagnóstica.
-¿Te gustaría agendar tu cita de diagnóstico o coordinar una llamada con el doctor?
-[ENVIAR_IMAGEN:bracketsmuestra.jpeg]
- 
-2. Limpieza Dental / Kit Preventivo
-Nuestro Kit Preventivo Completo incluye destartraje con ultrasonido (elimina sarro), profilaxis profesional (remueve manchas) y fluorización protectora.
-¿Te gustaría agendar tu turno esta semana?
-[ENVIAR_IMAGEN:kit_preventivo.jpeg]
- 
-3. Curaciones / Resinas Estéticas / Muela Picada o Rota
-Realizamos restauraciones con resinas estéticas de alta calidad que devuelven forma, color y función natural de tus dientes, con acabado imperceptible.
-¿Deseas agendar una cita de evaluación con el doctor?
-[ENVIAR_IMAGEN:restauracion_resina.jpeg]
- 
-4. Blanqueamiento Dental
-Devuelve luminosidad y blancura a tu sonrisa de forma segura, sin dañar el esmalte. El número de tonos y el costo exacto dependen de una evaluación previa.
-¿Te gustaría agendar tu sesión de evaluación? Si prefieres, también podemos coordinar una breve llamada sin costo con el doctor para orientarte.
-[ENVIAR_IMAGEN:blanqueamiento.jpeg]
- 
-5. Implantes Dentales
-Recuperan piezas perdidas de forma fija, segura y permanente, con pernos de titanio de alta durabilidad.
-¿Te gustaría agendar una evaluación para revisar tu caso?
-[ENVIAR_IMAGEN:implantes.jpeg]
- 
-6. Carillas y Diseño de Sonrisa
-Corregimos forma, tamaño y color en resina o disilicato de litio, para una sonrisa armónica y natural.
-¿Deseas que el doctor evalúe tu sonrisa en consultorio?
-[ENVIAR_IMAGEN:carillas.jpeg]
- 
-7. Endodoncia / Dolor Fuerte de Muela
-Tratamiento de conductos para aliviar el dolor profundo y salvar tu pieza dental antes de pensar en una extracción.
-¿Sientes molestia actualmente para coordinar tu cita prioritaria?
-[ENVIAR_IMAGEN:endodoncia.jpeg]
- 
-8. Odontopediatría (Niños)
-Atención especializada, preventiva y con mucha paciencia para los más pequeños del hogar.
-[ENVIAR_IMAGEN:odontopediatria.jpeg]
- 
-9. Prótesis Dentales
-Opciones fijas y removibles para devolver estética y capacidad masticatoria completa.
-[ENVIAR_IMAGEN:protesis.jpeg]
- 
-10. Consulta / Chequeo General
-Evaluación diagnóstica completa para revisar el estado general de tu salud bucal.
-[ENVIAR_IMAGEN:chequeo.jpeg]
- 
-11. Catálogo General de Tratamientos ("¿qué tratamientos hacen?")
-Ofrecemos atención odontológica integral: ortodoncia, curaciones con resina, blanqueamiento, implantes, endodoncia, prótesis, odontopediatría y estética dental, todo a cargo de nuestro especialista.
-¿Qué tratamiento te gustaría consultar en particular?
-[ENVIAR_IMAGEN:tratamientos.jpeg]
- 
-12. Promociones Vigentes ("¿tienen ofertas o descuentos este mes?")
-Sí, contamos con paquetes promocionales en profilaxis integral y descuentos especiales en la consulta de diagnóstico con el especialista.
-¿Te gustaría reservar tu evaluación para acceder a estas promociones?
-[ENVIAR_IMAGEN:promo_consulta.jpeg]
- 
-13. Portafolio de Trabajos Realizados ("quiero ver una muestra de sus trabajos")
-En LUMINZU trabajamos con los más altos estándares de estética y salud bucal. Aquí te comparto nuestro catálogo con muestras de los principales tratamientos realizados por el especialista.
-¿Te gustaría agendar una evaluación para comenzar tu tratamiento?
-[ENVIAR_IMAGEN:tratamientos.jpeg]
- 
-Otras imágenes según consulta:
- 
-- Casos antes/después de brackets: [ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg] (variantes 1, 2, 3)
-- Brackets en niños: [ENVIAR_IMAGEN:ortodoncia_antes_despues4.jpeg]
-- Fachada o local: [ENVIAR_IMAGEN:fachada.jpeg]
-- Ubicación: [ENVIAR_IMAGEN:ubicacion.jpeg]
- 
-5. DUDAS COMPLEJAS O SOLICITUD DE LLAMADA
- 
-Cuando el paciente tenga dudas que no puedas resolver con la información de este prompt (presupuestos complejos, casos particulares, preguntas muy específicas, o cuando pida explícitamente que lo llamen), usa SIEMPRE este mismo flujo, sin importar desde qué tratamiento venga la conversación — nunca lo reemplaces por una redacción distinta ni menciones el nombre de ningún doctor:
- 
-¡Con gusto! El doctor puede realizarte una breve llamada sin costo para resolver todas tus dudas.
-Solo déjanos tu número de contacto y en qué horario te queda mejor, y te llamamos. 📲
- 
-- Si el paciente ya escribió su número antes en el chat, no lo vuelvas a pedir — confírmalo.
-- Nunca prometas un horario exacto de llamada; solo confirma que "el doctor" o "nuestro especialista" se comunicará.
- 
-6. FLUJO DE AGENDAMIENTO DE CITAS
- 
-Cuando el paciente quiera agendar una cita, pídele estos tres datos como mínimo (si ya los dio, no los repitas):
- 
-1. Nombre completo
-2. Número de teléfono de contacto
-3. Tratamiento por el que quiere atenderse (motivo)
- 
-La fecha/turno (mañana o tarde) es un cuarto dato deseable: si el paciente lo da, inclúyelo; si no lo da, regístralo como "Por coordinar" y avísale en el mensaje de confirmación que el doctor lo llamará al número proporcionado para definir el horario exacto.
- 
-En cuanto tengas nombre, teléfono y motivo — con o sin fecha —, confirma de inmediato en tu siguiente respuesta. No sigas preguntando, no repitas el menú y no envíes un mensaje genérico:
- 
-[AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
-¡Listo! Tu cita para {motivo} ha quedado registrada con el número {telefono}. Te esperamos en Alameda de la República N° 286, Esquina Jr. Abtao. [ENVIAR_IMAGEN:ubicacion.jpeg]
- 
-Nunca completes ninguno de estos datos por tu cuenta (ni el nombre, ni el teléfono, ni el motivo, ni la fecha) — todos deben venir explícitamente del paciente, salvo la fecha/hora, que puede quedar como "Por coordinar" si no la especificó.
- 
-7. DATOS DE LA CLÍNICA
- 
-- Dirección: Alameda de la República N° 286, Esquina Jr. Abtao – Huánuco 📍
-- Teléfonos: 980 792 817 / 977 377 508 📲
-- Horarios: Lunes a Sábado, 9:00 a.m.–1:00 p.m. y 2:00 p.m.–8:00 p.m. (domingos cerrado)
- 
-8. EJEMPLOS DE CONTROL DE CALIDAD
- 
-Ejemplo A — Nombre no proporcionado
-- Paciente: "Hola, quiero saber precio de blanqueamiento"
-- ❌ "¡Hola, María! El blanqueamiento cuesta..."
-- ✅ "¡Hola! El costo exacto del blanqueamiento depende de una evaluación previa. ¿Te gustaría agendar tu sesión de evaluación?"
- 
-Ejemplo B — Derivar a llamada (incluso desde blanqueamiento)
-- Paciente: "Quiero un blanqueamiento para un evento, ¿me pueden llamar para explicarme?"
-- ❌ "Claro, coordinamos una llamada con el Dr. Frank. ¿A qué número?"
-- ✅ "¡Con gusto! El doctor puede llamarte para resolver tus dudas sin costo. Déjanos tu número y el horario que te quede mejor 📲"
- 
-Ejemplo C — Mensaje posterior al primero
-- Paciente (segundo mensaje del chat): "¿Y los sábados atienden?"
-- ❌ "¡Hola de nuevo! Bienvenido a LUMINZU... Sí, atendemos los sábados..."
-- ✅ "Sí, atendemos los sábados de 9:00 a.m. a 1:00 p.m. y de 2:00 p.m. a 8:00 p.m. 🕒 ¿Te gustaría agendar tu cita?"
- 
-Ejemplo D — Todos los datos en un solo mensaje
-- Paciente: "Quiero cita para mañana en la tarde, me llamo Pedro Mendoza, mi cel es 987654321, es para curarme una muela."
-- ❌ Pedir de nuevo el nombre o el teléfono, o responder con un mensaje genérico de fotos de ejemplo.
-- ✅ "¡Listo! Tu cita para curación dental ha quedado registrada con el número 987654321, para mañana en el turno tarde. Te esperamos en Alameda de la República N° 286, Esquina Jr. Abtao. [AGENDAR_CITA:{"nombre":"Pedro Mendoza","telefono":"987654321","motivo":"Curación dental","fecha":"mañana","hora":"tarde"}] [ENVIAR_IMAGEN:ubicacion.jpeg]"
- 
-Ejemplo E — Pregunta que no está en el listado de tratamientos
-- Paciente: "¿Tienen alguna oferta este mes?"
-- ❌ "¡Hola estimado/a paciente! Te comparto fotos de ejemplo de LUMINZU para que veas resultados. ¿Te gustaría que te ayude a agendar una cita?"
-- ✅ Usar la sección 4.12 (Promociones Vigentes) tal como está definida en este prompt.`;
-
-const chatSessions = new Map();
-const failureCounts = new Map();
-
-const MONTHS = {
-  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
-  julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
-};
-const WEEKDAYS = {
-  domingo: 0, lunes: 1, martes: 2, miércoles: 3, miercoles: 3,
-  jueves: 4, viernes: 5, sábado: 6, sabado: 6,
-};
-
-function sessionId(jid) {
-  return String(jid || '').split('@')[0];
+async function getSupabaseClient() {
+  if (supabaseClient) return supabaseClient;
+  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  if (!rawUrl || !key) return null;
+  supabaseClient = createClient(rawUrl, key);
+  return supabaseClient;
 }
 
-function scheduleCleanup(sid, session) {
-  if (session.timer) clearTimeout(session.timer);
-  session.timer = setTimeout(() => {
-    chatSessions.delete(sid);
-    failureCounts.delete(sid);
-  }, session.booked ? BOOKED_TTL_MS : SESSION_TTL_MS);
-  session.timer.unref?.();
-}
+async function persistToSupabaseConversation({ conversationId, contactNumber, contactName, sender, text, mediaUrl, timestamp }) {
+  const supabase = await getSupabaseClient();
+  if (!supabase || !conversationId) return null;
 
-async function restoreSession(sid, session) {
-  const { getByPhone } = await import('./leadService.js');
-  if (typeof getByPhone !== 'function') return;
-  const stored = await getByPhone(sid);
-  if (!stored) return;
-  session.leadSnapshot = stored;
-  session.booked = Boolean(stored.fecha_hora_iso || stored.fechaHoraISO);
-}
+  const normalizedId = String(conversationId).trim();
+  const phone = contactNumber || normalizedId;
+  const ts = timestamp || new Date().toISOString();
+  const lastMessage = text && String(text).trim().length ? String(text).trim() : (mediaUrl ? '[Imagen]' : 'Mensaje');
 
-export function getOrCreateSession(jid) {
-  const sid = sessionId(jid);
-  let session = chatSessions.get(sid);
-  if (!session) {
-    session = {
-      history: [],
-      timer: null,
-      lastUserMessageAt: 0,
-      booked: false,
-      leadSnapshot: null,
-      paused: false,
-      restorePromise: null,
-    };
-    session.restorePromise = restoreSession(sid, session).catch(() => null);
-    chatSessions.set(sid, session);
-  }
-  scheduleCleanup(sid, session);
-  return session;
-}
+  try {
+    const { error: upsertErr } = await supabase.from('conversations').upsert({
+      conversation_id: normalizedId,
+      contact_number: phone,
+      contact_name: contactName || phone,
+      last_message: lastMessage,
+      last_message_at: ts,
+      created_at: ts
+    }, { onConflict: 'conversation_id' });
 
-export async function ensureSessionLoaded(session) {
-  if (session?.restorePromise) {
-    await session.restorePromise;
-    session.restorePromise = null;
-  }
-  return session;
-}
-
-export function pauseSessionById(jid) {
-  const sid = sessionId(jid);
-  const session = getOrCreateSession(sid);
-  session.paused = true;
-  return true;
-}
-
-export function resumeSessionById(jid) {
-  const session = chatSessions.get(sessionId(jid));
-  if (!session) return false;
-  session.paused = false;
-  return true;
-}
-
-export function isSessionPaused(jid) {
-  return Boolean(chatSessions.get(sessionId(jid))?.paused);
-}
-
-export function mergeRecentUserMessages(history, windowMs = 10000) {
-  if (!Array.isArray(history)) return [];
-  const result = [];
-  for (const message of history) {
-    if (message.role !== 'user' || !result.length) {
-      result.push(message);
-      continue;
+    if (upsertErr) {
+      console.warn('persistToSupabaseConversation upsert failed:', upsertErr);
+      return null;
     }
-    const previous = result[result.length - 1];
-    if (previous.role === 'user' && message.at && previous.at && message.at - previous.at <= windowMs) {
-      const text = [...(previous.parts || []), ...(message.parts || [])]
-        .map((part) => part.text || '').filter(Boolean).join(' ');
-      previous.parts = [{ text }];
-      previous.text = text;
-      previous.at = message.at;
-    } else {
-      result.push(message);
-    }
-  }
-  return result;
-}
 
-function normalizeHistoryEntry(entry) {
-  if (!entry || typeof entry !== 'object') return null;
-  const partText = (Array.isArray(entry.parts) ? entry.parts : [])
-    .map((part) => part?.text || '')
-    .join(' ')
-    .trim();
-  const text = (entry.text && String(entry.text).trim()) || partText || '';
-  if (!text) return null;
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (/no pude procesar|demora t[eé]cnica|falla t[eé]cnica|payload de error|error de|error al/i.test(normalized)) {
+    const { error: insertErr } = await supabase.from('messages').insert({
+      conversation_id: normalizedId,
+      contact_number: phone,
+      sender,
+      text: text || null,
+      media_url: mediaUrl || null,
+      media_type: mediaUrl ? 'image' : 'text',
+      created_at: ts
+    });
+
+    if (insertErr) {
+      console.warn('persistToSupabaseConversation insert failed:', insertErr);
+      return null;
+    }
+
+    return true;
+  } catch (e) {
+    console.warn('persistToSupabaseConversation failed:', e && e.message ? e.message : e);
     return null;
   }
-  return { ...entry, text: normalized, parts: [{ text: normalized }] };
 }
 
-function compactHistoryForPrompt(history, maxMessages = MAX_HISTORY_MESSAGES) {
-  if (!Array.isArray(history)) return [];
-  return history
-    .map(normalizeHistoryEntry)
-    .filter(Boolean)
-    .slice(-maxMessages);
-}
-
-function textFromHistory(history) {
-  return compactHistoryForPrompt(history)
-    .filter((entry) => entry.role === 'user')
-    .map((entry) => entry.text || '')
-    .filter(Boolean)
-    .join('\n');
-}
-
-export function extractLeadDataFromText(text) {
-  if (typeof text !== 'string' || !text.trim()) return null;
-  const nameMatch = text.match(/\b(?:me llamo|mi nombre es|soy)\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
-  const phoneMatch = text.replace(/\D/g, '').match(/(?:51)?(9\d{8})/);
-  const dateMatch = text.match(/\b(?:hoy|mañana|pasado mañana|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado)(?:\s+\d{1,2}\s+de\s+[a-záéíóú]+)?(?:\s+(?:a\s*las?\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i)
-    || text.match(/\b\d{1,2}\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
-  const motivoMatch = text.match(/\b(?:tratamiento|motivo)\s*(?:es|:)?\s*([^,.\n]+)/i);
-  return {
-    nombre: nameMatch?.[1]?.trim() || null,
-    telefono: phoneMatch?.[1] || null,
-    motivo: motivoMatch?.[1]?.trim() || null,
-    fechaHora: dateMatch?.[0]?.trim() || null,
-  };
-}
-
-export function isValidName(name) {
-  return typeof name === 'string'
-    && name.trim().length >= 2
-    && !/^(?:no proporcionad[oa]|valeria|camila|dr\.?\s*\w+)$/i.test(name.trim());
-}
-
-export function isExplicitConfirmation(text) {
-  if (typeof text !== 'string') return false;
-  const value = text.trim().toLowerCase();
-  if (/\b(pero|cambiar|reprogramar|otra hora|otra fecha|prefiero|no puedo|espera|luego)\b/.test(value)) return false;
-  return /^(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias)(?:[,.]?\s*(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias))*[.!]?$/.test(value);
-}
-
-function extractResultText(result) {
-  if (typeof result === 'string') return result;
-  if (typeof result?.text === 'string') return result.text;
-  const response = result?.response;
-  if (typeof response?.text === 'string') return response.text;
-  return response?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join(' ').trim() || '';
-}
-
-export function sanitizeModelTextOutput(rawText) {
-  if (typeof rawText !== 'string') return '';
-  let text = rawText
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .replace(/\[AGENDAR_CITA:\{[\s\S]*?\}\]/gi, '')
-    .trim();
-  if (text.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(text);
-      text = typeof parsed.response === 'string' ? parsed.response
-        : typeof parsed.text === 'string' ? parsed.text : text;
-    } catch {
-      text = text.replace(/^\s*\{\s*"(?:response|texto|text|message)"\s*:\s*"([\s\S]*)"\s*\}\s*$/i, '$1');
-    }
-  }
-  return text.replace(/[*_]/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function limaNow() {
-  return new Intl.DateTimeFormat('es-PE', {
-    timeZone: LIMA_TIME_ZONE, weekday: 'long', year: 'numeric', month: 'long',
-    day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
-  }).format(new Date());
-}
-
-export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
-  const profile = clinic || config.clinicProfile || {};
-  const address = profile.address || 'Alameda de la República N° 286, esquina con Jr. Abtao — Huánuco';
-  const hours = profile.hours || 'Lunes a sábado de 9:00 a. m. a 8:00 p. m.';
-  const snapshot = session?.leadSnapshot;
-  const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
-  const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
-  return `${VALERIA_SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${profile.name || 'LUMINZU Clínica Dental'}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual en Lima: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}`;
-}
-
-export function parseTextToLimaDate(text) {
-  if (typeof text !== 'string') return null;
-  const now = new Date(Date.now());
-  const base = new Date(Date.UTC(Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, year: 'numeric' }).format(now)), Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, month: 'numeric' }).format(now)) - 1, Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, day: 'numeric' }).format(now))));
-  const value = text.toLowerCase();
-  if (value.includes('pasado mañana')) base.setUTCDate(base.getUTCDate() + 2);
-  else if (value.includes('mañana')) base.setUTCDate(base.getUTCDate() + 1);
-  else if (!value.includes('hoy')) {
-    const weekday = Object.entries(WEEKDAYS).find(([name]) => value.includes(name));
-    if (weekday) while (base.getUTCDay() !== weekday[1]) base.setUTCDate(base.getUTCDate() + 1);
-    const date = value.match(/(\d{1,2})\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/);
-    if (date) base.setUTCDate(1), base.setUTCMonth(MONTHS[date[2]] - 1), base.setUTCDate(Number(date[1]));
-  }
-  const time = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i)
-    || value.match(/\ba\s*las?\s+(\d{1,2})(?::(\d{2}))?\b/i);
-  if (!time) return null;
-  let hour = Number(time[1]);
-  if (time[3]?.toLowerCase() === 'pm' && hour < 12) hour += 12;
-  if (time[3]?.toLowerCase() === 'am' && hour === 12) hour = 0;
-  base.setUTCHours(hour + 5, Number(time[2] || 0), 0, 0);
-  return base.toISOString().replace('.000Z', '+00:00');
-}
-
-export function parseTextToLimaISO(text) {
-  return parseTextToLimaDate(text)?.replace('.000Z', '+00:00') || null;
-}
-
-export function formatLimaFechaHoraText(iso) {
-  if (!iso || Number.isNaN(new Date(iso).getTime())) return null;
-  const date = new Intl.DateTimeFormat('es-PE', { timeZone: LIMA_TIME_ZONE, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso));
-  const time = new Intl.DateTimeFormat('es-PE', { timeZone: LIMA_TIME_ZONE, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(iso));
-  return `${date}, ${time.replace(/\s*a\.?\s*m\.?/i, ' AM').replace(/\s*p\.?\s*m\.?/i, ' PM')}`;
-}
-
-function buildRequest(client, message, session, jid, options) {
-  const systemPrompt = buildSystemPromptWithContext(jid, session, options.clinic);
-  const history = textFromHistory(mergeRecentUserMessages(compactHistoryForPrompt(session.history)));
-  const prompt = `${systemPrompt}
-
-${history}
-Cliente: ${message}`;
-  if (typeof client?.generateContent === 'function') {
-    return {
-      structured: true,
-      request: {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        systemInstruction: systemPrompt,
-        generationConfig: { maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens },
-      },
-    };
-  }
-  return { structured: false, prompt };
-}
-
-async function callGemini(client, request, options) {
-  const attempts = Math.max(1, Number(options.maxRetries ?? 1) + 1);
-  let lastError;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      if (request.structured) return await client.generateContent(request.request, { model: config.gemini.model });
-      if (typeof client?.generate === 'function') {
-        return await client.generate(request.prompt, { model: config.gemini.model, maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens });
-      }
-      throw new Error('Gemini client does not support generate or generateContent');
-    } catch (error) {
-      lastError = error;
-      if (attempt + 1 < attempts && /timeout|network|ECONNRESET|ECONNREFUSED|5\d{2}/i.test(String(error?.message || error))) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      } else {
-        break;
-      }
-    }
-  }
-  throw lastError;
-}
-
-function collectLead(session, message) {
-  const current = extractLeadDataFromText(textFromHistory(session.history));
-  const incoming = extractLeadDataFromText(message);
-  const lead = {
-    nombre: incoming?.nombre || current?.nombre || session.leadSnapshot?.nombre || null,
-    telefono: incoming?.telefono || current?.telefono || session.leadSnapshot?.telefono || null,
-    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || null,
-    fechaHora: incoming?.fechaHora || current?.fechaHora || session.leadSnapshot?.fecha_hora_texto || null,
-  };
-  if (lead.fechaHora) {
-    lead.fechaHoraISO = parseTextToLimaISO(lead.fechaHora);
-    if (lead.fechaHoraISO) lead.fechaHora = formatLimaFechaHoraText(lead.fechaHoraISO);
-  }
-  lead.ready_to_notify = Boolean(isValidName(lead.nombre) && /^9\d{8}$/.test(lead.telefono || '') && lead.motivo && lead.fechaHoraISO);
-  return Object.values(lead).some(Boolean) ? lead : null;
-}
-
-export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
-  const session = getOrCreateSession(jid);
-  await ensureSessionLoaded(session);
-  const sid = sessionId(jid);
-  const now = Date.now();
-  if (!options.skipDebounce && now - session.lastUserMessageAt < DEBOUNCE_MS) {
-    return { texto: null, leadData: null, skipResponse: true };
-  }
-  session.lastUserMessageAt = now;
-  session.history.push({ role: 'user', parts: [{ text: String(mensaje || '') }], at: now });
-  session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
+async function persistToChatSessions(sessionIdentifier, entry) {
   try {
-    const result = await callGemini(options.client, buildRequest(options.client, mensaje, session, jid, options), options);
-    const rawText = extractResultText(result);
-    const leadData = collectLead(session, mensaje);
-    let texto = sanitizeModelTextOutput(rawText);
-    if (!leadData?.ready_to_notify && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
-      texto = 'Para ayudarte a agendar, indícame tu nombre, teléfono, tratamiento y fecha o turno preferido.';
-    }
-    session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });
-    session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
-    failureCounts.delete(sid);
-    if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
-      session.booked = true;
-      session.leadSnapshot = { ...leadData, fecha_hora_texto: leadData.fechaHora, fecha_hora_iso: leadData.fechaHoraISO, confirmedAt: new Date().toISOString() };
-      try {
-        const { saveLeadSnapshot } = await import('./leadService.js');
-        await saveLeadSnapshot(sid, session.leadSnapshot);
-      } catch (error) {
-        console.warn('geminiService: lead snapshot persistence failed:', error?.message || error);
+    const client = await getSupabaseClient();
+    if (!client) return null;
+
+    const sessionId = String(sessionIdentifier || '').replace(/\D/g, '') || String(sessionIdentifier || '');
+    const cached = chatSessionHistoryCache.get(sessionId);
+    let history = Array.isArray(cached) ? [...cached] : [];
+
+    if (!cached) {
+      let { data: existing, error: exErr } = await client.from('chat_sessions').select('id, history').eq('id', sessionId).maybeSingle();
+      if (exErr) {
+        const msg = String(exErr.message || '').toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
+        console.warn('persistToChatSessions read error', exErr);
+        return null;
       }
-      scheduleCleanup(sid, session);
+      if (existing && existing.history) {
+        history = Array.isArray(existing.history) ? existing.history : JSON.parse(existing.history || '[]');
+      }
+      chatSessionHistoryCache.set(sessionId, history);
     }
-    return { texto, leadData, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
-  } catch (error) {
-    const failures = (failureCounts.get(sid) || 0) + 1;
-    failureCounts.set(sid, failures);
-    return { texto: failures === 1 ? 'No pude procesar tu mensaje. ¿Me lo repites para ayudarte a agendar?' : CONTINGENCY_MESSAGE, leadData: null };
-  }
-}
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [sid, session] of chatSessions) {
-    if (now - session.lastUserMessageAt > (session.booked ? BOOKED_TTL_MS : SESSION_TTL_MS)) {
-      chatSessions.delete(sid);
-      failureCounts.delete(sid);
-    }
-  }
-}, CLEANUP_MS).unref?.();
+    history.push(entry);
+    chatSessionHistoryCache.set(sessionId, history);
 
-export async function webhookController(req, res, next) {
-  try {
-    if (res && typeof res.status === 'function') {
-      res.status(200).json({ ok: true });
+    const upsertPayload = { id: sessionId, history, updated_at: new Date().toISOString() };
+    const { error: upErr } = await client.from('chat_sessions').upsert([upsertPayload], { onConflict: 'id' });
+    if (upErr) {
+      const msg = String(upErr.message || '').toLowerCase();
+      if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
+      console.warn('persistToChatSessions upsert error', upErr);
     }
     return true;
-  } catch (error) {
-    console.error('webhookController: processing failed', error?.message || error);
-    if (typeof next === 'function') return next(error);
-    if (res && typeof res.status === 'function') {
-      return res.status(500).json({ error: 'Webhook processing failed' });
-    }
-    return false;
+  } catch (e) {
+    console.warn('persistToChatSessions failed', e && e.message ? e.message : e);
+    return null;
   }
 }
 
-export default webhookController;
+async function notifyMonitorPanel({ conversation_id, contact_name, sender, type, content, media_url, timestamp }) {
+  const panelBaseUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
+  const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
+  if (!panelBaseUrl || !username || !password) {
+    return;
+  }
+
+  try {
+    const authHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+    const body = {
+      conversation_id: String(conversation_id || '').trim(),
+      contact_name: contact_name || null,
+      sender,
+      type: type || 'text',
+      content: content || null,
+      media_url: media_url || null,
+      timestamp: timestamp || new Date().toISOString(),
+    };
+
+    const res = await fetch(`${panelBaseUrl}/api/hook`, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res || !res.ok) {
+      const text = res && typeof res.text === 'function' ? await res.text() : '';
+      console.warn('Panel hook failed:', res && res.status ? res.status : 'unknown', text || '');
+    }
+  } catch (e) {
+    console.warn('notifyMonitorPanel failed (non-blocking):', e && e.message ? e.message : e);
+  }
+}
+
+async function notifyDashboardReply(phone, text, mediaUrl = null, wamid = null) {
+  const dashboardUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  try {
+    const response = await fetch(`${dashboardUrl}/api/bot-reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: String(phone).replace(/\D/g, ''),
+        text: text || '',
+        type: mediaUrl ? 'image' : 'text',
+        mediaUrl: mediaUrl || null,
+        wamid: wamid || `bot_${Date.now()}`,
+      }),
+    });
+
+    if (!response.ok) {
+      const responseText = typeof response.text === 'function' ? await response.text() : '';
+      console.warn('Dashboard bot reply sync failed:', response.status, responseText);
+    }
+  } catch (err) {
+    console.error('Error sincronizando respuesta con el dashboard:', err?.message || err);
+  }
+}
+
+function notifyDashboardIncoming(payload) {
+  const dashboardUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  fetch(`${dashboardUrl}/webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch((err) => {
+    console.warn('Error sincronizando mensaje entrante con el dashboard:', err?.message || err);
+  });
+}
+
+function extractPlainText(input) {
+  let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
+
+  cleaned = cleaned.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+
+  if ((cleaned.startsWith('{') && cleaned.endsWith('}')) || (cleaned.startsWith('[') && cleaned.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(cleaned);
+      if (parsed) {
+        const possibleKeys = ['content', 'respuesta', 'response', 'texto', 'text', 'message'];
+        for (const key of possibleKeys) {
+          if (parsed[key] !== undefined && parsed[key] !== null) {
+            if (typeof parsed[key] === 'string' && parsed[key].trim().length > 0) {
+              return parsed[key].trim();
+            }
+            if (typeof parsed[key] === 'object') {
+              const nested = extractPlainText(parsed[key]);
+              if (nested && nested.trim().length > 0) {
+                return nested.trim();
+              }
+            }
+          }
+        }
+
+        if (Array.isArray(parsed)) {
+          const arrayText = parsed.map((item) => extractPlainText(item)).filter(Boolean).join(' ');
+          if (arrayText) return arrayText;
+        }
+
+        if (typeof parsed === 'object') {
+          const traversed = Object.values(parsed)
+            .map((value) => extractPlainText(value))
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          if (traversed) return traversed;
+        }
+      }
+    } catch (e) {
+      const malformedPrefixMatch = cleaned.match(/^\s*\{\s*"(?:content|respuesta|response|texto|text|message)"\s*:\s*"?(.*)$/i);
+      if (malformedPrefixMatch && malformedPrefixMatch[1]) {
+        return malformedPrefixMatch[1].replace(/\}?\s*$/,'').replace(/^"/, '').trim();
+      }
+      const match = cleaned.match(/"(?:content|respuesta|response|texto|text|message)"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
+      if (match && match[1]) return match[1].trim();
+    }
+  }
+
+  return cleaned;
+}
+
+function extractInstructionTags(text) {
+  const imageMatches = [...String(text || '').matchAll(/\[ENVIAR_IMAGEN:([^\]]+)\]/gi)].map((m) => m[1].trim()).filter(Boolean);
+  const agendaMatches = [...String(text || '').matchAll(/\[AGENDAR_CITA:(\{.*?\})\]/gi)].map((m) => m[1].trim()).filter(Boolean);
+  return { imageFiles: [...new Set(imageMatches)], agendaPayloads: agendaMatches };
+}
+
+const imageAliases = {
+  ortodoncia: 'ortodoncia_antes_despues.jpeg',
+  brackets: 'ortodoncia_antes_despues.jpeg',
+  frenillos: 'ortodoncia_antes_despues.jpeg',
+  ortodoncia1: 'ortodoncia_antes_despues1.jpeg',
+  ortodoncia2: 'ortodoncia_antes_despues2.jpeg',
+  ortodoncia3: 'ortodoncia_antes_despues3.jpeg',
+  ortodoncia_kids: 'ortodoncia_antes_despues4.jpeg',
+  carillas: 'carillas.jpeg',
+  estetica: 'carillas.jpeg',
+  diseno_sonrisa: 'carillas.jpeg',
+  implantes: 'implantes.jpeg',
+  endodoncia: 'endodoncia.jpeg',
+  conducto: 'endodoncia.jpeg',
+  protesis: 'protesis.jpeg',
+  odontopediatria: 'odontopediatria.jpeg',
+  ninos: 'odontopediatria.jpeg',
+  kit_preventivo: 'kit_preventivo.jpeg',
+  limpieza: 'kit_preventivo.jpeg',
+  preventivo: 'kit_preventivo.jpeg',
+  promo: 'promo_consulta.jpeg',
+  consulta: 'promo_consulta.jpeg',
+  ubicacion: 'ubicacion.jpeg',
+  mapa: 'ubicacion.jpeg',
+  direccion: 'ubicacion.jpeg',
+  fachada: 'fachada.jpeg',
+  logo: 'logo.jpeg',
+};
+
+const orthodontiaImages = [
+  'ortodoncia_antes_despues.jpeg',
+  'ortodoncia_antes_despues1.jpeg',
+  'ortodoncia_antes_despues2.jpeg',
+  'ortodoncia_antes_despues3.jpeg',
+  'ortodoncia_antes_despues4.jpeg',
+];
+let orthodontiaImageIndex = 0;
+
+function nextOrthodontiaImage() {
+  const image = orthodontiaImages[orthodontiaImageIndex % orthodontiaImages.length];
+  orthodontiaImageIndex += 1;
+  return image;
+}
+
+function normalizeImageReference(reference) {
+  const value = String(reference || '').trim();
+  const key = value.toLowerCase().replace(/\.(jpeg|jpg|png)$/i, '');
+  return imageAliases[key] || value.split(/[\\/]/).pop();
+}
+
+function getTreatmentImageUrl(filename) {
+  const key = Object.entries(imageAliases).find(([, value]) => value === filename)?.[0];
+  return key ? TREATMENT_IMAGES[key] : null;
+}
+
+function resolveTreatmentImage(userText, botText) {
+  const combined = `${userText || ''} ${botText || ''}`.toLowerCase();
+  if (/bracket|ortodoncia|frenillo|alinead/.test(combined)) {
+    return getTreatmentImageUrl(nextOrthodontiaImage());
+  }
+  if (/carilla|estetic|diseño de sonrisa/.test(combined)) return TREATMENT_IMAGES.carillas;
+  if (/implante/.test(combined)) return TREATMENT_IMAGES.implantes;
+  if (/endodoncia|conducto/.test(combined)) return TREATMENT_IMAGES.endodoncia;
+  if (/protesis|postizo/.test(combined)) return TREATMENT_IMAGES.protesis;
+  if (/niñ|pediatr|odontopediatria/.test(combined)) return TREATMENT_IMAGES.odontopediatria;
+  if (/limpieza|profilaxis|preventiv/.test(combined)) return TREATMENT_IMAGES.limpieza;
+  if (/promo|promoci[oó]n|oferta|primera consulta|consulta inicial/.test(combined)) return TREATMENT_IMAGES.promo;
+  if (/donde|ubicacion|dirección|direccion|llegar|mapa/.test(combined)) return TREATMENT_IMAGES.ubicacion;
+  if (/fachada|clinica|clínica|local/.test(combined)) return TREATMENT_IMAGES.fachada;
+  return null;
+}
+
+function getTreatmentImageFilename(url) {
+  const key = Object.entries(TREATMENT_IMAGES).find(([, value]) => value === url)?.[0];
+  return key ? imageAliases[key] : null;
+}
+
+function stripInstructionTags(text) {
+  return String(text || '')
+    .replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '')
+    .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function safeParseAgendaPayload(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    console.warn('webhookController: invalid AGENDAR_CITA payload:', raw, e && e.message ? e.message : e);
+    return null;
+  }
+}
+
+// Fallback mapping: when the model doesn't include [ENVIAR_IMAGEN] tags, use keywords from the user's message
+function mapKeywordsToImages(userText) {
+  if (!userText || typeof userText !== 'string') return [];
+  const t = userText.toLowerCase();
+  const images = [];
+  if (/bracket|ortodoncia|frenillos|brackets|alineador/i.test(t)) images.push(nextOrthodontiaImage());
+  if (/carilla|carillas|carilla dental/i.test(t)) images.push('carillas.jpeg');
+  if (/implante|implantes/i.test(t)) images.push('implantes.jpeg');
+  if (/protesis|pr[oó]tesis|pr[oó]tesis dental/i.test(t)) images.push('protesis.jpeg');
+  if (/endodoncia|conducto|tratamient[oó]n de conductos/i.test(t)) images.push('endodoncia.jpeg');
+  if (/odontopediatr|niñ|niños|pediatr/i.test(t)) images.push('odontopediatria.jpeg');
+  if (/fachada|consultorio|consultorio|clinica|clínica|instalaciones/i.test(t)) images.push('fachada.jpeg');
+  if (/limpieza|profilaxis|kit preventivo|kit_preventivo|mantenimiento/i.test(t)) images.push('kit_preventivo.jpeg');
+  if (/ubicaci|direcci|donde queda|direcci[oó]n|ubicacion/i.test(t)) images.push('ubicacion.jpeg');
+  if (/promo|promoci[oó]n|oferta/i.test(t)) images.push('promo_consulta.jpeg');
+  // Ensure uniqueness and limit to 3 images to avoid spamming
+  return [...new Set(images)].slice(0, 3);
+}
+
+async function persistAgendaPayload(payload, context = {}) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+  if (!rawUrl || !key) return null;
+
+  const record = {
+    nombre: payload.nombre || null,
+    telefono: payload.telefono || context.phone || null,
+    motivo: payload.motivo || null,
+    fecha: payload.fecha || null,
+    hora: payload.hora || null,
+    clinic_id: context.clinicId || null,
+    created_at: new Date().toISOString(),
+    source: context.source || 'whatsapp',
+  };
+
+  try {
+    const client = createClient(rawUrl, key);
+    const attempts = [
+      () => client.from('appointments').insert([record]).select(),
+      () => client.from('calendar_events').insert([record]).select(),
+      () => client.from('leads').insert([{ telefono: record.telefono, nombre: record.nombre, distrito: null, fecha_hora_texto: record.fecha ? `${record.fecha} ${record.hora || ''}`.trim() : null, fecha_hora_iso: null, created_at: record.created_at, clinic_id: record.clinic_id }]).select(),
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const { error } = await attempt();
+        if (!error) return record;
+        const msg = String(error.message || '').toLowerCase();
+        if (!msg.includes('does not exist') && !msg.includes('relation') && !msg.includes('not found')) {
+          throw error;
+        }
+      } catch (e) {
+        const msg = String(e && e.message ? e.message : e).toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) {
+          continue;
+        }
+        throw e;
+      }
+    }
+  } catch (e) {
+    console.warn('webhookController: AGENDAR_CITA storage failed but user message will continue:', e && e.message ? e.message : e);
+  }
+
+  return null;
+}
+
+// Controller delgado que orquesta: Gemini -> lead -> WhatsApp -> admin notify
+// IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
+export default async function webhookController(req, res, next) {
+  try {
+    let incomingPayload = req.parsedBody || req.body;
+    if (Buffer.isBuffer(incomingPayload)) {
+      try {
+        incomingPayload = JSON.parse(incomingPayload.toString('utf8'));
+      } catch (error) {
+        incomingPayload = null;
+      }
+    }
+    if (incomingPayload) {
+      notifyDashboardIncoming(incomingPayload);
+    }
+
+    // Prefer parsedBody attached by verifySignature middleware; parse defensively
+    let payload = null;
+    try {
+      if (req.parsedBody) payload = req.parsedBody;
+      else if (req.body) {
+        if (req.body instanceof Buffer) {
+          try { payload = JSON.parse(req.body.toString('utf8')); } catch (e) { payload = null; }
+        } else {
+          payload = req.body;
+        }
+      }
+    } catch (e) {
+      payload = null;
+    }
+
+    // Detect Chatwoot webhook (message_created)
+    // Safe fallback for clinic name in case `clinic` is undefined in some webhook flows
+    let clinicName = process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental';
+    if (payload?.event === 'message_created' && payload?.payload) {
+      const p = payload.payload;
+      const message = p?.message || p?.content || null;
+      const conversation = p?.conversation || null;
+      const inbox = p?.inbox || null;
+      const contact = p?.sender || p?.contact || p?.sender_contact || p?.contact || null;
+
+      // Build a simple identifier from contact phone if available
+      const contactPhoneRaw = contact?.phone_number || contact?.phone || (p?.sender_contact?.phone_number) || null;
+      const contactDigits = contactPhoneRaw ? String(contactPhoneRaw).replace(/\D/g, '') : null;
+
+      // Lookup clinic by chatwoot_inbox_id or account
+      const phoneNumberId = String(inbox?.id || payload?.account_id || '').trim();
+      let clinic = null;
+      try {
+        const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+        const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+        const supabase = createClient(rawUrl, key);
+        if (inbox?.id) {
+          const { data } = await supabase.from('clinics').select('*').eq('chatwoot_inbox_id', inbox.id).maybeSingle();
+          clinic = data || null;
+        }
+        if (!clinic && payload?.account_id) {
+          const { data } = await supabase.from('clinics').select('*').eq('chatwoot_account_id', payload.account_id).maybeSingle();
+          clinic = data || null;
+        }
+      } catch (e) {
+        console.error('webhookController: error looking up clinic for chatwoot webhook', e && e.message ? e.message : e);
+      }
+
+      // Update clinicName from clinic if available
+      clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
+      // If conversation is assigned to a human agent and open, skip bot
+      const convStatus = conversation?.status || (p?.conversation?.status);
+      const assigneeId = conversation?.meta?.assignee_id || conversation?.assignee_id || null;
+      if (convStatus === 'open' && assigneeId) {
+        // Human in the loop — do not bot-respond
+        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'human_assigned' });
+        return;
+      }
+
+      // If user requests human or conversation unassigned, mark for human handover
+      const text = (message && (message.content || message.body || message.message)) ? (message.content || message.body || message.message) : (p?.content || null);
+      // Persist incoming chatwoot message into chat_sessions
+      try {
+        if (contactDigits && text) {
+          await persistToChatSessions(contactDigits, { from: 'patient', text: String(text).trim(), phone: contactDigits, timestamp: new Date().toISOString() });
+        }
+      } catch (e) {
+        console.warn('webhookController: failed to persist incoming chatwoot message to chat_sessions', e && e.message ? e.message : e);
+      }
+
+      const wantsHuman = typeof text === 'string' && /asesor|humano|asesora|hablar con|asesor(a)?/i.test(text);
+      if (wantsHuman || (!assigneeId && convStatus === 'open')) {
+        try {
+          const accountId = payload.account_id || payload?.account?.id || null;
+          const convId = conversation?.id || p?.conversation?.id;
+          const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
+          if (accountId && convId) {
+            await chatwootService.updateConversation(accountId, convId, apiToken, { status: 'open' });
+            // add a tag or attribute indicating human handover
+            // Chatwoot may support adding labels via separate endpoint; as fallback we set status 'open'
+          }
+        } catch (e) {
+          console.error('webhookController: error updating chatwoot conversation for human handover', e && e.message ? e.message : e);
+        }
+
+        // Pause the bot for this contact's session in geminiService
+        try {
+          if (contactDigits) {
+            geminiService.pauseSessionById(contactDigits);
+          }
+        } catch (e) {
+          console.error('webhookController: failed to pause session', e && e.message ? e.message : e);
+        }
+
+        // Notify clinic admin via notificationService
+        try {
+          // Create a minimal lead object to notify admin that human handover requested
+          const leadLike = { nombre: contact?.name || null, telefono: contactDigits || null, distrito: null, fecha_hora_texto: null };
+          await notificationService.notifyAdminNewLead(leadLike, { whatsappService, leadService, clinic: (typeof clinic !== 'undefined' ? clinic : null) });
+        } catch (e) {
+          console.error('webhookController: error notifying admin about human handover', e && e.message ? e.message : e);
+        }
+
+        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'handover_requested' });
+        return;
+      }
+
+      // Otherwise, treat as a regular incoming message and process through the bot
+      // Map contact phone to jid style used by geminiService
+      const jid = contactDigits ? `${contactDigits}@s.whatsapp.net` : (conversation?.id ? `cw-${conversation.id}` : null);
+
+      // call geminiService to obtain reply; pass clinic config for system prompt
+      const geminiClient = getGeminiClient();
+      // Detect admin sender to avoid creating/updating leads or initiating scheduling flows for admin messages
+      const ADMIN_WHATSAPP_NUMBER = (process.env.ADMIN_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+      const senderNumberNormalized = contactDigits ? String(contactDigits).replace(/\D/g, '') : (conversation?.id ? String(conversation.id).replace(/\D/g, '') : null);
+      const isAdminSender = senderNumberNormalized && ADMIN_WHATSAPP_NUMBER && senderNumberNormalized === ADMIN_WHATSAPP_NUMBER;
+
+      const geminiPromise = geminiService.obtenerRespuestaIA(jid, text || '', {
+        client: geminiClient,
+        clinic: (typeof clinic !== 'undefined' ? clinic : null),
+        maxRetries: 1,
+        maxOutputTokens: 100,
+        skipLeadPersistence: Boolean(isAdminSender)
+      });
+      let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
+      let leadData = null;
+      try {
+        const result = await geminiPromise;
+        if (result) {
+          texto = result.texto || result.text || (typeof result === 'string' ? result : texto);
+          leadData = result.leadData || null;
+        }
+      } catch (e) {
+        console.error('webhookController: gemini call failed for chatwoot message', e && e.stack ? e.stack : e);
+        if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
+      }
+
+      // If leadData present, attempt to save lead using the contact's WhatsApp number as source-of-truth
+      let leadResult = null;
+      if (leadData) {
+        try {
+          const telefonoKey = contactDigits || null; // contactDigits is the remitente phone for Chatwoot events
+          // If message came from admin, skip any DB lead creation/update and scheduling flows
+          if (isAdminSender) {
+            console.log('webhookController: message from admin detected; skipping lead save and scheduling for this sender');
+          } else if (!telefonoKey) {
+            console.warn('webhookController: no remitente phone found for chatwoot message; skipping lead save to avoid using model-extracted phone');
+          } else {
+            const shouldConfirm = typeof text === 'string' && geminiService.isExplicitConfirmation(text);
+            leadResult = await leadService.saveLead({
+              telefono: telefonoKey,
+              nombre: leadData.nombre,
+              distrito: leadData.distrito,
+              fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+              fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+              confirmed: true && shouldConfirm,
+              clinicId: (typeof clinic !== 'undefined' && clinic?.id) || null,
+              clinic: (typeof clinic !== 'undefined' ? clinic : null),
+            });
+            // If user explicitly confirmed, force an admin notify regardless
+            if (shouldConfirm && leadResult && leadResult.lead) {
+              try {
+                await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+              } catch (err) {
+                console.error('webhookController: forced admin notify after explicit confirmation failed', err && err.message ? err.message : err);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('webhookController: error saving lead from chatwoot message', e && e.message ? e.message : e);
+        }
+      }
+ 
+      // Send response back via Chatwoot so it's recorded in inbox
+      try {
+        const accountId = (typeof clinic !== 'undefined' && clinic?.chatwoot_account_id) || payload.account_id || null;
+        const convId = conversation?.id || p?.conversation?.id;
+        const apiToken = (typeof clinic !== 'undefined' && clinic?.chatwoot_api_token) || process.env.CHATWOOT_API_TOKEN;
+        // Clean any backslashes that Gemini may inject before extracting instruction tags
+        const textoLimpioGemini = String(texto || '').replace(/\\/g, '');
+        const cleanedTexto = stripInstructionTags(extractPlainText(texto));
+        const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(textoLimpioGemini);
+
+        // Determine final image files: prefer model-provided tags, otherwise fallback based on user's message keywords
+        const finalImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
+          ? modelImageFiles
+          : mapKeywordsToImages(text);
+
+        for (const rawAgenda of agendaPayloads) {
+          try {
+            const parsed = safeParseAgendaPayload(rawAgenda);
+            if (parsed) {
+              await persistAgendaPayload(parsed, { clinicId: clinic?.id || null, phone: contactDigits || null, source: 'chatwoot' });
+            }
+          } catch (e) {
+            console.error('webhookController: failed persisting AGENDAR_CITA from chatwoot reply', e && e.message ? e.message : e);
+          }
+        }
+
+        // If the model failed and returned an unhelpful fallback text, replace with a friendly professional reply that includes patient name and clinic
+        const fallbackRegex = /no pude procesar|hubo un problema procesando|disculpa,? no|no puedo procesar/i;
+        let replyTextToSend = cleanedTexto;
+
+        // Try to determine patient name: prefer leadData, then contact display name, then session history
+        let patientName = (leadData && leadData.nombre) || contact?.name || null;
+        if (!patientName) {
+          try {
+            const sessionForContact = (() => { try { return geminiService.getOrCreateSession((contactDigits || '') + '@s.whatsapp.net'); } catch (e) { return null; } })();
+            if (sessionForContact && Array.isArray(sessionForContact.history)) {
+              for (let i = sessionForContact.history.length - 1; i >= 0; i--) {
+                const h = sessionForContact.history[i];
+                if (h.role === 'user') {
+                  const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
+                  const parsed = geminiService.extractLeadDataFromText ? geminiService.extractLeadDataFromText(t) : null;
+                  if (parsed && parsed.nombre && geminiService.isValidName && geminiService.isValidName(parsed.nombre)) {
+                    patientName = parsed.nombre;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) { patientName = patientName || null; }
+        }
+
+        const clinicDisplayName = (typeof clinic !== 'undefined' && clinic?.name) ? clinic.name : clinicName;
+
+        if (fallbackRegex.test(replyTextToSend)) {
+          const namePart = patientName ? `${patientName}, ` : '';
+          replyTextToSend = `¡Hola ${patientName ? patientName : 'estimado/a paciente'}! Te comparto fotos de ejemplo de ${clinicDisplayName} para que puedas ver resultados. ¿Deseas que te ayude a agendar una cita?`;
+        }
+
+        // First send one image (if any) to the patient, then the text so the patient sees the photo immediately
+        const resolvedTreatmentUrl = resolveTreatmentImage(messageText, replyText);
+        const resolvedTreatmentFilename = getTreatmentImageFilename(resolvedTreatmentUrl);
+        const imageToSend = resolvedTreatmentFilename
+          || ((Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null);
+        if (imageToSend && contactDigits) {
+          try {
+            await enviarImagenWhatsapp(contactDigits, imageToSend);
+            try {
+              const mediaUrl = getTreatmentImageUrl(imageToSend);
+              forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: null, mediaUrl } });
+            } catch (e) {
+              /* non-blocking */
+            }
+          } catch (e) {
+            console.error('webhookController: failed sending image via chatwoot fallback', imageToSend, e && e.message ? e.message : e);
+          }
+        }
+
+        if (accountId && convId && apiToken) {
+          await chatwootService.sendMessageToConversation(accountId, convId, apiToken, replyTextToSend);
+        } else if (contactDigits) {
+          if (replyTextToSend) {
+        await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, {});
+        try {
+          forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: replyTextToSend, mediaUrl: null } });
+        } catch (e) { /* non-blocking */ }
+          }
+        }
+
+        // Persist bot reply into chat_sessions
+        try {
+          if (contactDigits) {
+            const imgName = imageToSend ? String(imageToSend).split(/[\\/]/).pop() : null;
+            await persistToChatSessions(contactDigits, { from: 'bot', text: replyTextToSend || null, image: imgName, phone: contactDigits, timestamp: new Date().toISOString() });
+          }
+        } catch (e) {
+          console.warn('webhookController: failed to persist bot reply to chat_sessions', e && e.message ? e.message : e);
+        }
+      } catch (e) {
+        console.error('webhookController: failed to send reply via chatwoot/whatsapp', e && e.message ? e.message : e);
+      }
+ 
+      if (leadResult && leadResult.readyToNotify && leadResult.lead) {
+        try {
+          console.log('[NOTIFICACION] lead marked readyToNotify; notifying admin now');
+          await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+        } catch (e) {
+          console.error('webhookController: error notifying admin after lead save', e && e.message ? e.message : e);
+        }
+      }
+
+      if (!res.headersSent) return res.status(200).json({ ok: true });
+      return;
+    }
+
+    // Existing WhatsApp webhook handling follows unchanged
+    const entry = payload?.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value || {};
+    const message = value?.messages?.[0] || null;
+
+    if (!message) {
+      // nothing to process
+      if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'no_message' });
+      return;
+    }
+
+    const rawFrom = message?.from || message?.from_user_id || value?.contacts?.[0]?.wa_id || value?.contacts?.[0]?.user_id || null;
+    let from = rawFrom ? String(rawFrom).trim().replace(/^PE\./i, '') : null;
+    from = from ? from.replace(/\D/g, '') : null;
+    if (!from) {
+      console.warn('webhookController: invalid from, skipping');
+      if (!res.headersSent) return res.status(200).json({ ok: false, reason: 'invalid_from' });
+      return;
+    }
+
+    let messageText = null;
+    if (message?.type === 'text') {
+      messageText = message?.text?.body?.trim();
+    } else if (message?.type === 'button') {
+      messageText = message?.button?.text?.trim();
+    } else if (message?.type === 'interactive') {
+      messageText = message?.interactive?.button_reply?.title?.trim() || message?.interactive?.list_reply?.title?.trim();
+    } else {
+      messageText = message?.text?.body?.trim() || null;
+    }
+
+    if (!messageText) {
+      console.warn('webhookController: message text missing');
+      if (!res.headersSent) return res.status(200).json({ ok: false, reason: 'no_text' });
+      return;
+    }
+
+    const incomingType = message?.type === 'image' ? 'image' : 'text';
+    const incomingMediaUrl = message?.type === 'image' && (message?.image?.link || message?.image?.url || null) ? (message.image.link || message.image.url) : null;
+    await notifyMonitorPanel({
+      conversation_id: from,
+      contact_name: value?.contacts?.[0]?.profile?.name || null,
+      sender: 'user',
+      type: incomingType,
+      content: messageText || null,
+      media_url: incomingMediaUrl,
+      timestamp: new Date().toISOString(),
+    });
+    await persistToSupabaseConversation({
+      conversationId: from,
+      contactNumber: from,
+      contactName: value?.contacts?.[0]?.profile?.name || from,
+      sender: 'user',
+      text: messageText,
+      mediaUrl: incomingMediaUrl,
+      timestamp: new Date().toISOString()
+    });
+
+    // At this point we have validated "from" and "messageText".
+    // Respond immediately to Meta to avoid retries/duplication.
+    if (!res || !res.headersSent) {
+      try { return res.status(200).json({ ok: true }); } catch (e) { /* safe no-op */ }
+    }
+    // If headers already sent, continue silently
+    
+
+    // Continue processing in background without blocking the response.
+    // Use an immediately-invoked async function and internal try/catch to avoid unhandled rejections.
+    (async () => {
+      try {
+        const jid = `${from}@s.whatsapp.net`;
+
+        // Apply a 15s timeout to the Gemini call (requirement).
+        const geminiClient = getGeminiClient();
+        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 100 });
+        const timeoutMs = 25_000;
+        const timeoutPromise = new Promise((_, reject) => {
+          const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
+          // ensure timer doesn't keep process alive
+          t.unref && t.unref();
+        });
+ 
+        const phoneNumberId = value?.metadata?.phone_number_id ? String(value.metadata.phone_number_id).trim() : (process.env.WHATSAPP_PHONE_NUMBER_ID ? String(process.env.WHATSAPP_PHONE_NUMBER_ID).trim() : null);
+        let clinic = null;
+        if (phoneNumberId) {
+          try {
+            // Try to obtain a Supabase client from services/leadService.js to respect existing factory
+            let client = null;
+            try {
+              const mod = await import('../services/leadService.js');
+              if (mod && typeof mod.getSupabaseClient === 'function') {
+                client = mod.getSupabaseClient();
+              }
+            } catch (impErr) {
+              // Dynamic import failed or leadService not available in this context; fall back to creating a client from env if possible
+              try {
+                const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
+                const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+                if (rawUrl && key) client = createClient(rawUrl, key);
+              } catch (cErr) {
+                // ignore and fallback below
+              }
+            }
+
+            if (client) {
+              const { data } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
+              clinic = data || null;
+            } else {
+              // Graceful fallback: provide a minimal default clinic object so processing continues
+              clinic = clinic || {
+                id: null,
+                name: 'LUMINZU',
+                address: process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco',
+                chatwoot_inbox_id: null,
+                chatwoot_account_id: null,
+                chatwoot_api_token: process.env.CHATWOOT_API_TOKEN || null,
+                waba_phone_number_id: phoneNumberId,
+              };
+            }
+          } catch (e) {
+            console.error('webhookController: error looking up clinic by waba_phone_number_id', e && e.message ? e.message : e);
+            // Fallback to default minimal clinic so bot response is not interrupted
+            clinic = clinic || {
+              id: null,
+              name: 'LUMINZU',
+              address: process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco',
+              chatwoot_inbox_id: null,
+              chatwoot_account_id: null,
+              chatwoot_api_token: process.env.CHATWOOT_API_TOKEN || null,
+              waba_phone_number_id: phoneNumberId,
+            };
+          }
+        }
+ 
+        let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
+        let leadData = null;
+        let skipResponse = false;
+        // Ensure gemini result is available outside try/catch scope to avoid ReferenceError when Promise.race throws
+        let geminiResult = null;
+        try {
+          geminiResult = await Promise.race([geminiPromise, timeoutPromise]);
+          if (geminiResult) {
+            if (geminiResult.skipResponse) {
+              skipResponse = true;
+            } else {
+              texto = geminiResult.texto || geminiResult.text || (typeof geminiResult === 'string' ? geminiResult : texto);
+              leadData = geminiResult.leadData || null;
+            }
+          }
+        } catch (e) {
+          console.error('webhookController: gemini call failed or timed out', e && e.stack ? e.stack : e);
+          if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
+          // On failure, fallback message is already in texto
+        }
+  
+        if (skipResponse) {
+          return;
+        }
+  
+        // Save lead if leadData is present. Use the remitente phone ('from') as the canonical source-of-truth for telefono.
+        let leadResult = null;
+        if (leadData) {
+          try {
+            const telefonoKey = from || null;
+            if (!telefonoKey) {
+              console.warn('webhookController: no remitente phone available in WhatsApp event; skipping lead save to avoid using model-extracted phone');
+            } else {
+              const shouldConfirm = typeof messageText === 'string' && geminiService.isExplicitConfirmation(messageText);
+              // Only attempt persistence if the Gemini response did not request skipping lead persistence
+              const shouldPersistLead = !(geminiResult && geminiResult.skipLeadPersistence);
+              if (shouldPersistLead) {
+                try {
+                  leadResult = await leadService.saveLead({
+                    telefono: telefonoKey,
+                    nombre: leadData.nombre,
+                    distrito: leadData.distrito,
+                    fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
+                    fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
+                    confirmed: shouldConfirm,
+                    clinicId: clinic?.id || null,
+                    clinic: clinic || null,
+                  });
+                } catch (dbErr) {
+                  // Log DB errors but do not let them interrupt message sending
+                  console.error('webhookController: leadService.saveLead failed', dbErr && (dbErr.message || dbErr));
+                }
+              }
+              // If user explicitly confirmed, force an admin notify regardless (best-effort)
+              if (shouldConfirm && leadResult && leadResult.lead) {
+                try {
+                  await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+                } catch (err) {
+                  console.error('webhookController: forced admin notify after explicit confirmation failed', err && err.message ? err.message : err);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('webhookController: error saving lead', e && e.message ? e.message : e);
+          }
+        }
+
+        // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
+        try {
+          // Persist incoming WhatsApp patient message into chat_sessions
+          try {
+            if (from && messageText) {
+              await persistToChatSessions(from, { from: 'patient', text: String(messageText).trim(), phone: from, timestamp: new Date().toISOString() });
+            }
+          } catch (e) {
+            console.warn('webhookController: failed to persist incoming whatsapp message to chat_sessions', e && e.message ? e.message : e);
+          }
+
+          // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
+          let textoFinal = extractPlainText(texto);
+
+          textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
+          // Ensure admin-only alert text is never forwarded to the patient.
+          textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
+
+          // Clean any backslashes that Gemini may inject before extracting instruction tags
+          const textoLimpioGemini = String(textoFinal || '').replace(/\\/g, '');
+          const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(textoLimpioGemini);
+          const sanitizedText = stripInstructionTags(textoLimpioGemini);
+
+          // Determine final image files: prefer model-provided tags, otherwise fallback based on original user message
+          const requestedImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
+            ? modelImageFiles
+            : mapKeywordsToImages(messageText);
+          const finalImageFiles = requestedImageFiles.map(normalizeImageReference);
+
+          // Handle AGENDAR_CITA payloads safely and without breaking the user response.
+          for (const rawAgenda of agendaPayloads) {
+            try {
+              const parsed = safeParseAgendaPayload(rawAgenda);
+              if (parsed) {
+                console.log('[AGENDAR_CITA]', parsed);
+                await persistAgendaPayload(parsed, { clinicId: clinic?.id || null, phone: from, source: 'whatsapp' });
+              }
+            } catch (e) {
+              console.error('webhookController: failed parsing AGENDAR_CITA payload', e && e.message ? e.message : e);
+            }
+          }
+
+          // Defensive placeholder cleanup before sending to user
+          clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
+          const session = (() => { try { return geminiService.getOrCreateSession(from + '@s.whatsapp.net'); } catch (e) { return null; } })();
+          let patientName = null;
+          try {
+            if (session && Array.isArray(session.history)) {
+              for (let i = session.history.length - 1; i >= 0; i--) {
+                const h = session.history[i];
+                if (h.role === 'user') {
+                  const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
+                  const parsed = geminiService.extractLeadDataFromText ? geminiService.extractLeadDataFromText(t) : null;
+                  if (parsed && parsed.nombre && geminiService.isValidName && geminiService.isValidName(parsed.nombre)) {
+                    patientName = parsed.nombre;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) { patientName = null; }
+
+          let finalTextForUser = sanitizedText.replace(/\[NOMBRE_CLINICA\]/g, clinicName);
+          if (patientName) {
+            finalTextForUser = finalTextForUser.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
+          } else {
+            finalTextForUser = finalTextForUser.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
+          }
+          finalTextForUser = finalTextForUser.replace(/\s{2,}/g, ' ').trim();
+
+          // If model returned an unhelpful fallback, substitute a friendly professional reply that includes name and clinic
+          const fallbackRegex = /no pude procesar|hubo un problema procesando|disculpa,? no|no puedo procesar/i;
+          let replyText = finalTextForUser;
+
+          const clinicDisplayName = (typeof clinic !== 'undefined' && clinic?.name) ? clinic.name : clinicName;
+          const namePart = patientName ? `${patientName}, ` : '';
+
+          if (fallbackRegex.test(replyText)) {
+            replyText = `¡Hola ${patientName ? patientName : 'estimado/a paciente'}! Te comparto fotos de ejemplo de ${clinicDisplayName} para que veas resultados. ¿Te gustaría que te ayude a agendar una cita?`;
+          }
+
+          // Send one image first (if any), then the reply text so the user sees the photo immediately
+          const resolvedTreatmentUrl = resolveTreatmentImage(messageText, textoFinal);
+          const resolvedTreatmentFilename = getTreatmentImageFilename(resolvedTreatmentUrl);
+          const imageToSend = resolvedTreatmentFilename
+            || ((Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null);
+          if (imageToSend) {
+            try {
+              const imageSent = await enviarImagenWhatsapp(from, imageToSend);
+              try {
+                const mediaUrl = resolvedTreatmentUrl || getTreatmentImageUrl(imageToSend);
+                forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: null, mediaUrl } });
+                if (imageSent) {
+                  await notifyDashboardReply(from, '', mediaUrl, null);
+                }
+              } catch (e) { /* non-blocking */ }
+            } catch (e) {
+              console.error('webhookController: failed sending image to patient', imageToSend, e && e.message ? e.message : e);
+            }
+          }
+
+          if (replyText && replyText.length > 0 && !skipResponse) {
+            const sendResult = await whatsappService.sendWhatsAppMessage(from, replyText, {});
+            try {
+              forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: replyText, mediaUrl: null } });
+              await notifyDashboardReply(from, replyText, null, sendResult?.messages?.[0]?.id || null);
+            } catch (e) { /* non-blocking */ }
+          }
+
+          const replyImageUrl = resolvedTreatmentUrl || getTreatmentImageUrl(imageToSend);
+          await notifyMonitorPanel({
+            conversation_id: from,
+            contact_name: patientName || value?.contacts?.[0]?.profile?.name || null,
+            sender: 'bot',
+            type: imageToSend ? 'image' : 'text',
+            content: replyText || null,
+            media_url: replyImageUrl,
+            timestamp: new Date().toISOString(),
+          });
+          await persistToSupabaseConversation({
+            conversationId: from,
+            contactNumber: from,
+            contactName: patientName || value?.contacts?.[0]?.profile?.name || from,
+            sender: 'bot',
+            text: replyText || null,
+            mediaUrl: replyImageUrl,
+            timestamp: new Date().toISOString()
+          });
+
+          // Persist bot reply (text and/or image) into chat_sessions
+          try {
+            const imgName = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? String(finalImageFiles[0]).split(/[\\/]/).pop() : null;
+            await persistToChatSessions(from, { from: 'bot', text: replyText || null, image: imgName, phone: from, timestamp: new Date().toISOString() });
+          } catch (e) {
+            console.warn('webhookController: failed to persist bot reply to chat_sessions', e && e.message ? e.message : e);
+          }
+        } catch (e) {
+          console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);
+        }
+
+        // Notify admin if needed (best-effort)
+        try {
+          if (leadResult && leadResult.readyToNotify && leadResult.lead) {
+            const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone || 'unknown';
+            console.log('[NOTIFICACION ENVIADA A ADMIN]:', adminNumber);
+            await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
+          }
+        } catch (e) {
+          console.error('webhookController: error in admin notify flow', e && e.message ? e.message : e);
+        }
+      } catch (err) {
+        // This catch is for the entire background processing block.
+        console.error('webhookController: unexpected background processing error', err && err.message ? err.message : err);
+      }
+    })();
+
+    // We already sent response to Meta; do not await background work.
+    return;
+  } catch (err) {
+    // If we reach here before sending response, pass to centralized error handler
+    return next(err);
+  }
+}
