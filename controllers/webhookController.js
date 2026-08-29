@@ -234,8 +234,12 @@ function extractPlainText(input) {
 }
 
 function extractInstructionTags(text) {
-  const imageMatches = [...String(text || '').matchAll(/\[ENVIAR_IMAGEN:([^\]]+)\]/gi)].map((m) => m[1].trim()).filter(Boolean);
-  const agendaMatches = [...String(text || '').matchAll(/\[AGENDAR_CITA:(\{.*?\})\]/gi)].map((m) => m[1].trim()).filter(Boolean);
+  // El guion bajo es opcional (\[ENVIAR_?IMAGEN\]) porque Gemini a veces genera
+  // "[ENVIARIMAGEN:...]" sin guion bajo; con la regex anterior esa variante no
+  // se detectaba y el texto crudo de la etiqueta se le enviaba al paciente.
+  const imageMatches = [...String(text || '').matchAll(/\[ENVIAR_?IMAGEN\s*:\s*([^\]]+)\]/gi)].map((m) => m[1].trim()).filter(Boolean);
+  // [\s\S]*? en vez de .*? para que también capture JSON que Gemini formatee en varias líneas.
+  const agendaMatches = [...String(text || '').matchAll(/\[AGENDAR_CITA\s*:\s*(\{[\s\S]*?\})\]/gi)].map((m) => m[1].trim()).filter(Boolean);
   return { imageFiles: [...new Set(imageMatches)], agendaPayloads: agendaMatches };
 }
 
@@ -318,8 +322,8 @@ function getTreatmentImageFilename(url) {
 
 function stripInstructionTags(text) {
   return String(text || '')
-    .replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '')
-    .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
+    .replace(/\[ENVIAR_?IMAGEN\s*:\s*[^\]]+\]/gi, '')
+    .replace(/\[AGENDAR_CITA\s*:\s*\{[\s\S]*?\}\]/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
