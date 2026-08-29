@@ -433,6 +433,18 @@ export default async function webhookController(req, res, next) {
       payload = null;
     }
 
+    const value = payload?.entry?.[0]?.changes?.[0]?.value;
+    const incomingMessages = Array.isArray(value?.messages) ? value.messages : [];
+    if (!incomingMessages.length) {
+      if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'ignored_non_message' });
+      return;
+    }
+    const firstMessage = incomingMessages[0];
+    if (!firstMessage || firstMessage.from === 'status@broadcast' || firstMessage.type === 'system') {
+      if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'ignored_status_or_system' });
+      return;
+    }
+
     // Detect Chatwoot webhook (message_created)
     // Safe fallback for clinic name in case `clinic` is undefined in some webhook flows
     let clinicName = process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental';
@@ -708,8 +720,8 @@ export default async function webhookController(req, res, next) {
     // Existing WhatsApp webhook handling follows unchanged
     const entry = payload?.entry?.[0];
     const change = entry?.changes?.[0];
-    const value = change?.value || {};
-    const message = value?.messages?.[0] || null;
+    const payloadValue = change?.value || {};
+    const message = payloadValue?.messages?.[0] || null;
 
     if (!message) {
       // nothing to process
@@ -717,7 +729,7 @@ export default async function webhookController(req, res, next) {
       return;
     }
 
-    const rawFrom = message?.from || message?.from_user_id || value?.contacts?.[0]?.wa_id || value?.contacts?.[0]?.user_id || null;
+    const rawFrom = message?.from || message?.from_user_id || payloadValue?.contacts?.[0]?.wa_id || payloadValue?.contacts?.[0]?.user_id || null;
     let from = rawFrom ? String(rawFrom).trim().replace(/^PE\./i, '') : null;
     from = from ? from.replace(/\D/g, '') : null;
     if (!from) {
@@ -747,7 +759,7 @@ export default async function webhookController(req, res, next) {
     const incomingMediaUrl = message?.type === 'image' && (message?.image?.link || message?.image?.url || null) ? (message.image.link || message.image.url) : null;
     await notifyMonitorPanel({
       conversation_id: from,
-      contact_name: value?.contacts?.[0]?.profile?.name || null,
+      contact_name: payloadValue?.contacts?.[0]?.profile?.name || null,
       sender: 'user',
       type: incomingType,
       content: messageText || null,
@@ -757,7 +769,7 @@ export default async function webhookController(req, res, next) {
     await persistToSupabaseConversation({
       conversationId: from,
       contactNumber: from,
-      contactName: value?.contacts?.[0]?.profile?.name || from,
+      contactName: payloadValue?.contacts?.[0]?.profile?.name || from,
       sender: 'user',
       text: messageText,
       mediaUrl: incomingMediaUrl,
@@ -788,7 +800,7 @@ export default async function webhookController(req, res, next) {
           t.unref && t.unref();
         });
  
-        const phoneNumberId = value?.metadata?.phone_number_id ? String(value.metadata.phone_number_id).trim() : (process.env.WHATSAPP_PHONE_NUMBER_ID ? String(process.env.WHATSAPP_PHONE_NUMBER_ID).trim() : null);
+        const phoneNumberId = payloadValue?.metadata?.phone_number_id ? String(payloadValue.metadata.phone_number_id).trim() : (process.env.WHATSAPP_PHONE_NUMBER_ID ? String(process.env.WHATSAPP_PHONE_NUMBER_ID).trim() : null);
         let clinic = null;
         if (phoneNumberId) {
           try {
@@ -1019,7 +1031,7 @@ export default async function webhookController(req, res, next) {
           const replyImageUrl = resolvedTreatmentUrl || getTreatmentImageUrl(imageToSend);
           await notifyMonitorPanel({
             conversation_id: from,
-            contact_name: patientName || value?.contacts?.[0]?.profile?.name || null,
+            contact_name: patientName || payloadValue?.contacts?.[0]?.profile?.name || null,
             sender: 'bot',
             type: imageToSend ? 'image' : 'text',
             content: replyText || null,
@@ -1029,7 +1041,7 @@ export default async function webhookController(req, res, next) {
           await persistToSupabaseConversation({
             conversationId: from,
             contactNumber: from,
-            contactName: patientName || value?.contacts?.[0]?.profile?.name || from,
+            contactName: patientName || payloadValue?.contacts?.[0]?.profile?.name || from,
             sender: 'bot',
             text: replyText || null,
             mediaUrl: replyImageUrl,

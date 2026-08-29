@@ -3,19 +3,32 @@
 // - Exposes a config object for the app
 // - Exposes helpers to mask secrets in logs
 
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN || null;
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || null;
+const WEBHOOK_VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || process.env.WEBHOOK_VERIFY_TOKEN || null;
+const SUPABASE_URL = process.env.SUPABASE_URL || null;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_KEY || null;
+
 const required = [
   'GEMINI_API_KEY',
   'GEMINI_MODEL',
-  'WHATSAPP_PHONE_NUMBER_ID',
-  'WHATSAPP_WEBHOOK_VERIFY_TOKEN',
+  'WHATSAPP_TOKEN',
+  'PHONE_NUMBER_ID',
+  'WEBHOOK_VERIFY_TOKEN',
   'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
 ];
 
-const missing = required.filter((k) => !process.env[k]);
-const missingServiceRoleKey = !process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SERVICE_ROLE;
-if (missingServiceRoleKey) {
-  missing.push('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE');
-}
+const missing = required.filter((k) => {
+  switch (k) {
+    case 'WHATSAPP_TOKEN': return !WHATSAPP_TOKEN;
+    case 'PHONE_NUMBER_ID': return !PHONE_NUMBER_ID;
+    case 'WEBHOOK_VERIFY_TOKEN': return !WEBHOOK_VERIFY_TOKEN;
+    case 'SUPABASE_URL': return !SUPABASE_URL;
+    case 'SUPABASE_SERVICE_ROLE_KEY': return !SUPABASE_KEY;
+    default: return !process.env[k];
+  }
+});
 
 const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
 const isTest = nodeEnv === 'test';
@@ -76,14 +89,14 @@ export default {
     extractionsPrice: process.env.CLINIC_EXTRACTIONS_PRICE || process.env.PRECIO_EXTRACCIONES || 'Consulta',
   },
   whatsapp: {
-    token: process.env.WHATSAPP_TOKEN || null,
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    token: WHATSAPP_TOKEN,
+    phoneNumberId: PHONE_NUMBER_ID,
     appSecret: process.env.WHATSAPP_APP_SECRET || null,
-    webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+    webhookVerifyToken: WEBHOOK_VERIFY_TOKEN,
   },
   supabase: {
-    url: process.env.SUPABASE_URL || null,
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE || null,
+    url: SUPABASE_URL,
+    serviceRoleKey: SUPABASE_KEY,
   },
   admin: {
     phone: process.env.ADMIN_WHATSAPP_NUMBER || null,

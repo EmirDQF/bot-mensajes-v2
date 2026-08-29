@@ -44,10 +44,10 @@ export async function sendPanelMessage(req, res) {
   }
 
   try {
-    const url = `https://graph.facebook.com/v17.0/${phoneId}/messages`;
+    const url = `https://graph.facebook.com/v20.0/${phoneId}/messages`;
     const body = imageUrl
       ? { messaging_product: 'whatsapp', to: phone, type: 'image', image: { link: imageUrl, caption: text || '' } }
-      : { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text } };
+      : { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text || '' } };
 
     const resp = await fetch(url, {
       method: 'POST',
