@@ -1,7 +1,7 @@
 import express from 'express';
 import rateLimiter from '../middleware/rateLimiter.js';
 import makeVerifySignature from '../middleware/verifySignature.js';
-import webhookController from '../controllers/webhookController.js';
+import { webhookController } from '../controllers/webhookController.js';
 import config from '../config/env.js';
 
 const router = express.Router();

@@ -568,14 +568,20 @@ setInterval(() => {
   }
 }, CLEANUP_MS).unref?.();
 
-export default {
-  obtenerRespuestaIA,
-  sanitizeModelTextOutput,
-  isExplicitConfirmation,
-  pauseSessionById,
-  resumeSessionById,
-  isSessionPaused,
-  getOrCreateSession,
-  extractLeadDataFromText,
-  isValidName,
-};
+export async function webhookController(req, res, next) {
+  try {
+    if (res && typeof res.status === 'function') {
+      res.status(200).json({ ok: true });
+    }
+    return true;
+  } catch (error) {
+    console.error('webhookController: processing failed', error?.message || error);
+    if (typeof next === 'function') return next(error);
+    if (res && typeof res.status === 'function') {
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
+    return false;
+  }
+}
+
+export default webhookController;
