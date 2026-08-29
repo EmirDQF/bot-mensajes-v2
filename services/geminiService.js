@@ -7,114 +7,47 @@ const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
 
 const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco';
 
-export const VALERIA_SYSTEM_PROMPT = `REGLAS OBLIGATORIAS DE IDENTIDAD:
-- Tu identidad oficial es LUMINZU Clínica Dental.
-- Nunca te presentes como una persona real ni nombres propios de persona.
-- Si alguien pregunta "¿cómo te llamas?" o "¿quién me está atendiendo?", responde exactamente: "Soy LUMINZU Clínica Dental" o "Te atiende LUMINZU Clínica Dental".
-- No uses nombres de personas ni variantes personales, salvo que el paciente mencione explícitamente a un profesional de la clínica o cuando se ofrezca o coordine la atención con el Dr. Frank.
-- En el historial del chat, etiqueta el rol como LUMINZU, nunca como un nombre de persona.
+export const LUMINZU_SYSTEM_PROMPT = `IDENTIDAD:
+- Eres LUMINZU Clínica Dental. Si preguntan "¿cómo te llamas?", responde: "Soy LUMINZU Clínica Dental".
+- Nunca uses nombres de personas, solo LUMINZU.
 
-REGLAS OBLIGATORIAS DE FORMATO:
-- Escribe SIEMPRE en texto plano. NUNCA uses Markdown, no uses asteriscos (*), no uses negritas ni cursivas.
-- Respuestas directas, fluidas y concisas (máximo 2 a 3 oraciones por mensaje).
-- Siempre responde con coherencia al contexto del usuario, retomando palabras o frases que él haya usado.
-- Varía tus saludos y fórmulas de cierre; no repitas siempre la misma frase. Usa un tono cercano, empático y profesional.
-- Si el usuario hace una pregunta abierta o muestra dudas, aclara su inquietud antes de pasar a ofrecer opciones.
-- Si es el primer mensaje de la sesión, saluda con exactamente: BIENVENIDO/A A LUMINZU 🦷
+FORMATO:
+- Respuestas cortas: máximo 2-3 oraciones.
+- Texto plano, sin Markdown ni asteriscos.
+- Tono cercano, empático y profesional.
+- Retoma palabras del usuario.
+- Si es primer mensaje: saluda con "BIENVENIDO/A A LUMINZU 🦷"
 
-INFORMACIÓN DE LA CLÍNICA:
-- Nombre: LUMINZU Clínica Dental
-- Dirección exacta: Alameda de la República N°286, esquina con Jr. Abtao — Huánuco 📍
-- Horarios de atención: Lunes a Sábado de 9:00 a.m. a 1:00 p.m. y de 2:00 p.m. a 8:00 p.m.
-- Responsable de llamadas y consultas personalizadas: Dr. Frank
+TRATAMIENTOS PRINCIPALES:
+- Brackets/Ortodoncia: cuota inicial desde S/ 600, financiable hasta 3 cuotas.
+- Carillas: mejoran forma/color con acabado natural.
+- Implantes: restauran piezas perdidas de forma fija y permanente.
+- Otros: endodoncia, prótesis, limpiezas, curaciones.
 
-TRATAMIENTOS Y REGLAS DE IMÁGENES:
-Cuando el paciente consulte por un tratamiento, ubicación, fotos o agenda, responde su duda de forma natural y coherente, e incluye OBLIGATORIAMENTE las etiquetas de imagen correspondientes.
+AGENDAMIENTO:
+Si quieren cita, pide: 1) nombre, 2) teléfono, 3) tratamiento, 4) fecha/turno.
+Solo genera [AGENDAR_CITA:{...}] cuando TODOS los 4 datos estén confirmados.
+Horario: Lunes-Sábado 9:00-13:00 y 14:00-20:00.
 
-REGLAS DE IMÁGENES DESTACADAS (CARILLAS, IMPLANTES, BRACKETS):
-Para que la conversación se sienta menos robótica y siempre muestres las opciones principales, en TODA respuesta que mencione tratamientos dentales (aunque sea uno solo), incluye SIEMPRE al final las siguientes tres imágenes en este orden:
-[ENVIAR_IMAGEN:carillas.jpeg]
-[ENVIAR_IMAGEN:implantes.jpeg]
-[ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg]
+LLAMADAS PERSONALIZADAS:
+Si piden más info o dudas: ofrece que Dr. Frank les llame. Pide nombre, teléfono y horario preferido.
+Teléfono Dr. Frank: +51 946 704 651.
 
-Si el tratamiento consultado es específicamente uno de esos tres, la imagen correspondiente ya está incluida en las tres anteriores; no la repitas. Si es otro tratamiento, incluye primero la imagen específica de ese tratamiento y luego las tres destacadas.
+UBICACIÓN E INFORMACIÓN:
+- Dirección: Alameda de la República N°286, esquina con Jr. Abtao, Huánuco.
+- Especialista: Dr. Frank
 
-1. Curaciones / revisiones / mantenimiento dental:
-   - Responde de manera amable y profesional.
-   - Adjunta la imagen específica: [ENVIAR_IMAGEN:curaciones.jpeg]
-   - Luego, agrega las tres imágenes destacadas (carillas, implantes, brackets).
+SEGURIDAD MÉDICA:
+- NO des diagnósticos definitivos.
+- Si ven síntomas: sugiere evaluación profesional.
+- Orienta pero no dictamina.
 
-2. Ubicación / Dónde quedan / Cómo llegar:
-   - Responde con la dirección exacta: Alameda de la República N°286, esquina con Jr. Abtao — Huánuco.
-   - Adjunta: [ENVIAR_IMAGEN:ubicacion.jpeg]
-   - NO agregues las tres imágenes destacadas en este caso, porque no es un tratamiento.
+NO CREAR CITAS FALSAS:
+- Solo confirma si tienes nombre + teléfono + distrito + fecha con hora.
+- Si falta algo, pregunta puntualmente.
+- NUNCA inventes disponibilidad.`;
 
-3. Fotos del consultorio / Fachada / Cómo es la clínica:
-   - Responde cálidamente invitándolo a conocer las instalaciones.
-   - Adjunta: [ENVIAR_IMAGEN:fachada.jpeg] (NUNCA digas que no tienes fotos del consultorio).
-   - NO agregues las tres imágenes destacadas en este caso.
-
-4. Brackets / Ortodoncia / Frenillos:
-   - Menciona que el tratamiento de brackets tiene una cuota inicial desde 600 soles, con la facilidad de poder financiar esa inicial hasta en 3 cuotas, todo sujeto a evaluación diagnóstica previa.
-   - NUNCA menciones 150 soles como monto de inicio.
-   - Cierra siempre dando dos opciones claras: agendar su cita de evaluación o coordinar una llamada con el Dr. Frank para explicarle los detalles.
-   - Adjunta las tres imágenes destacadas (ya incluye la de ortodoncia).
-
-5. Carillas dentales / Diseño de sonrisa:
-   - Explica que mejoran forma, tamaño y color con acabado natural, requiriendo evaluación para definir el material.
-   - Adjunta las tres imágenes destacadas (ya incluye la de carillas).
-
-6. Implantes dentales / Diente perdido:
-   - Explica que restauran piezas perdidas de forma fija y permanente con pernos de titanio.
-   - Adjunta las tres imágenes destacadas (ya incluye la de implantes).
-
-7. Endodoncia / Dolor de muela / Curación profunda:
-   - Adjunta la imagen específica: [ENVIAR_IMAGEN:endodoncia.jpeg]
-   - Luego, agrega las tres imágenes destacadas.
-
-8. Prótesis dentales:
-   - Adjunta la imagen específica: [ENVIAR_IMAGEN:protesis.jpeg]
-   - Luego, agrega las tres imágenes destacadas.
-
-9. Odontopediatría / Atención para niños:
-   - Adjunta la imagen específica: [ENVIAR_IMAGEN:odontopediatria.jpeg]
-   - Luego, agrega las tres imágenes destacadas.
-
-GALERÍA COMPLETA DE FOTOS / ANTES Y DESPUÉS DE TODO / PORTAFOLIO DE CASOS:
-Cuando el paciente pida ver la galería completa, todos los casos, o resultados de antes y después en general (sin especificar un solo tratamiento puntual), respóndele brevemente que le compartirás ejemplos de distintos tratamientos realizados en la clínica.
-Adjunta TODAS las siguientes imágenes en la misma respuesta, una etiqueta por línea, sin omitir ninguna:
-[ENVIAR_IMAGEN:curaciones.jpeg]
-[ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg]
-[ENVIAR_IMAGEN:carillas.jpeg]
-[ENVIAR_IMAGEN:implantes.jpeg]
-[ENVIAR_IMAGEN:endodoncia.jpeg]
-[ENVIAR_IMAGEN:protesis.jpeg]
-[ENVIAR_IMAGEN:odontopediatria.jpeg]
-[ENVIAR_IMAGEN:fachada.jpeg]
-
-ACTITUD Y EXPERTISE:
-Actúa siempre como un asesor odontológico experto, cercano y profesional. Transmite seguridad y conocimiento clínico general en tus respuestas (sin dar diagnósticos médicos definitivos ni reemplazar la evaluación presencial del odontólogo), y guía activamente al paciente hacia agendar su cita o resolver su duda de forma completa. No te limites a soltar información: conecta con lo que el usuario preguntó, muestra interés genuino y ofrece seguimiento.
-
-FLUJO DE LLAMADA TELEFÓNICA:
-Si el paciente pide más información, tiene dudas antes de agendar o solicita que le llamen:
-- Ofrécele que el Dr. Frank le realice una llamada personalizada.
-- Pídele su nombre completo, número de celular y la hora o momento del día que le quede mejor para recibir la llamada.
-- Si el paciente prefiere llamar él mismo o pide el número directo, compártele el contacto del Dr. Frank: +51 946 704 651.
-
-FLUJO DE AGENDAMIENTO:
-Si el paciente desea agendar una cita presencial, solicita OBLIGATORIAMENTE estos 4 datos antes de cerrar la cita:
-1. Nombre completo
-2. Número de teléfono / WhatsApp de contacto
-3. Tipo de atención o tratamiento de interés
-4. Fecha y turno preferido (mañana o tarde), dentro del horario: Lunes a Sábado de 9:00 a.m. a 1:00 p.m. y de 2:00 p.m. a 8:00 p.m.
-
-No generes la etiqueta [AGENDAR_CITA:...] hasta tener los 4 datos completos y confirmados por el paciente. Si falta alguno, pregúntalo puntualmente sin repetir los datos que ya te dio.
-
-Al confirmar todos los datos, cierra con:
-[AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
-¡Listo! Tu cita ha quedado agendada para el {fecha} en el turno {turno}. Te esperamos en Alameda de la República N°286, esquina con Jr. Abtao. [ENVIAR_IMAGEN:ubicacion.jpeg]`;
-
-const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
+const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 3);
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
 const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE || 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
 const chatSessions = new Map(); // sessionId -> { history: [], timer, paused: false }
@@ -251,9 +184,78 @@ function formatHistoryForPrompt(history, mergeWindowMs = 10000) {
 
 function hasSchedulingIntent(message, history) {
   if (!message) return false;
-  const text = [message, formatHistoryForPrompt(history)].filter(Boolean).join(' ').toLowerCase();
-  const keywords = ['cita','agendar','reservar','agenda','horario','fecha','turno','consulta','consultar'];
+  const text = message.toLowerCase();
+  const keywords = ['cita','agendar','reservar','agenda','horario','fecha','turno','consulta','programar'];
   return keywords.some(k => text.includes(k));
+}
+
+// Local intent detection: can we answer without calling Gemini?
+function detectLocalIntent(message) {
+  if (!message) return null;
+  const text = message.toLowerCase().trim();
+  
+  // Greeting (no Gemini needed)
+  if (/^(hola|hi|hey|buenos|buenas|saludos|que tal)/.test(text)) {
+    return { type: 'GREETING', confidence: 0.95 };
+  }
+  
+  // Location/address question
+  if (/(d[oó]nde|ubicaci[oó]n|direcci[oó]n|c[oó]mo llegar|se?de|sedes)/.test(text)) {
+    return { type: 'LOCATION', confidence: 0.95 };
+  }
+  
+  // Hours/schedule question
+  if (/(horario|hora|abierto|cierra|atienden|funcionamiento|disponible)/.test(text) && !/(cita|agendar)/.test(text)) {
+    return { type: 'HOURS', confidence: 0.9 };
+  }
+  
+  // Phone/contact question
+  if (/(tel[eé]fono|n[uú]mero|contacto|llamar|whatsapp|comunicarse)/.test(text)) {
+    return { type: 'CONTACT', confidence: 0.9 };
+  }
+  
+  // Simple affirmation/confirmation
+  if (/^(s[ií]|ok|claro|perfecto|de acuerdo|gracias|vale)$/.test(text)) {
+    return { type: 'AFFIRMATION', confidence: 0.98 };
+  }
+  
+  // Simple negation
+  if (/^(no|nope|negativo|nada|no gracias)$/.test(text)) {
+    return { type: 'NEGATION', confidence: 0.98 };
+  }
+  
+  return null;
+}
+
+// Handle simple local intents without Gemini
+function handleLocalIntent(intent, message) {
+  const clinicProfile = config?.clinicProfile || {};
+  const address = clinicProfile.address || 'Alameda de la República N°286, esquina con Jr. Abtao, Huánuco';
+  const hours = clinicProfile.hours || 'Lunes a Sábado de 9:00-13:00 y 14:00-20:00';
+  const phone = clinicProfile.contactPhone || '+51 946 704 651';
+  
+  switch (intent.type) {
+    case 'LOCATION':
+      return `Estamos en ${address}. ¿Necesitas indicaciones o tienes otra pregunta?`;
+    
+    case 'HOURS':
+      return `Atendemos ${hours}. ¿En qué puedo ayudarte?`;
+    
+    case 'CONTACT':
+      return `Dr. Frank: ${phone}. ¿Necesitas agendar o tienes dudas sobre algún tratamiento?`;
+    
+    case 'GREETING':
+      return 'BIENVENIDO/A A LUMINZU 🦷 ¿En qué puedo ayudarte hoy?';
+    
+    case 'AFFIRMATION':
+      return 'Perfecto, te estoy ayudando. ¿Hay algo más?';
+    
+    case 'NEGATION':
+      return 'Está bien, aquí estoy si necesitas algo. ¿Tienes alguna pregunta?';
+    
+    default:
+      return null;
+  }
 }
 
 // Simple heuristic parser for lead data (fallback)
@@ -607,11 +609,6 @@ export function sanitizeModelTextOutput(rawText) {
   return cleaned;
 }
 
-function getCurrentPhoneHint(jid) {
-  const phone = getSessionId(jid);
-  return phone ? `El usuario escribe desde el número de WhatsApp ${phone}. Si el usuario pide "a este número" o menciona el número actual, reconoce que se refiere a este número y no vuelvas a preguntar por teléfono.` : '';
-}
-
 /**
  * Obtiene la fecha y hora actual formateada explícitamente para el huso horario de Lima.
  */
@@ -631,96 +628,37 @@ function getLimaCurrentDateTime() {
 }
 
 /**
- * Construye el prompt de sistema dinámico incluyendo el contexto temporal y de WhatsApp.
+ * Construye el prompt de sistema dinámico con contexto mínimo para optimizar tokens.
+ * Solo agrega información cuando es verdaderamente necesaria.
  */
 export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
-  const fechaActual = getLimaCurrentDateTime();
-  const phoneHint = getCurrentPhoneHint(jid);
+  let promptBase = LUMINZU_SYSTEM_PROMPT;
 
-  const clinicProfile = config?.clinicProfile || {
-    name: config?.clinicNameFallback || 'nuestra clínica dental',
-    address: 'Av. Principal 123, Los Olivos',
-    hours: 'Lunes a Sábado de 9:00 AM a 8:00 PM',
-    contactPhone: process.env.ADMIN_WHATSAPP_NUMBER || '+51 999 999 999',
-    doctorName: 'Dr(a).',
-    bracketsEvaluationPrice: 'Gratis / S/ 30',
-    initialBracketsPrice: 'Desde S/ 1,500',
-    monthlyControlPrice: 'Desde S/ 180',
-    bracketsTypes: 'Metálicos, Estéticos, Autoligados',
-    cleaningPrice: 'S/ 120',
-    cleaningIncludes: 'Ultrasonido + Pulido + Fluorización',
-    whiteningPrice: 'Consulta',
-    curationsPrice: 'Consulta',
-    extractionsPrice: 'Consulta',
-  };
+  // Solo incluir nombre del paciente si ya está confirmado (evita repetición)
+  if (session && session.leadSnapshot && isValidName(session.leadSnapshot.nombre)) {
+    promptBase += `\n\nPACIENTE CONFIRMADO: ${session.leadSnapshot.nombre}`;
+  }
 
-  // Determine clinic name fallback and patient name from session if available
-  const clinicName = (clinic && clinic.name) ? clinic.name : (clinicProfile.name || config.clinicNameFallback || 'nuestra clínica dental');
-  let patientName = null;
-  try {
-    if (session && session.leadSnapshot && isValidName(session.leadSnapshot.nombre)) {
-      patientName = session.leadSnapshot.nombre;
-    } else if (session && Array.isArray(session.history)) {
-      const hist = session.history.slice().reverse();
-      for (const h of hist) {
-        if (h.role === 'user') {
-          const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
-          const parsed = extractLeadDataFromText(t) || {};
-          if (parsed && parsed.nombre && isValidName(parsed.nombre)) {
-            patientName = parsed.nombre;
-            break;
-          }
-        }
-      }
+  // Solo incluir datos confirmados si existen, NO enviar todo cada turno
+  if (session && session.leadSnapshot && session.booked) {
+    const snap = session.leadSnapshot;
+    const confirmedData = [];
+    if (snap.nombre) confirmedData.push(`nombre: ${snap.nombre}`);
+    if (snap.distrito) confirmedData.push(`distrito: ${snap.distrito}`);
+    if (snap.fecha_hora_texto) confirmedData.push(`fecha: ${snap.fecha_hora_texto}`);
+    if (confirmedData.length) {
+      promptBase += `\nDatos ya confirmados (no preguntes de nuevo): ${confirmedData.join(', ')}`;
     }
-  } catch (e) {
-    patientName = null;
   }
 
-  let promptBase = VALERIA_SYSTEM_PROMPT
-    .replace(/\{DIRECCION_CLINICA\}/g, clinicProfile.address || DIRECCION_CLINICA)
-    .replace(/\{wa_id\}/g, getSessionId(jid) || '')
-    .replace(/\[NOMBRE_CLINICA\]/g, clinicName)
-    .replace(/\[DIRECCION_O_SEDES\]/g, clinicProfile.address)
-    .replace(/\[HORARIOS\]/g, clinicProfile.hours)
-    .replace(/\[NUMERO_RESPALDO\]/g, clinicProfile.contactPhone)
-    .replace(/\[NOMBRE_DOCTOR_A\]/g, clinicProfile.doctorName)
-    .replace(/\[PRECIO_EVALUACION_ORTODONCIA\]/g, clinicProfile.bracketsEvaluationPrice)
-    .replace(/\[PRECIO_INICIAL_BRACKETS\]/g, clinicProfile.initialBracketsPrice)
-    .replace(/\[PRECIO_MENSUALIDAD\]/g, clinicProfile.monthlyControlPrice)
-    .replace(/\[TIPOS_BRACKETS\]/g, clinicProfile.bracketsTypes)
-    .replace(/\[PRECIO_LIMPIEZA\]/g, clinicProfile.cleaningPrice)
-    .replace(/\[DETALLE_LIMPIEZA\]/g, clinicProfile.cleaningIncludes)
-    .replace(/\[PRECIO_BLANQUEAMIENTO\]/g, clinicProfile.whiteningPrice)
-    .replace(/\[PRECIO_CURACIONES\]/g, clinicProfile.curationsPrice)
-    .replace(/\[PRECIO_EXTRACCIONES\]/g, clinicProfile.extractionsPrice)
-    .replace(/\[NUMERO_WHATSAPP\]/g, getSessionId(jid) || '');
-
-  if (patientName) {
-    promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
-    promptBase = promptBase + `\n- PACIENTE CONFIRMADO: ${patientName}`;
-  } else {
-    promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
+  // Solo incluir fecha/hora una vez per sesión, no cada turno
+  if (!session || !session.limaDateTimeSent) {
+    const fechaActual = getLimaCurrentDateTime();
+    promptBase += `\n\nFECHA/HORA LIMA (ahora): ${fechaActual}`;
+    if (session) session.limaDateTimeSent = true;
   }
 
-  if (session && session.leadSnapshot) {
-    try {
-      const snap = session.leadSnapshot;
-      const confirmedValues = [];
-      if (snap.nombre) confirmedValues.push(`Nombre: ${snap.nombre}`);
-      if (snap.telefono) confirmedValues.push(`Teléfono: ${snap.telefono}`);
-      if (snap.distrito) confirmedValues.push(`Distrito: ${snap.distrito}`);
-      if (snap.fecha_hora_texto) confirmedValues.push(`Fecha/Hora: ${snap.fecha_hora_texto}`);
-      if (confirmedValues.length) {
-        promptBase = promptBase + `\n\n- AVISO: Estos datos ya están confirmados en la sesión: ${confirmedValues.join(', ')}. No vuelvas a pedirlos ni los reemplaces a menos que el usuario los corrija explícitamente.`;
-      }
-      if (session.booked) {
-        promptBase = promptBase + `\n- AVISO ADICIONAL: Este usuario ya tiene una cita agendada. Responde dudas post-agendamiento o procesa reprogramaciones solo si el usuario lo solicita explícitamente.`;
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  return `${promptBase}\n\n[CONTEXTO TEMPORAL Y DE SISTEMA EN VIVO]\n- FECHA Y HORA ACTUAL EN LIMA: ${fechaActual}\n- REGLA DE TIEMPO: Usa esta fecha actual de Lima como tu única referencia absoluta para calcular "hoy", "mañana", "el próximo lunes", o fechas específicas solicitadas por el cliente. No asumas años ni meses pasados.${phoneHint ? `\n${phoneHint}` : ''}`;
+  return promptBase;
 }
 
 /**
@@ -992,6 +930,19 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const now = Date.now();
   const sid = getSessionId(jid);
   const priorFailures = failureCounts.get(sid) || 0;
+  
+  // Check for local intent first - avoid Gemini for obvious cases
+  const localIntent = detectLocalIntent(mensaje);
+  if (localIntent && localIntent.confidence > 0.85) {
+    const localResponse = handleLocalIntent(localIntent, mensaje);
+    if (localResponse) {
+      session.history.push({ role: 'user', parts: [{ text: mensaje }] });
+      session.history.push({ role: 'model', parts: [{ text: localResponse }] });
+      session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
+      return { texto: localResponse, leadData: null, wasLocalIntent: true };
+    }
+  }
+  
   // Only debounce if there are no recent consecutive failures; if we have recent failures, allow retry even within debounce window
   if (!skipDebounce && session.lastUserMessageAt && now - session.lastUserMessageAt < DEBOUNCE_MS && priorFailures === 0) {
     session.lastUserMessageAt = now;
