@@ -63,7 +63,7 @@ Envía ÚNICAMENTE la imagen que corresponda exactamente al tratamiento consulta
 
 9. Servicios generales / Qué tratamientos realizan:
    - Brinda un resumen de las especialidades.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:tratamientos.jpg]
+   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:tratamientos.jpeg]
 
 10. Ubicación / Dirección / Cómo llegar:
    - Indica: Alameda de la República N° 286, esquina con Jr. Abtao — Huánuco.
