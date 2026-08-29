@@ -204,7 +204,7 @@ Ejemplo A — Nombre no proporcionado
 
 Ejemplo B — Derivar a llamada (incluso desde blanqueamiento)
 - Paciente: "Quiero un blanqueamiento para un evento, ¿me pueden llamar para explicarme?"
-- ❌ "Claro, coordinamos una llamada con el Dr. Frank. ¿A qué número?"
+- ❌ "Claro, coordinamos una llamada con el Dr.. ¿A qué número?"
 - ✅ "¡Con gusto! El doctor puede llamarte para resolver tus dudas sin costo. Déjanos tu número y el horario que te quede mejor 📲"
 
 Ejemplo C — Mensaje posterior al primero
