@@ -103,7 +103,6 @@ Para agendar, reúne: nombre completo, teléfono de contacto, motivo de consulta
 Al tener los datos confirmados, cierra con:
 [AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
 ¡Listo! Tu cita ha quedado agendada para el {fecha} en el turno {turno}. Te esperamos en Alameda de la República N° 286, Esquina Jr. Abtao. [ENVIAR_IMAGEN:ubicacion.jpeg]`;
-`;
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -277,7 +276,7 @@ function extractResultText(result) {
 export function sanitizeModelTextOutput(rawText) {
   if (typeof rawText !== 'string') return '';
   let text = rawText
-    .replace(/```(?:json)?/gi, '')
+    .replace(/```json/gi, '')
     .replace(/```/g, '')
     .replace(/\[AGENDAR_CITA:\{[\s\S]*?\}\]/gi, '')
     .trim();
