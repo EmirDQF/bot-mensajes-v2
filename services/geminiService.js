@@ -1,1242 +1,373 @@
 import config from '../config/env.js';
 
-const TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000); // 30 minutes
-// Booked sessions (confirmed appointments) should persist much longer to avoid losing booking context if user replies slowly
-const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 3600 * 1000); // 7 days
+const LIMA_TIME_ZONE = 'America/Lima';
+const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
+const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 2000);
-
-const DIRECCION_CLINICA = process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco';
-
-export const VALERIA_SYSTEM_PROMPT = `REGLAS OBLIGATORIAS DE IDENTIDAD:
-- Tu identidad oficial es LUMINZU Clínica Dental.
-- Nunca te presentes con nombres personales en cada mensaje ni repitas "Te atiende LUMINZU Clínica Dental" a mitad de la conversación.
-- Si preguntan "¿quién atiende?" o "¿cómo te llamas?", responde: "Somos el equipo de LUMINZU Clínica Dental".
-- En las respuestas y llamadas, refiere siempre a "nuestro especialista" o "el doctor especialista". No menciones nombres propios de doctores a menos que el paciente lo pida.
-
-REGLAS OBLIGATORIAS DE FORMATO Y CONVERSACIÓN:
-- Escribe SIEMPRE en texto plano. NUNCA uses Markdown, no uses asteriscos (*), no uses negritas ni cursivas.
-- Sé empático, cercano y 100% conversacional. Responde directamente la duda sin rodeos innecesarios (máximo 2 a 3 oraciones).
-- Si es el primer mensaje de la sesión, saluda cordialmente: ¡Hola! Te damos la bienvenida a LUMINZU Clínica Dental 🦷 ¿En qué tratamiento o consulta podemos ayudarte hoy?
-- En los mensajes posteriores, NO vuelvas a saludar ni a dar la bienvenida; responde directamente a lo que el paciente pregunte o pida.
-- Cada mensaje debe cerrar motivando amablemente a agendar la cita de evaluación o coordinar una llamada informativa con el especialista.
-
-INFORMACIÓN DE LA CLÍNICA:
-- Nombre: LUMINZU Clínica Dental
-- Dirección exacta: Alameda de la República N° 286, esquina con Jr. Abtao — Huánuco 📍
-- Horarios de atención: Lunes a Sábado de 9:00 a.m. a 1:00 p.m. y de 2:00 p.m. a 8:00 p.m.
-- Teléfono / WhatsApp de citas: 980 792 817
-
-REGLAS DE ENVÍO DE IMÁGENES POR TRATAMIENTO:
-Envía ÚNICAMENTE la imagen que corresponda exactamente al tratamiento consultado para no saturar al paciente.
-
-1. Curaciones / Restauraciones / Resinas / Dolor leve:
-   - Explica que se realizan restauraciones con resinas estéticas de alta calidad para devolver la forma y estética natural del diente.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:restauracion_resina.jpeg]
-
-2. Limpieza dental / Profilaxis / Sarro / Manchas / Mal aliento / Kit Preventivo:
-   - Explica que el kit preventivo incluye destartraje con ultrasonido, profilaxis y fluorización para dejar los dientes totalmente limpios y sanos.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:kit_preventivo.jpeg]
-
-3. Blanqueamiento dental:
-   - Explica que el tratamiento aclara el tono de los dientes de forma segura, devolviendo brillo y luminosidad natural a la sonrisa.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:blanqueamiento.jpeg]
-
-4. Brackets / Ortodoncia / Frenillos:
-   - Explica que se cuenta con brackets metálicos, estéticos de zafiro y autoligados, con una cuota inicial desde 600 soles que se puede financiar hasta en 3 cómodas cuotas previa evaluación diagnóstica.
-   - Cierra ofreciendo agendar su evaluación o coordinar una breve llamada explicativa con nuestro especialista.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:bracketsmuestra.jpeg]
-
-5. Ortodoncia infantil / Niños:
-   - Adjunta: [ENVIAR_IMAGEN:ortodoncia_antes_despues4.jpeg]
-
-6. Carillas dentales / Diseño de sonrisa:
-   - Explica que las carillas en resina o disilicato corrigen forma y tono con acabados naturales previa evaluación.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:carillas.jpeg]
-
-7. Implantes dentales / Cirugías / Piezas perdidas:
-   - Explica que permiten reponer dientes perdidos de manera fija, segura y duradera.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:implantes.jpeg]
-
-8. Chequeo general / Consulta diagnóstica:
-   - Explica la importancia de la revisión preventiva periódica.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:chequeo.jpeg]
-
-9. Servicios generales / Qué tratamientos realizan:
-   - Brinda un resumen de las especialidades.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:tratamientos.jpeg]
-
-10. Ubicación / Dirección / Cómo llegar:
-   - Indica: Alameda de la República N° 286, esquina con Jr. Abtao — Huánuco.
-   - Adjunta ÚNICAMENTE: [ENVIAR_IMAGEN:ubicacion.jpeg]
-
-11. Galería completa / Portafolio / Casos antes y después:
-   - Solo cuando el paciente pida ver varios ejemplos o el catálogo completo, comparte:
-   [ENVIAR_IMAGEN:tratamientos.jpg]
-   [ENVIAR_IMAGEN:bracketsmuestra.jpeg]
-   [ENVIAR_IMAGEN:restauracion_resina.jpeg]
-   [ENVIAR_IMAGEN:blanqueamiento.jpeg]
-   [ENVIAR_IMAGEN:kit_preventivo.jpeg]
-   [ENVIAR_IMAGEN:ortodoncia_antes_despues2.jpeg]
-   [ENVIAR_IMAGEN:ortodoncia_antes_despues3.jpeg]
-   [ENVIAR_IMAGEN:ortodoncia_antes_despues4.jpeg]
-
-FLUJO DE LLAMADA TELEFÓNICA:
-Si el paciente tiene dudas o prefiere recibir orientación por llamada:
-- Ofrécele coordinar una llamada con nuestro especialista.
-- Solicita su nombre, número de contacto y la hora o turno ideal para llamarle.
-- Si solicita el número directo para llamar él mismo, bríndale: 980 792 817.
-
-FLUJO DE AGENDAMIENTO:
-Para agendar la cita presencial, confirma los 4 datos clave:
-1. Nombre completo
-2. Número de teléfono / WhatsApp
-3. Motivo o tratamiento de interés
-4. Día y turno preferido (mañana o tarde)
-
-Al confirmar todos los datos, cierra con:
-[AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
-¡Perfecto! Tu cita ha quedado agendada para el {fecha} en el turno {turno}. Te esperamos en Alameda de la República N° 286, esquina con Jr. Abtao. [ENVIAR_IMAGEN:ubicacion.jpeg]`;
-
-const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
+const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 8);
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE || 'En este momento nuestro sistema está ocupado, un asesor te responderá a la brevedad.';
-const chatSessions = new Map(); // sessionId -> { history: [], timer, paused: false }
-const failureCounts = new Map(); // sessionId -> consecutive failure count
+const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE
+  || 'Estoy teniendo una demora técnica. ¿Me indicas tu nombre y el tratamiento que deseas agendar?';
 
-// Pause map helper exposed for handover control
-export function pauseSessionById(sessionId) {
-  const sid = String(sessionId || '').split('@')[0];
-  const entry = chatSessions.get(sid);
-  if (entry) {
-    entry.paused = true;
-    return true;
-  }
-  // create an entry flagged as paused so future messages are ignored until resumed
-  chatSessions.set(sid, { history: [], timer: null, paused: true });
-  return true;
+export const VALERIA_SYSTEM_PROMPT = `IDENTIDAD Y TONO:
+- Eres el equipo de LUMINZU Clínica Dental. Nunca uses nombres propios de doctores, como "Dr. Frank", ni inventes nombres.
+- No hables en primera persona como si fueras un ser humano. Usa "el doctor", "nuestro especialista" o "el equipo de LUMINZU Clínica Dental".
+- Responde en español, texto plano y sin Markdown: no uses *, **, _, viñetas ni bloques de código.
+- Responde con máximo 2 o 3 oraciones concisas, útiles y orientadas a agendar.
+- No inventes precios, teléfonos, disponibilidad ni datos del paciente.
+
+INFORMACIÓN:
+- Clínica: LUMINZU Clínica Dental.
+- Dirección: Alameda de la República N° 286, esquina con Jr. Abtao — Huánuco.
+- Horario: lunes a sábado de 9:00 a. m. a 1:00 p. m. y de 2:00 p. m. a 8:00 p. m.
+
+IMÁGENES, REGLA ESTRICTA:
+- Cada tratamiento debe incluir ÚNICAMENTE una etiqueta de imagen exacta, al final del mensaje.
+- Curaciones, restauraciones o resinas: [ENVIAR_IMAGEN:restauracion_resina.jpeg]
+- Limpieza, profilaxis, sarro o manchas: [ENVIAR_IMAGEN:kit_preventivo.jpeg]
+- Blanqueamiento: [ENVIAR_IMAGEN:blanqueamiento.jpeg]
+- Brackets, ortodoncia o frenillos: [ENVIAR_IMAGEN:bracketsmuestra.jpeg]
+- Implantes: [ENVIAR_IMAGEN:implantes.jpeg]
+- Carillas o diseño de sonrisa: [ENVIAR_IMAGEN:carillas.jpeg]
+- Chequeo o consulta general: [ENVIAR_IMAGEN:chequeo.jpeg]
+- Tratamientos generales: [ENVIAR_IMAGEN:tratamientos.jpeg]
+- Ubicación o cómo llegar: [ENVIAR_IMAGEN:ubicacion.jpeg]
+- Fachada: [ENVIAR_IMAGEN:fachada.jpeg]
+- No envíes carillas ni múltiples imágenes salvo que el usuario pida explícitamente la galería completa.
+- Para una galería completa, envía solo las imágenes que el usuario solicitó, sin repetirlas.
+
+LLAMADAS:
+- Si el usuario pide una llamada, solicita abiertamente nombre, número y turno u hora preferida.
+- No asumas, inventes ni escribas teléfonos de respaldo. El número debe proporcionarlo el usuario.
+
+AGENDAMIENTO:
+- Recopila nombre completo, teléfono, motivo o tratamiento y fecha/turno.
+- Solo cuando estén los cuatro datos, emite exactamente:
+[AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
+- Al agendar, incluye también [ENVIAR_IMAGEN:ubicacion.jpeg].
+- No afirmes que una cita está confirmada si falta algún dato.`;
+
+const chatSessions = new Map();
+const failureCounts = new Map();
+
+const MONTHS = {
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+  julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+};
+const WEEKDAYS = {
+  domingo: 0, lunes: 1, martes: 2, miércoles: 3, miercoles: 3,
+  jueves: 4, viernes: 5, sábado: 6, sabado: 6,
+};
+
+function sessionId(jid) {
+  return String(jid || '').split('@')[0];
 }
 
-export function resumeSessionById(sessionId) {
-  const sid = String(sessionId || '').split('@')[0];
-  const entry = chatSessions.get(sid);
-  if (entry) {
-    entry.paused = false;
-    return true;
-  }
-  return false;
+function scheduleCleanup(sid, session) {
+  if (session.timer) clearTimeout(session.timer);
+  session.timer = setTimeout(() => {
+    chatSessions.delete(sid);
+    failureCounts.delete(sid);
+  }, session.booked ? BOOKED_TTL_MS : SESSION_TTL_MS);
+  session.timer.unref?.();
 }
 
-export function isSessionPaused(sessionId) {
-  const sid = String(sessionId || '').split('@')[0];
-  const entry = chatSessions.get(sid);
-  return Boolean(entry && entry.paused);
-}
-
-function getSessionId(jid) {
-  return (jid || '').split('@')[0];
-}
-
-function resetSessionTimer(sessionId, entry) {
-  if (entry.timer) clearTimeout(entry.timer);
-  // If the session is booked (appointment confirmed), extend the TTL to BOOKED_TTL_MS to retain context
-  const delay = (entry && entry.booked) ? BOOKED_TTL_MS : TTL_MS;
-  entry.timer = setTimeout(() => {
-    // Only delete non-booked sessions; if booked, respect the longer TTL and delete only when it expires
-    chatSessions.delete(sessionId);
-    failureCounts.delete(sessionId);
-    // console.log(`Gemini: cleared session ${sessionId} due to inactivity`);
-  }, delay);
-  entry.timer.unref && entry.timer.unref();
-}
-
-async function restoreSessionFromDb(sessionId, entry) {
-  try {
-    const { getByPhone } = await import('./leadService.js');
-    if (typeof getByPhone !== 'function') return;
-    const existing = await getByPhone(sessionId);
-    if (!existing) return;
-
-    const snap = existing.lead_snapshot || {};
-    const cleanDistrito = (function(d) {
-      if (!d || typeof d !== 'string') return null;
-      const low = d.toLowerCase().trim();
-      const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada'];
-      for (const b of banned) if (low.includes(b)) return null;
-      if (!isLikelyDistrict(d)) return null;
-      return d;
-    })(snap.distrito || existing.distrito);
-
-    entry.booked = Boolean(existing.ready_to_notify);
-    entry.leadSnapshot = {
-      nombre: snap.nombre || existing.nombre || null,
-      telefono: snap.telefono || existing.telefono || null,
-      distrito: cleanDistrito || snap.distrito || existing.distrito || null,
-      fecha_hora_texto: snap.fecha_hora_texto || existing.fecha_hora_texto || null,
-      fecha_hora_iso: snap.fecha_hora_iso || existing.fecha_hora_iso || null,
-      confirmedAt: snap.confirmedAt || existing.confirmed_at || null
-    };
-
-    if (!entry.booked && entry.leadSnapshot && entry.leadSnapshot.nombre && entry.leadSnapshot.distrito && entry.leadSnapshot.fecha_hora_iso) {
-      entry.awaitingConfirmation = true;
-    }
-
-    resetSessionTimer(sessionId, entry);
-  } catch (e) {
-    // non fatal: DB not configured or import failed in test environments
-  }
-}
-
-function cleanupSessions() {
-  const now = Date.now();
-  for (const [sid, entry] of chatSessions) {
-    // rely on timer to cleanup; additional pass not strictly necessary here
-  }
-}
-
-const cleanupInterval = setInterval(cleanupSessions, CLEANUP_MS);
-cleanupInterval.unref && cleanupInterval.unref();
-
-export function mergeRecentUserMessages(history, windowMs = 10000) {
-  // Merge consecutive user messages within windowMs into a single consolidated message string.
-  if (!Array.isArray(history) || history.length === 0) return [];
-  const merged = [];
-  for (let i = 0; i < history.length; i++) {
-    const item = history[i];
-    if (item.role === 'user') {
-      const last = merged.length ? merged[merged.length - 1] : null;
-      const ts = item.at || 0;
-      const text = (item.parts || []).map(p => p.text || '').join(' ').trim();
-      if (!text) continue;
-      if (last && last.role === 'user' && Math.abs((ts - (last.at || 0))) <= windowMs) {
-        // concatenate
-        last.text = `${last.text} ${text}`.trim();
-        last.at = Math.max(last.at || 0, ts);
-      } else {
-        merged.push({ role: 'user', text, at: ts });
-      }
-    } else {
-      const text = (item.parts || []).map(p => p.text || '').join(' ').trim();
-      if (!text) continue;
-      merged.push({ role: 'model', text, at: item.at || 0 });
-    }
-  }
-  return merged;
-}
-
-function formatHistoryForPrompt(history, mergeWindowMs = 10000) {
-  const normalized = mergeRecentUserMessages(history, mergeWindowMs);
-  return normalized.map((h) => {
-    const role = h.role === 'user' ? 'Cliente' : 'LUMINZU';
-    const text = h.text || '';
-    return text ? `${role}: ${text}` : '';
-  }).filter(Boolean).join('\n');
-}
-
-function hasSchedulingIntent(message, history) {
-  if (!message) return false;
-  const text = [message, formatHistoryForPrompt(history)].filter(Boolean).join(' ').toLowerCase();
-  const keywords = ['cita','agendar','reservar','agenda','horario','fecha','turno','consulta','consultar'];
-  return keywords.some(k => text.includes(k));
-}
-
-// Simple heuristic parser for lead data (fallback)
-import { isValidDistrict } from './districts.js';
-
-function isLikelyDistrict(text) {
-  if (!text || typeof text !== 'string') return false;
-  // Use strict validation against the canonical list with fuzzy matching
-  return isValidDistrict(text);
-}
-
-export function extractLeadDataFromText(text) {
- if (!text) return null;
- const t = text.toLowerCase();
-
- // Detect explicit "soy de X" or "vivo en X" as distrito
- const distritoFromSoy = t.match(/(?:soy\s+(?:de|del)|vivo\s+en)\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|$)/i);
- const distrito = distritoFromSoy ? distritoFromSoy[1].trim() : null;
- 
- // Name extraction: support typos like "me llamos" or "me llasmo" and avoid capturing phrases like "soy de ..." by negative lookahead
- // Capture up to 3-word names after common phrases like "me llamo", "mi nombre es", or "soy".
- // Stop capture at common connectors such as 'vivo', 'vi', 'mi', 'tengo', 'y', 'con' or punctuation.
- const nombreMatch = text.match(/(?:me\s+llam(?:o|os|smo)|me\s+llasm[oó]|me\s+llamo|mi\s+nombre\s+es)\s+([a-záéíóúñü]+(?:\s+[a-záéíóúñü]+){0,2})(?=\s*(?:[,\.\n]|vivo\b|vivo\s+en\b|vi\b|mi\b|mi\s+telefono|mi\s+número|tengo\b|y\b|con\b|$))/i)
-   || text.match(/(?:soy)\s+(?!de\b|del\b|en\b)([a-záéíóúñü]+(?:\s+[a-záéíóúñü]+){0,2})(?=\s*(?:[,\.\n]|vivo\b|vivo\s+en\b|vi\b|mi\b|mi\s+telefono|mi\s+número|tengo\b|y\b|con\b|$))/i);
- const nombre = nombreMatch ? nombreMatch[1].trim().replace(/\s+/g,' ') : null;
- 
- const digitString = t.replace(/[^0-9]/g, "");
- const telefonoMatch = digitString.match(/(?:^51)?(9\d{8})/);
- // DO NOT use telefono extracted from text as primary key. It can be used as reference only.
- const telefono = telefonoMatch ? telefonoMatch[1] : null;
-
- const distritoMatch = distrito || t.match(/vivo en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i) || t.match(/en\s+([a-záéíóúñü\s]{2,60})(?:[,\.\n]|\s+y\b|$)/i);
- const distritoCandidate = distritoMatch ? (typeof distritoMatch === 'string' ? distritoMatch : (distritoMatch[1] ? distritoMatch[1].trim() : null)) : null;
-
- // Validate district strictly against canonical list; if not valid, do not set
- const distritoFinal = distritoCandidate && isLikelyDistrict(distritoCandidate) ? distritoCandidate : null;
-
- const explicitWeekdayDateMatch = t.match(/\b(?:lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\s+\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
- if (explicitWeekdayDateMatch) {
-   return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitWeekdayDateMatch[0].trim() };
- }
- 
- const explicitDateMatch = t.match(/\b\d{1,2}\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
- if (explicitDateMatch) {
-   return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: explicitDateMatch[0].trim() };
- }
- 
- const fechaMatch = t.match(/(?:puedo\s+)?(el\s+)?((?:hoy|mañana|pasado\s+mañana|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo))(?:\s+(?:a\s+las)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
- const fechaHora = fechaMatch ? fechaMatch[0].trim() : null;
-
- return { nombre: nombre ?? null, telefono: telefono ?? null, distrito: distritoFinal ?? null, fechaHora: fechaHora ?? null };
-}
-
-function normalizeLeadData(parsed) {
-  if (!parsed || typeof parsed !== 'object') return null;
-  return {
-    nombre: parsed.nombre || parsed.name || null,
-    telefono: parsed.telefono ? String(parsed.telefono).replace(/\D/g, '') : null,
-    distrito: parsed.distrito || parsed.district || null,
-    fechaHora: parsed.fechaHoraTexto || parsed.fecha_hora_texto || parsed.fecha_hora || parsed.fechaHora || null,
-    // Do not trust model-provided ready flag; server will validate before setting
-    ready_to_notify: false,
-  };
-}
-
-// Helper: normalize and remove diacritics
-function normalizeTextForCompare(s) {
-  if (!s || typeof s !== 'string') return '';
-  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
-}
-
-function isValidPhoneNumber9(telefono) {
-  if (!telefono) return false;
-  const t = String(telefono).replace(/\D/g, '');
-  return /^9\d{8}$/.test(t);
-}
-
-export function isValidName(nombre) {
-  if (!nombre || typeof nombre !== 'string') return false;
-  const n = nombre.trim();
-  if (n.length < 2) return false;
-  // reject the literal placeholder the system sometimes uses
-  if (normalizeTextForCompare(n) === 'no proporcionado') return false;
-  // reject assistant name or phrases
-  if (/^camila\b/i.test(n)) return false;
-  // reject if contains question forms or system prompts
-  if (/\b(qué|cuál|cuando|a qué|a este número|dónde|donde)\b/i.test(n)) return false;
-  return true;
-}
-
-function isValidDistrictName(distrito) {
-  if (!distrito || typeof distrito !== 'string') return false;
-  try {
-    // Prefer centralized validator
-    return isValidDistrict(distrito);
-  } catch (e) {
-    // Fallback: simple normalization + substring match against known items if available
-    try {
-      const n = normalizeTextForCompare(distrito);
-      // If the districts module exposes a list, attempt to use it safely
-      if (Array.isArray(typeof DISTRICTS !== 'undefined' ? DISTRICTS : [])) {
-        for (const d of DISTRICTS) {
-          if (String(d).toLowerCase && n.includes(String(d).toLowerCase())) return true;
-        }
-      }
-    } catch (err) {
-      // ignore
-    }
-    return isLikelyDistrict(distrito);
-  }
-}
-
-export function isExplicitConfirmation(text) {
-  if (!text || typeof text !== 'string') return false;
-  const normalized = text.trim().toLowerCase();
-  const disqualifiers = /\b(pero|aunque|sin embargo|cambiar|cambio|reprogramar|reagendar|mover|posponer|adelantar|otra hora|otro horario|otra fecha|mejor el|mejor|no puedo|no quiero|prefiero|prefiero otro|espera|esperame|un segundo|segundo|más tarde|mas tarde|después|despues|luego|quizás|quizas|si,? pero)\b/i;
-  if (disqualifiers.test(normalized)) return false;
-  return /^(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias)(?:[.,!]?\s*(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias|todo bien|la cita|la hora|lo confirmo|confirmo la cita|confirmo la hora))*$/i.test(normalized);
-}
-
-function finalizeLeadData(lead) {
-  if (!lead || typeof lead !== 'object') return null;
-  // normalize phone
-  if (lead.telefono) lead.telefono = String(lead.telefono).replace(/\D/g, '');
-
-  // If textual fechaHora exists but no ISO, try to parse
-  if (lead.fechaHora && !lead.fechaHoraISO) {
-    try {
-      const iso = parseTextToLimaISO(lead.fechaHora);
-      if (iso) {
-        lead.fechaHoraISO = iso;
-        const explicitText = formatLimaFechaHoraText(iso);
-        if (explicitText) lead.fechaHora = explicitText;
-      }
-    } catch (e) {
-      // ignore parse failures
-    }
-  }
-
-  const hasValidPhone = isValidPhoneNumber9(lead.telefono);
-  const hasValidName = isValidName(lead.nombre);
-  const hasValidDistrict = isValidDistrictName(lead.distrito);
-  const hasValidFechaISO = Boolean(lead.fechaHoraISO && typeof lead.fechaHoraISO === 'string');
-
-  // Respect clinic hours configuration: if the parsed date falls outside diasAtencion, do NOT mark ready_to_notify.
-  let withinClinicDays = true;
-  try {
-    const clinicCfg = (config && config.clinicHours) ? config.clinicHours : { diasAtencion: [1,2,3,4,5,6] };
-    if (hasValidFechaISO) {
-      const parsedDate = new Date(lead.fechaHoraISO);
-      if (!Number.isNaN(parsedDate.getTime())) {
-        // Derive weekday in Lima timezone by formatting weekday name and mapping to index
-        const limaWeekdayName = new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', weekday: 'long' }).format(parsedDate).toLowerCase();
-        const weekdayMap = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6 };
-        const weekdayIndex = typeof weekdayMap[limaWeekdayName] === 'number' ? weekdayMap[limaWeekdayName] : parsedDate.getUTCDay();
-        withinClinicDays = Array.isArray(clinicCfg.diasAtencion) ? clinicCfg.diasAtencion.includes(weekdayIndex) : true;
-      }
-    } else if (lead.fechaHora && typeof lead.fechaHora === 'string') {
-      // If we don't have an ISO but the textual fechaHora explicitly mentions a weekday, use that to detect outside clinic hours.
-      const t = lead.fechaHora.toLowerCase();
-      const weekdayMapText = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, 'miércoles': 3, jueves: 4, viernes: 5, sabado: 6, 'sábado': 6 };
-      for (const [name, idx] of Object.entries(weekdayMapText)) {
-        if (t.includes(name)) {
-          withinClinicDays = Array.isArray(clinicCfg.diasAtencion) ? clinicCfg.diasAtencion.includes(idx) : true;
-          if (!withinClinicDays) {
-            lead.outsideClinicHours = true;
-          }
-          break;
-        }
-      }
-    }
-  } catch (e) {
-    withinClinicDays = true; // conservative: if validation fails, do not block
-  }
-
-  lead.ready_to_notify = hasValidPhone && hasValidName && hasValidDistrict && hasValidFechaISO && withinClinicDays;
-  if (!withinClinicDays) {
-    // signal that the date is out of clinic hours so caller can inform user
-    lead.outsideClinicHours = true;
-  }
-
-  return lead;
-}
-
-
-function extractLeadDataFromHistory(history) {
-  if (!Array.isArray(history) || !history.length) return null;
-  const userText = history
-    .filter((h) => h.role === 'user')
-    .map((h) => (h.parts || []).map((p) => p.text || '').join(' ').trim())
-    .filter(Boolean)
-    .join('\n');
-  return extractLeadDataFromText(userText);
+async function restoreSession(sid, session) {
+  const { getByPhone } = await import('./leadService.js');
+  if (typeof getByPhone !== 'function') return;
+  const stored = await getByPhone(sid);
+  if (!stored) return;
+  session.leadSnapshot = stored;
+  session.booked = Boolean(stored.fecha_hora_iso || stored.fechaHoraISO);
 }
 
 export function getOrCreateSession(jid) {
-  const sid = getSessionId(jid);
-  let entry = chatSessions.get(sid);
-  if (!entry) {
-    entry = { history: [], timer: null, lastUserMessageAt: 0, booked: false, leadSnapshot: null, awaitingConfirmation: false };
-    entry.restorePromise = restoreSessionFromDb(sid, entry);
-    chatSessions.set(sid, entry);
+  const sid = sessionId(jid);
+  let session = chatSessions.get(sid);
+  if (!session) {
+    session = {
+      history: [],
+      timer: null,
+      lastUserMessageAt: 0,
+      booked: false,
+      leadSnapshot: null,
+      paused: false,
+      restorePromise: null,
+    };
+    session.restorePromise = restoreSession(sid, session).catch(() => null);
+    chatSessions.set(sid, session);
   }
-  resetSessionTimer(sid, entry);
-  return entry;
+  scheduleCleanup(sid, session);
+  return session;
 }
 
 export async function ensureSessionLoaded(session) {
-  if (session && session.restorePromise) {
-    try {
-      await session.restorePromise;
-    } catch (e) {
-      // ignore restore failures
-    }
+  if (session?.restorePromise) {
+    await session.restorePromise;
     session.restorePromise = null;
   }
   return session;
 }
 
-function isStructuredGeminiClient(client) {
-  return client && typeof client.generateContent === 'function';
-}
- 
-function extractTextFromCandidate(candidate) {
-  if (!candidate?.content?.parts) return '';
-  return candidate.content.parts
-    .map((part) => (typeof part?.text === 'string' ? part.text : ''))
-    .filter(Boolean)
-    .join(' ')
-    .trim();
+export function pauseSessionById(jid) {
+  const sid = sessionId(jid);
+  const session = getOrCreateSession(sid);
+  session.paused = true;
+  return true;
 }
 
-function extractTextFromResult(result) {
-  if (!result) return '';
-  if (typeof result === 'string') return result;
-  if (typeof result.text === 'string') return result.text;
-  if (result.response) {
-    if (typeof result.response.text === 'string') return result.response.text;
-    const candidate = Array.isArray(result.response.candidates) ? result.response.candidates[0] : null;
-    return extractTextFromCandidate(candidate);
-  }
-  return '';
+export function resumeSessionById(jid) {
+  const session = chatSessions.get(sessionId(jid));
+  if (!session) return false;
+  session.paused = false;
+  return true;
 }
 
-function extractTextFromParsedJson(parsed) {
-  if (parsed == null) return '';
-  if (typeof parsed === 'string') return parsed.trim();
-  if (typeof parsed === 'number' || typeof parsed === 'boolean') return String(parsed);
-  if (Array.isArray(parsed)) {
-    return parsed.map(extractTextFromParsedJson).filter(Boolean).join(' ');
-  }
-
-  const candidateKeys = ['content', 'respuesta', 'response', 'texto', 'text', 'message'];
-  for (const key of candidateKeys) {
-    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
-      const extracted = extractTextFromParsedJson(parsed[key]);
-      if (extracted) return extracted;
-    }
-  }
-
-  if (parsed.content && typeof parsed.content === 'object') {
-    const extracted = extractTextFromParsedJson(parsed.content);
-    if (extracted) return extracted;
-  }
-
-  if (parsed.response && typeof parsed.response === 'object') {
-    const extracted = extractTextFromParsedJson(parsed.response);
-    if (extracted) return extracted;
-  }
-
-  if (parsed.response?.content) {
-    const extracted = extractTextFromParsedJson(parsed.response.content);
-    if (extracted) return extracted;
-  }
-
-  for (const value of Object.values(parsed)) {
-    const extracted = extractTextFromParsedJson(value);
-    if (extracted) return extracted;
-  }
-
-  return '';
+export function isSessionPaused(jid) {
+  return Boolean(chatSessions.get(sessionId(jid))?.paused);
 }
 
-// === LIMPIEZA DE STRINGS JSON EN geminiService.js ===
-export function sanitizeModelTextOutput(rawText) {
-  if (!rawText || typeof rawText !== 'string') return '';
-  
-  let cleaned = rawText.trim();
-
-  // 1. Eliminar etiquetas LEAD_JSON (completas o truncadas por el modelo)
-  cleaned = cleaned.replace(/<<<LEAD_JSON>>>[\s\S]*?(?:<<<END_LEAD_JSON>>>|$)/gi, '');
-  cleaned = cleaned.replace(/<<<[\s\S]*?$/gi, ''); // Limpiar cualquier residuo de tag inconcluso
-  cleaned = cleaned.replace(/<+$/g, '');            // Limpiar símbolos '<' sueltos al final
-  // 1.5 Eliminar cualquier texto de alerta interna destinado al administrador
-  cleaned = cleaned.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
-
-  // 2. Eliminar bloques de código Markdown ```json ... ```
-  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-
-  // 3. Desempaquetar si viene en formato JSON stringify
-  if (/^[\[{]/.test(cleaned)) {
-    try {
-      const parsed = JSON.parse(cleaned);
-
-      // If the model returned a structured object with a top-level "response", prefer that.
-      if (parsed && typeof parsed === 'object') {
-        if (typeof parsed.response === 'string' && parsed.response.trim().length > 0) {
-          return parsed.response.trim();
-        }
-
-        // If response is nested object with parts (structured Gemini), try to extract its text
-        if (parsed.response && typeof parsed.response === 'object') {
-          const nested = extractTextFromParsedJson(parsed.response);
-          if (nested && nested.trim()) return nested.trim();
-        }
-
-        // If the payload looks like it contains lead data (LEAD_JSON key or personal fields), do NOT forward raw JSON.
-        const containsLeadKeys = ('LEAD_JSON' in parsed) || ('lead' in parsed) || ('nombre' in parsed) || ('telefono' in parsed) || ('distrito' in parsed);
-        if (containsLeadKeys) {
-          // Try to extract any human-readable textual reply (message/text/content). If none, return a safe generic confirmation.
-          const extracted = extractTextFromParsedJson(parsed);
-          if (extracted && extracted.trim()) return extracted.trim();
-
-          // Last-resort safe message to avoid leaking JSON to end-user
-          return 'Gracias, registré tu solicitud. Te contactaré por este número para confirmar los detalles de la cita.';
-        }
-
-        // Generic traversal extraction if no explicit response key
-        const extracted = extractTextFromParsedJson(parsed);
-        if (extracted && extracted.trim()) {
-          cleaned = extracted.trim();
-        }
-      }
-    } catch (e) {
-      // Fallback por expresiones regulares si el parseo estricto de JSON falla
-      const malformedPrefixMatch = cleaned.match(/^\s*\{\s*"(?:content|respuesta|response|texto|text|message)"\s*:\s*"?(.*)$/i);
-      if (malformedPrefixMatch && malformedPrefixMatch[1]) {
-        cleaned = malformedPrefixMatch[1].replace(/\}?\s*$/,'').replace(/^"/, '').trim();
-      } else {
-        const match = cleaned.match(/"(?:content|respuesta|response|texto|text|message)"\s*:\s*"([\s\S]*?)"\s*\}?$/i);
-        if (match && match[1]) {
-          cleaned = match[1];
-        }
-      }
-    }
-  }
-
-  // 4. Limpieza de comillas dobles externas o saltos de línea sobrantes
-  cleaned = cleaned.replace(/^"/, '').replace(/"$/, '').trim();
-
-  return cleaned;
-}
-
-function getCurrentPhoneHint(jid) {
-  const phone = getSessionId(jid);
-  return phone ? `El usuario escribe desde el número de WhatsApp ${phone}. Si el usuario pide "a este número" o menciona el número actual, reconoce que se refiere a este número y no vuelvas a preguntar por teléfono.` : '';
-}
-
-/**
- * Obtiene la fecha y hora actual formateada explícitamente para el huso horario de Lima.
- */
-function getLimaCurrentDateTime() {
-  const now = new Date(Date.now());
-  const options = {
-    timeZone: 'America/Lima',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true
-  };
-  return new Intl.DateTimeFormat('es-PE', options).format(now);
-}
-
-/**
- * Construye el prompt de sistema dinámico incluyendo el contexto temporal y de WhatsApp.
- */
-export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
-  const fechaActual = getLimaCurrentDateTime();
-  const phoneHint = getCurrentPhoneHint(jid);
-
-  const clinicProfile = config?.clinicProfile || {
-    name: config?.clinicNameFallback || 'nuestra clínica dental',
-    address: 'Av. Principal 123, Los Olivos',
-    hours: 'Lunes a Sábado de 9:00 AM a 8:00 PM',
-    contactPhone: process.env.ADMIN_WHATSAPP_NUMBER || '+51 999 999 999',
-    doctorName: 'Dr(a).',
-    bracketsEvaluationPrice: 'Gratis / S/ 30',
-    initialBracketsPrice: 'Desde S/ 1,500',
-    monthlyControlPrice: 'Desde S/ 180',
-    bracketsTypes: 'Metálicos, Estéticos, Autoligados',
-    cleaningPrice: 'S/ 120',
-    cleaningIncludes: 'Ultrasonido + Pulido + Fluorización',
-    whiteningPrice: 'Consulta',
-    curationsPrice: 'Consulta',
-    extractionsPrice: 'Consulta',
-  };
-
-  // Determine clinic name fallback and patient name from session if available
-  const clinicName = (clinic && clinic.name) ? clinic.name : (clinicProfile.name || config.clinicNameFallback || 'nuestra clínica dental');
-  let patientName = null;
-  try {
-    if (session && session.leadSnapshot && isValidName(session.leadSnapshot.nombre)) {
-      patientName = session.leadSnapshot.nombre;
-    } else if (session && Array.isArray(session.history)) {
-      const hist = session.history.slice().reverse();
-      for (const h of hist) {
-        if (h.role === 'user') {
-          const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
-          const parsed = extractLeadDataFromText(t) || {};
-          if (parsed && parsed.nombre && isValidName(parsed.nombre)) {
-            patientName = parsed.nombre;
-            break;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    patientName = null;
-  }
-
-  let promptBase = VALERIA_SYSTEM_PROMPT
-    .replace(/\{DIRECCION_CLINICA\}/g, clinicProfile.address || DIRECCION_CLINICA)
-    .replace(/\{wa_id\}/g, getSessionId(jid) || '')
-    .replace(/\[NOMBRE_CLINICA\]/g, clinicName)
-    .replace(/\[DIRECCION_O_SEDES\]/g, clinicProfile.address)
-    .replace(/\[HORARIOS\]/g, clinicProfile.hours)
-    .replace(/\[NUMERO_RESPALDO\]/g, clinicProfile.contactPhone)
-    .replace(/\[NOMBRE_DOCTOR_A\]/g, clinicProfile.doctorName)
-    .replace(/\[PRECIO_EVALUACION_ORTODONCIA\]/g, clinicProfile.bracketsEvaluationPrice)
-    .replace(/\[PRECIO_INICIAL_BRACKETS\]/g, clinicProfile.initialBracketsPrice)
-    .replace(/\[PRECIO_MENSUALIDAD\]/g, clinicProfile.monthlyControlPrice)
-    .replace(/\[TIPOS_BRACKETS\]/g, clinicProfile.bracketsTypes)
-    .replace(/\[PRECIO_LIMPIEZA\]/g, clinicProfile.cleaningPrice)
-    .replace(/\[DETALLE_LIMPIEZA\]/g, clinicProfile.cleaningIncludes)
-    .replace(/\[PRECIO_BLANQUEAMIENTO\]/g, clinicProfile.whiteningPrice)
-    .replace(/\[PRECIO_CURACIONES\]/g, clinicProfile.curationsPrice)
-    .replace(/\[PRECIO_EXTRACCIONES\]/g, clinicProfile.extractionsPrice)
-    .replace(/\[NUMERO_WHATSAPP\]/g, getSessionId(jid) || '');
-
-  if (patientName) {
-    promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
-    promptBase = promptBase + `\n- PACIENTE CONFIRMADO: ${patientName}`;
-  } else {
-    promptBase = promptBase.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
-  }
-
-  if (session && session.leadSnapshot) {
-    try {
-      const snap = session.leadSnapshot;
-      const confirmedValues = [];
-      if (snap.nombre) confirmedValues.push(`Nombre: ${snap.nombre}`);
-      if (snap.telefono) confirmedValues.push(`Teléfono: ${snap.telefono}`);
-      if (snap.distrito) confirmedValues.push(`Distrito: ${snap.distrito}`);
-      if (snap.fecha_hora_texto) confirmedValues.push(`Fecha/Hora: ${snap.fecha_hora_texto}`);
-      if (confirmedValues.length) {
-        promptBase = promptBase + `\n\n- AVISO: Estos datos ya están confirmados en la sesión: ${confirmedValues.join(', ')}. No vuelvas a pedirlos ni los reemplaces a menos que el usuario los corrija explícitamente.`;
-      }
-      if (session.booked) {
-        promptBase = promptBase + `\n- AVISO ADICIONAL: Este usuario ya tiene una cita agendada. Responde dudas post-agendamiento o procesa reprogramaciones solo si el usuario lo solicita explícitamente.`;
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  return `${promptBase}\n\n[CONTEXTO TEMPORAL Y DE SISTEMA EN VIVO]\n- FECHA Y HORA ACTUAL EN LIMA: ${fechaActual}\n- REGLA DE TIEMPO: Usa esta fecha actual de Lima como tu única referencia absoluta para calcular "hoy", "mañana", "el próximo lunes", o fechas específicas solicitadas por el cliente. No asumas años ni meses pasados.${phoneHint ? `\n${phoneHint}` : ''}`;
-}
-
-/**
- * Parsea texto libre de fecha/hora relativo a Lima y devuelve ISO 8601 en UTC (+00:00).
- * Ejemplos aceptados: "hoy a las 3pm", "mañana 16:00", "el jueves a las 4pm", "3 de agosto a las 10:30"
- */
-export function parseTextToLimaISO(fechaTexto) {
-  // parseTextToLimaISO kept for backwards compat: tries to parse date+time and returns ISO only when time found
-
-  if (!fechaTexto || typeof fechaTexto !== 'string') return null;
-  const txt = fechaTexto.toLowerCase();
-
-  // Obtener fecha base en Lima (YYYY-MM-DD)
-  const now = new Date(Date.now());
-  const limaDateStr = now.toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
-  const [baseYear, baseMonth, baseDay] = limaDateStr.split('-').map((s) => parseInt(s, 10));
-  let target = new Date(Date.UTC(baseYear, baseMonth - 1, baseDay)); // use UTC date arithmetic
-
-  // Mappings
-  const weekdays = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6 };
-  const months = {
-    enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
-    julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12
-  };
-
-  // Relative days
-  if (txt.includes('pasado mañana')) {
-    target.setUTCDate(target.getUTCDate() + 2);
-  } else if (txt.includes('mañana')) {
-    target.setUTCDate(target.getUTCDate() + 1);
-  } else if (txt.includes('hoy')) {
-    // no change
-  } else {
-    // If user says 'próxima semana' explicitly, anchor to next week's Monday before resolving weekday
-    if (/pr[oó]xima\s+semana/i.test(txt)) {
-      const currentWeekday = target.getUTCDay(); // 0=Sun..6=Sat
-      // days until next Monday: (8 - currentWeekday) % 7 (ensure at least 1 week ahead)
-      const daysToNextMonday = ((8 - currentWeekday) % 7) || 7;
-      target.setUTCDate(target.getUTCDate() + daysToNextMonday);
-    }
-
-    // Weekday names
-    for (const [name, idx] of Object.entries(weekdays)) {
-      if (txt.includes(name)) {
-        // advance until weekday matches
-        const maxIter = 14;
-        let iter = 0;
-        while (target.getUTCDay() !== idx && iter < maxIter) {
-          target.setUTCDate(target.getUTCDate() + 1);
-          iter += 1;
-        }
-        break;
-      }
-    }
-
-    // Explicit day e.g., '3 de agosto' or '3 agosto'
-    const explicitDateMatch = txt.match(/(\d{1,2})\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i);
-    if (explicitDateMatch) {
-      const dayNum = parseInt(explicitDateMatch[1], 10);
-      const monthName = explicitDateMatch[2].toLowerCase();
-      const monthNum = months[monthName];
-      if (monthNum) {
-        // Keep year same as base; adjust year only if month less than current month? Avoid future-year assumptions.
-        let year = baseYear;
-        if (monthNum < baseMonth) year = baseYear;
-        target = new Date(Date.UTC(year, monthNum - 1, dayNum));
-      }
-    }
-  }
-
-  // Expose helper: return just the target date (UTC midnight) for date-only parsing
-  // This will be used by saveLead to combine day-only incoming text with previously stored time.
-  // Note: this function early-returns when there's an explicit time later; here we simply return the computed target date.
-  // (The time-handling code follows after this block.)
-
-  // Time parsing
-  let hour = 12;
-  let minute = 0;
-  const timeMatchAmPm = txt.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
-  const timeMatch24 = txt.match(/(\d{1,2}):(\d{2})/);
-  const timeMatchPlain = txt.match(/(?:a\s*las|a|\bat\b)?\s*(\d{1,2})\s*(?:hm|h|hrs|horas)?\s*(am|pm)?/i);
-
-  // If no explicit time provided, treat as incomplete: do not assume a default time.
-  // Returning null will indicate that fechaHora is incomplete (missing time) and should not be persisted as an ISO datetime.
-  // However, callers might want only the date part — use parseTextToLimaDate for that use-case.
-
-  if (timeMatchAmPm) {
-    hour = parseInt(timeMatchAmPm[1], 10);
-    minute = timeMatchAmPm[2] ? parseInt(timeMatchAmPm[2], 10) : 0;
-    const ampm = (timeMatchAmPm[3] || '').toLowerCase();
-    if (ampm === 'pm' && hour < 12) hour += 12;
-    if (ampm === 'am' && hour === 12) hour = 0;
-  } else if (timeMatch24) {
-    hour = parseInt(timeMatch24[1], 10);
-    minute = parseInt(timeMatch24[2], 10);
-  } else if (timeMatchPlain) {
-    hour = parseInt(timeMatchPlain[1], 10);
-    minute = 0;
-    const ampm = (timeMatchPlain[2] || '').toLowerCase();
-    if (ampm === 'pm' && hour < 12) hour += 12;
-    if (ampm === 'am' && hour === 12) hour = 0;
-  } else {
-    // If no explicit time provided, treat as incomplete: do not assume a default time.
-    // Returning null will indicate that fechaHora is incomplete (missing time) and should not be persisted as an ISO datetime.
-    return null;
-  }
-
-  // Build a UTC ISO string from Lima local time by applying the -05:00 offset.
-  const limaUtcDate = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate(), hour + 5, minute, 0));
-  return limaUtcDate.toISOString().replace(/\.000Z$/, '+00:00');
-}
-
-// Parse a date-only textual expression into a UTC Date representing the target day in Lima (UTC midnight for that local day).
-export function parseTextToLimaDate(fechaTexto) {  if (!fechaTexto || typeof fechaTexto !== 'string') return null;
-  const txt = fechaTexto.toLowerCase();
-
-  const now = new Date(Date.now());
-  const limaDateStr = now.toLocaleString('sv-SE', { timeZone: 'America/Lima' }).split(' ')[0];
-  const [baseYear, baseMonth, baseDay] = limaDateStr.split('-').map((s) => parseInt(s, 10));
-  let target = new Date(Date.UTC(baseYear, baseMonth - 1, baseDay));
-
-  const weekdays = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6 };
-  const months = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
-
-  if (txt.includes('pasado mañana')) {
-    target.setUTCDate(target.getUTCDate() + 2);
-  } else if (txt.includes('mañana')) {
-    target.setUTCDate(target.getUTCDate() + 1);
-  } else if (txt.includes('hoy')) {
-    // no change
-  } else {
-    for (const [name, idx] of Object.entries(weekdays)) {
-      if (txt.includes(name)) {
-        const maxIter = 14;
-        let iter = 0;
-        while (target.getUTCDay() !== idx && iter < maxIter) {
-          target.setUTCDate(target.getUTCDate() + 1);
-          iter += 1;
-        }
-        break;
-      }
-    }
-
-    const explicitDateMatch = txt.match(/(\d{1,2})\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i);
-    if (explicitDateMatch) {
-      const dayNum = parseInt(explicitDateMatch[1], 10);
-      const monthName = explicitDateMatch[2].toLowerCase();
-      const monthNum = months[monthName];
-      if (monthNum) {
-        let year = baseYear;
-        if (monthNum < baseMonth) year = baseYear;
-        target = new Date(Date.UTC(year, monthNum - 1, dayNum));
-      }
-    }
-  }
-
-  return target;
-}
-
-export function formatLimaFechaHoraText(fechaHoraISO) {
-  if (!fechaHoraISO || typeof fechaHoraISO !== 'string') return null;
-  const parsed = new Date(fechaHoraISO);
-  if (Number.isNaN(parsed.getTime())) return null;
-
-  let datePart = new Intl.DateTimeFormat('es-PE', {
-    timeZone: 'America/Lima',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  }).format(parsed);
-
-  const timePart = new Intl.DateTimeFormat('es-PE', {
-    timeZone: 'America/Lima',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(parsed);
-
-  datePart = datePart.replace(/\s*,\s*/, ' ');
-  const normalizedTime = timePart
-    .replace(/\s*a\.?\s*m\.?/i, ' AM')
-    .replace(/\s*p\.?\s*m\.?/i, ' PM')
-    .replace(/\u202F/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return `${datePart}, ${normalizedTime}`.replace(/\s+de\s+\d{4}/, '').trim();
-}
-
-/**
- * Prepara el request hacia la API de Gemini inyectando el prompt dinámico.
- */
-function buildGeminiRequest(client, mensaje, history, jid, options = {}) {
-  const historyText = formatHistoryForPrompt(history, 10000);
-  const userText = `${historyText ? historyText + '\n' : ''}Cliente: ${mensaje}`;
-  
-  // Se obtiene el prompt enriquecido dinámicamente con Fecha de Lima, WhatsApp Hint y posibles placeholders inyectados
-  const effectiveSystemPrompt = buildSystemPromptWithContext(jid, options.session || getOrCreateSession(jid), options.clinic);
-
-  if (isStructuredGeminiClient(client)) {
-    return {
-      type: 'structured',
-      request: {
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: userText }],
-          },
-        ],
-        systemInstruction: effectiveSystemPrompt,
-        generationConfig: {
-          maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 300
-        },
-      },
-    };
-  }
-
-  return {
-    type: 'text',
-    prompt: `${effectiveSystemPrompt}\n${userText}`,
-  };
-}
-
-async function callClientWithRetries(client, geminiRequest, maxRetries = 1, options = {}) {
-  let attempt = 0;
-  let lastErr = null;
-  const attempts = maxRetries + 1;
-  while (attempt < attempts) {
-    attempt += 1;
-    try {
-      if (!client || (typeof client.generate !== 'function' && typeof client.generateContent !== 'function')) {
-        // No real client: fallback to echo-like simple response
-        const fallbackText = typeof geminiRequest === 'object' && geminiRequest.prompt ? geminiRequest.prompt : '';
-        return { text: `Echo: ${String(fallbackText).slice(0, 200)}` };
-      }
-
-      if (isStructuredGeminiClient(client) && geminiRequest?.type === 'structured') {
-        return await client.generateContent(geminiRequest.request, { model: config.gemini?.model });
-      }
-
-      if (typeof client.generate === 'function') {
-        return await client.generate(geminiRequest.prompt || '', { model: config.gemini?.model, maxOutputTokens: options.maxOutputTokens || config.gemini?.maxOutputTokens || 300 });
-      }
-
-      if (typeof client.generateContent === 'function' && geminiRequest?.type === 'structured') {
-        // generationConfig already included in geminiRequest.request; still pass model
-        return await client.generateContent(geminiRequest.request, { model: config.gemini?.model });
-      }
-
-      throw new Error('Gemini client does not support generate or generateContent');
-    } catch (e) {
-      lastErr = e;
-      const msg = String(e && (e.message || e.code || ''));
-      const isRetriable = /timeout|network|ECONNRESET|ECONNREFUSED|5\d{2}/i.test(msg);
-      if (!isRetriable) break;
-      await new Promise((r) => setTimeout(r, attempt === 1 ? 500 : 1500));
+export function mergeRecentUserMessages(history, windowMs = 10000) {
+  if (!Array.isArray(history)) return [];
+  const result = [];
+  for (const message of history) {
+    if (message.role !== 'user' || !result.length) {
+      result.push(message);
       continue;
     }
+    const previous = result[result.length - 1];
+    if (previous.role === 'user' && message.at && previous.at && message.at - previous.at <= windowMs) {
+      const text = [...(previous.parts || []), ...(message.parts || [])]
+        .map((part) => part.text || '').filter(Boolean).join(' ');
+      previous.parts = [{ text }];
+      previous.text = text;
+      previous.at = message.at;
+    } else {
+      result.push(message);
+    }
   }
-  throw lastErr || new Error('client failed');
+  return result;
+}
+
+function textFromHistory(history) {
+  return (history || [])
+    .filter((entry) => entry.role === 'user')
+    .map((entry) => (entry.parts || []).map((part) => part.text || '').join(' '))
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function extractLeadDataFromText(text) {
+  if (typeof text !== 'string' || !text.trim()) return null;
+  const nameMatch = text.match(/\b(?:me llamo|mi nombre es|soy)\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
+  const phoneMatch = text.replace(/\D/g, '').match(/(?:51)?(9\d{8})/);
+  const dateMatch = text.match(/\b(?:hoy|mañana|pasado mañana|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado)(?:\s+\d{1,2}\s+de\s+[a-záéíóú]+)?(?:\s+(?:a\s*las?\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i)
+    || text.match(/\b\d{1,2}\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
+  const motivoMatch = text.match(/\b(?:tratamiento|motivo)\s*(?:es|:)?\s*([^,.\n]+)/i);
+  return {
+    nombre: nameMatch?.[1]?.trim() || null,
+    telefono: phoneMatch?.[1] || null,
+    motivo: motivoMatch?.[1]?.trim() || null,
+    fechaHora: dateMatch?.[0]?.trim() || null,
+  };
+}
+
+export function isValidName(name) {
+  return typeof name === 'string'
+    && name.trim().length >= 2
+    && !/^(?:no proporcionad[oa]|valeria|camila|dr\.?\s*\w+)$/i.test(name.trim());
+}
+
+export function isExplicitConfirmation(text) {
+  if (typeof text !== 'string') return false;
+  const value = text.trim().toLowerCase();
+  if (/\b(pero|cambiar|reprogramar|otra hora|otra fecha|prefiero|no puedo|espera|luego)\b/.test(value)) return false;
+  return /^(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias)(?:[,.]?\s*(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias))*[.!]?$/.test(value);
+}
+
+function extractResultText(result) {
+  if (typeof result === 'string') return result;
+  if (typeof result?.text === 'string') return result.text;
+  const response = result?.response;
+  if (typeof response?.text === 'string') return response.text;
+  return response?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join(' ').trim() || '';
+}
+
+export function sanitizeModelTextOutput(rawText) {
+  if (typeof rawText !== 'string') return '';
+  let text = rawText
+    .replace(/```(?:json)?/gi, '')
+    .replace(/```/g, '')
+    .replace(/\[AGENDAR_CITA:\{[\s\S]*?\}\]/gi, '')
+    .trim();
+  if (text.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(text);
+      text = typeof parsed.response === 'string' ? parsed.response
+        : typeof parsed.text === 'string' ? parsed.text : text;
+    } catch {
+      text = text.replace(/^\s*\{\s*"(?:response|texto|text|message)"\s*:\s*"([\s\S]*)"?\s*\}\s*$/i, '$1');
+    }
+  }
+  return text.replace(/[*_]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function limaNow() {
+  return new Intl.DateTimeFormat('es-PE', {
+    timeZone: LIMA_TIME_ZONE, weekday: 'long', year: 'numeric', month: 'long',
+    day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
+  }).format(new Date());
+}
+
+export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
+  const profile = clinic || config.clinicProfile || {};
+  const address = profile.address || 'Alameda de la República N° 286, esquina con Jr. Abtao — Huánuco';
+  const hours = profile.hours || 'Lunes a sábado de 9:00 a. m. a 8:00 p. m.';
+  const snapshot = session?.leadSnapshot;
+  const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
+  const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
+  return `${VALERIA_SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${profile.name || 'LUMINZU Clínica Dental'}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual en Lima: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}`;
+}
+
+export function parseTextToLimaDate(text) {
+  if (typeof text !== 'string') return null;
+  const now = new Date(Date.now());
+  const base = new Date(Date.UTC(Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, year: 'numeric' }).format(now)), Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, month: 'numeric' }).format(now)) - 1, Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, day: 'numeric' }).format(now))));
+  const value = text.toLowerCase();
+  if (value.includes('pasado mañana')) base.setUTCDate(base.getUTCDate() + 2);
+  else if (value.includes('mañana')) base.setUTCDate(base.getUTCDate() + 1);
+  else if (!value.includes('hoy')) {
+    const weekday = Object.entries(WEEKDAYS).find(([name]) => value.includes(name));
+    if (weekday) while (base.getUTCDay() !== weekday[1]) base.setUTCDate(base.getUTCDate() + 1);
+    const date = value.match(/(\d{1,2})\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/);
+    if (date) base.setUTCDate(1), base.setUTCMonth(MONTHS[date[2]] - 1), base.setUTCDate(Number(date[1]));
+  }
+  const time = value.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i)
+    || value.match(/\ba\s*las?\s+(\d{1,2})(?::(\d{2}))?\b/i);
+  if (!time) return null;
+  let hour = Number(time[1]);
+  if (time[3]?.toLowerCase() === 'pm' && hour < 12) hour += 12;
+  if (time[3]?.toLowerCase() === 'am' && hour === 12) hour = 0;
+  base.setUTCHours(hour + 5, Number(time[2] || 0), 0, 0);
+  return base.toISOString().replace('.000Z', '+00:00');
+}
+
+export function parseTextToLimaISO(text) {
+  return parseTextToLimaDate(text)?.replace('.000Z', '+00:00') || null;
+}
+
+export function formatLimaFechaHoraText(iso) {
+  if (!iso || Number.isNaN(new Date(iso).getTime())) return null;
+  const date = new Intl.DateTimeFormat('es-PE', { timeZone: LIMA_TIME_ZONE, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso));
+  const time = new Intl.DateTimeFormat('es-PE', { timeZone: LIMA_TIME_ZONE, hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(iso));
+  return `${date}, ${time.replace(/\s*a\.?\s*m\.?/i, ' AM').replace(/\s*p\.?\s*m\.?/i, ' PM')}`;
+}
+
+function buildRequest(client, message, session, jid, options) {
+  const history = textFromHistory(mergeRecentUserMessages(session.history));
+  const prompt = `${buildSystemPromptWithContext(jid, session, options.clinic)}\n\n${history}\nCliente: ${message}`;
+  if (typeof client?.generateContent === 'function') {
+    return { structured: true, request: { contents: [{ role: 'user', parts: [{ text: prompt }] }], systemInstruction: buildSystemPromptWithContext(jid, session, options.clinic), generationConfig: { maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens } } };
+  }
+  return { structured: false, prompt };
+}
+
+async function callGemini(client, request, options) {
+  const attempts = Math.max(1, Number(options.maxRetries ?? 1) + 1);
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      if (request.structured) return await client.generateContent(request.request, { model: config.gemini.model });
+      if (typeof client?.generate === 'function') {
+        return await client.generate(request.prompt, { model: config.gemini.model, maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens });
+      }
+      throw new Error('Gemini client does not support generate or generateContent');
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts && /timeout|network|ECONNRESET|ECONNREFUSED|5\d{2}/i.test(String(error?.message || error))) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      } else {
+        break;
+      }
+    }
+  }
+  throw lastError;
+}
+
+function collectLead(session, message) {
+  const current = extractLeadDataFromText(textFromHistory(session.history));
+  const incoming = extractLeadDataFromText(message);
+  const lead = {
+    nombre: incoming?.nombre || current?.nombre || session.leadSnapshot?.nombre || null,
+    telefono: incoming?.telefono || current?.telefono || session.leadSnapshot?.telefono || null,
+    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || null,
+    fechaHora: incoming?.fechaHora || current?.fechaHora || session.leadSnapshot?.fecha_hora_texto || null,
+  };
+  if (lead.fechaHora) {
+    lead.fechaHoraISO = parseTextToLimaISO(lead.fechaHora);
+    if (lead.fechaHoraISO) lead.fechaHora = formatLimaFechaHoraText(lead.fechaHoraISO);
+  }
+  lead.ready_to_notify = Boolean(isValidName(lead.nombre) && /^9\d{8}$/.test(lead.telefono || '') && lead.motivo && lead.fechaHoraISO);
+  return Object.values(lead).some(Boolean) ? lead : null;
 }
 
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
-  const client = options.client;
-  const skipDebounce = Boolean(options.skipDebounce);
-  const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : 1;
   const session = getOrCreateSession(jid);
   await ensureSessionLoaded(session);
+  const sid = sessionId(jid);
   const now = Date.now();
-  const sid = getSessionId(jid);
-  const priorFailures = failureCounts.get(sid) || 0;
-  // Only debounce if there are no recent consecutive failures; if we have recent failures, allow retry even within debounce window
-  if (!skipDebounce && session.lastUserMessageAt && now - session.lastUserMessageAt < DEBOUNCE_MS && priorFailures === 0) {
-    session.lastUserMessageAt = now;
-    return { texto: null, leadData: null, skipResponse: true };
-  }
+  if (!options.skipDebounce && now - session.lastUserMessageAt < DEBOUNCE_MS) return { texto: null, leadData: null, skipResponse: true };
   session.lastUserMessageAt = now;
-  session.history.push({ role: 'user', parts: [{ text: mensaje }] });
+  session.history.push({ role: 'user', parts: [{ text: String(mensaje || '') }], at: now });
   session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
-
-  const geminiRequest = buildGeminiRequest(client, mensaje, session.history, jid, { ...options, session });
-
   try {
-    const result = await callClientWithRetries(client, geminiRequest, maxRetries, options);
-    const rawModelText = extractTextFromResult(result) || 'Disculpa, no pude procesar tu mensaje. ¿Puedes intentar decirlo de otra forma, por favor?';
-    let rawText = rawModelText;
-    // sanitize any JSON-wrapped or code-fenced responses from the model for user output only
-    const sanitizedRawText = sanitizeModelTextOutput(rawModelText);
-
-    let leadData = null;
-    const leadRegex = /<<<LEAD_JSON>>>\s*([\s\S]*?)\s*<<<END_LEAD_JSON>>>/i;
-
-    // If session already booked with a confirmed snapshot, do NOT re-parse or re-derive the fecha from history
-    // unless the user explicitly expresses a reprogramming intent (cambiar, reprogramar, mover, posponer, reagendar, etc.).
-    const reprogramPattern = /\b(cambiar|reprogramar|reagendar|mover|posponer|adelantar|cambio|cambiarlo|quiero cambiar|otro horario|otra hora|otra fecha|prefiero|mejor el|no puedo|no quiero|espera|esperame|después|despues|luego)\b/i;
-    if (session && session.booked && session.leadSnapshot && session.leadSnapshot.fecha_hora_iso) {
-      const alreadySnapshot = session.leadSnapshot;
-      // If neither the user's message nor the model's raw text contains reprogram intent, return snapshot as the canonical leadData.
-      if (!reprogramPattern.test(mensaje) && !reprogramPattern.test(rawText)) {
-        try {
-          leadData = finalizeLeadData({
-            nombre: alreadySnapshot.nombre || null,
-            telefono: alreadySnapshot.telefono || null,
-            distrito: alreadySnapshot.distrito || null,
-            fechaHora: alreadySnapshot.fecha_hora_texto || null,
-            fechaHoraISO: alreadySnapshot.fecha_hora_iso || null,
-            ready_to_notify: true
-          });
-        } catch (e) {
-          leadData = null;
-        }
-
-        // Push the model text into history and return early to avoid any re-persistence or re-notification.
-        session.history.push({ role: 'model', parts: [{ text: rawText }] });
-        session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
-        const sid = getSessionId(jid);
-        failureCounts.set(sid, 0);
-        const texto = sanitizeModelTextOutput(rawText);
-        return { texto, leadData, skipLeadPersistence: true };
-      }
+    const result = await callGemini(options.client, buildRequest(options.client, mensaje, session, jid, options), options);
+    const rawText = extractResultText(result);
+    const leadData = collectLead(session, mensaje);
+    let texto = sanitizeModelTextOutput(rawText);
+    if (!leadData?.ready_to_notify && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
+      texto = 'Para ayudarte a agendar, indícame tu nombre, teléfono, tratamiento y fecha o turno preferido.';
     }
-
-    const match = leadRegex.exec(rawText);
-    if (match && match[1]) {
-      const jsonText = match[1].trim();
-      // Extract candidate leads from other sources for fallbacks
-      const rawLead = extractLeadDataFromText(rawText) || {};
-      const messageLead = extractLeadDataFromText(mensaje) || {};
-      const historyLead = extractLeadDataFromHistory(session.history) || {};
-      const existingSnap = session.leadSnapshot || {};
-
-      try {
-          let parsed = normalizeLeadData(JSON.parse(jsonText));
-          if (parsed && parsed.telefono) parsed.telefono = String(parsed.telefono).replace(/\D/g, '');
-
-          // SECURITY: Do NOT trust model-provided nombre/telefono/distrito in LEAD_JSON.
-          // Always prefer session.snapshot or historical validated values for these core fields.
-          // Prefer validated snapshot/history/message values, but if none exist fall back to model-provided parsed values
-          const finalNombre = existingSnap.nombre || historyLead.nombre || messageLead.nombre || parsed.nombre || null;
-          const finalTelefono = existingSnap.telefono || historyLead.telefono || messageLead.telefono || parsed.telefono || null;
-
-          // Sanitize district: prefer snapshot, else history, else message, but never accept generic/institutional phrases
-          const candidateDistrito = existingSnap.distrito || historyLead.distrito || messageLead.distrito || parsed.distrito || null;
-          const finalDistrito = (function(d) {
-            if (!d || typeof d !== 'string') return null;
-            const low = d.toLowerCase().trim();
-            const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada', 'el de siempre'];
-            for (const b of banned) if (low.includes(b)) return null;
-            if (!isLikelyDistrict(d)) return null;
-            return d;
-          })(candidateDistrito);
-
-          // Only accept fecha from the model if it is present, but still validate/parse server-side
-          const incomingFechaTexto = parsed.fechaHora || parsed.fecha_hora || parsed.fechaHoraTexto || null;
-
-          const assembled = {
-            nombre: finalNombre || null,
-            telefono: finalTelefono || null,
-            distrito: finalDistrito || null,
-            fechaHora: incomingFechaTexto || null,
-            ready_to_notify: false,
-          };
-
-          // finalize and validate lead data server-side (compute ISO and readiness)
-          const finalized = finalizeLeadData(assembled);
-          leadData = finalized;
-        } catch (e) {
-          console.warn('geminiService: failed to parse LEAD_JSON from model', e && e.message ? e.message : e);
-
-          // Fallback: if parsing failed, build leadData from safe sources (session/history/message)
-          const finalNombre = session.leadSnapshot?.nombre || historyLead.nombre || messageLead.nombre || null;
-          const candidateDistrito = session.leadSnapshot?.distrito || historyLead.distrito || messageLead.distrito || null;
-          const finalDistrito = (function(d) {
-            if (!d || typeof d !== 'string') return null;
-            const low = d.toLowerCase().trim();
-            const banned = ['nuestra clínica', 'nuestra clinica', 'en lima', 'lima', 'no proporcionado', 'no proporcionada', 'el de siempre'];
-            for (const b of banned) if (low.includes(b)) return null;
-            if (!isLikelyDistrict(d)) return null;
-            return d;
-          })(candidateDistrito);
-
-          const finalTelefono = session.leadSnapshot?.telefono || historyLead.telefono || messageLead.telefono || null;
-          const finalFecha = messageLead.fechaHora || historyLead.fechaHora || null;
-
-          leadData = finalizeLeadData({ nombre: finalNombre, telefono: finalTelefono, distrito: finalDistrito, fechaHora: finalFecha, ready_to_notify: false });
-        }
-      } else {
-        const rawLead = extractLeadDataFromText(rawText) || {};
-        const messageLead = extractLeadDataFromText(mensaje) || {};
-        const historyLead = extractLeadDataFromHistory(session.history) || {};
-
-        // SECURITY: do NOT trust dates extracted from the model's own output (rawLead) as a user confirmation.
-        // Only accept fechaHora if it appears in the user's message (messageLead) or already in the conversation history (historyLead).
-        const fechaFromUserOrHistory = messageLead.fechaHora || historyLead.fechaHora || null;
-
-        leadData = {
-          nombre: messageLead.nombre || rawLead.nombre || historyLead.nombre || null,
-          telefono: messageLead.telefono || rawLead.telefono || historyLead.telefono || null,
-          distrito: messageLead.distrito || rawLead.distrito || historyLead.distrito || null,
-          fechaHora: fechaFromUserOrHistory,
-        };
-
-        // If any core field missing, enrich from history (but still do NOT accept rawLead.fechaHora as confirmation)
-        if (!leadData.telefono || !leadData.nombre || !leadData.distrito || !leadData.fechaHora) {
-          leadData = {
-            nombre: leadData.nombre || historyLead.nombre || null,
-            telefono: leadData.telefono || historyLead.telefono || null,
-            distrito: leadData.distrito || historyLead.distrito || null,
-            fechaHora: leadData.fechaHora || historyLead.fechaHora || null,
-          };
-        }
-        // finalize and validate lead data server-side
-        leadData = finalizeLeadData(leadData);
-        if (!leadData || (!leadData.nombre && !leadData.telefono && !leadData.distrito && !leadData.fechaHora)) {
-          leadData = null;
-        }
-      }
-
-    // If we have a textual fechaHora, ensure fechaHoraISO is populated using parseTextToLimaISO
-    if (leadData && leadData.fechaHora) {
-      try {
-        const iso = parseTextToLimaISO(leadData.fechaHora);
-        if (iso) {
-          leadData.fechaHoraISO = iso;
-          const explicitText = formatLimaFechaHoraText(iso);
-          if (explicitText) {
-            leadData.fechaHora = explicitText;
-          }
-        }
-      } catch (e) {
-        console.warn('parseTextToLimaISO failed:', e && e.message ? e.message : e);
-      }
-    }
-
     session.history.push({ role: 'model', parts: [{ text: rawText }] });
-    if (leadData && leadData.nombre && leadData.distrito && leadData.fechaHora && !session.history.some((h) => (h.parts || []).some((p) => typeof p.text === 'string' && p.text.includes('[SISTEMA - CITA REGISTRADA VERIFICADA:')))) {
-      session.history.push({
-        role: 'model',
-        parts: [{ text: `[SISTEMA - CITA REGISTRADA VERIFICADA: Nombre: ${leadData.nombre}, Distrito: ${leadData.distrito}, Fecha/Hora Agendada: ${leadData.fechaHora}]` }]
-      });
-
-      // Mark session as booked and keep a snapshot of the confirmed lead data so follow-up turns do not re-ask core fields.
-      try {
-        // Only mark as booked and persist snapshot when not explicitly told to skip lead persistence (e.g., admin messages)
-        if (!options || !options.skipLeadPersistence) {
-          session.booked = true;
-          session.leadSnapshot = {
-            nombre: leadData.nombre || null,
-            telefono: leadData.telefono || null,
-            distrito: leadData.distrito || null,
-            fecha_hora_texto: leadData.fechaHora || null,
-            fecha_hora_iso: leadData.fechaHoraISO || null,
-            confirmedAt: new Date().toISOString()
-          };
-          // Ensure timer respects booked TTL after marking booked
-          try { resetSessionTimer(getSessionId(jid), session); } catch (e) { /* ignore */ }
-
-          // Persist leadSnapshot to durable store so booked state survives restarts and TTL expiry
-          try {
-            const phoneFromJid = getSessionId(jid);
-            // Dynamic import to avoid circular dependency
-            const { saveLeadSnapshot } = await import('./leadService.js');
-            // persist normalized phone + snapshot
-            try {
-              await saveLeadSnapshot(phoneFromJid, session.leadSnapshot);
-            } catch (err) {
-              console.warn('geminiService: failed to persist leadSnapshot', err && err.message ? err.message : err);
-            }
-          } catch (err) {
-            // non fatal
-          }
-        } else {
-          // Skip persistence for this session (e.g., admin sender). Still update in-memory history but do not mark booked or persist.
-          console.log('geminiService: skipLeadPersistence option set for jid', jid);
-        }
-      } catch (e) { /* non fatal */ }
-    }
-
     session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
-
-    const sid = getSessionId(jid);
-    failureCounts.set(sid, 0);
-
-    let texto = sanitizedRawText;
-
-    // Protect against model hallucinations: if the model claims a booking ("ya quedó agendada", "tu cita quedó...", etc.)
-    // but we do NOT have a confirmed fecha (neither in leadData nor in session.leadSnapshot), remove those assertions aggressively.
-    try {
-      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
-      const hasBookingClaim = bookingClaimPattern.test(texto || '');
-      const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
-      if (hasBookingClaim && !hasConfirmedDate) {
-        // Remove any sentence that mentions 'cita' or booking verbs to be conservative
-        const sentences = (texto || '').split(/[\.\?!]+/).map(s => s.trim()).filter(Boolean);
-        const filtered = sentences.filter(s => !/\b(cita|qued[oó]|agendad|agendar|reservad|programad)\b/i.test(s));
-        texto = (filtered.join('. ') || '').trim();
-        if (!texto) texto = 'Gracias por tu mensaje. ¿Qué día y a qué hora prefieres para la cita?';
-      }
-    } catch (e) {
-      // non-fatal: leave texto as-is
+    failureCounts.delete(sid);
+      if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
+      session.booked = true;
+      session.leadSnapshot = { ...leadData, fecha_hora_texto: leadData.fechaHora, fecha_hora_iso: leadData.fechaHoraISO, confirmedAt: new Date().toISOString() };
+        try {
+          const { saveLeadSnapshot } = await import('./leadService.js');
+          await saveLeadSnapshot(sid, session.leadSnapshot);
+        } catch (error) {
+          console.warn('geminiService: lead snapshot persistence failed:', error?.message || error);
+        }
+        scheduleCleanup(sid, session);
     }
-
-    if (match) {
-      texto = rawText.replace(leadRegex, '').trim();
-      // sanitize again after removing LEAD_JSON block
-      texto = sanitizeModelTextOutput(texto);
-    }
-
-    // Final safety net: if texto still contains booking claims but we have no confirmed fecha, replace with a neutral follow-up
-    try {
-      const bookingClaimPattern = /\b(ya\s+qued[oó]\s+agendad[ao]|qued[oó]\s+agendad[ao]|tu\s+cita\b|tu\s+cita\s+(?:qued[oó]|est[aá]\s+agendada|ya\s+est[aá]))/i;
-      const hasBookingClaim = bookingClaimPattern.test(texto || '');
-      const hasConfirmedDate = Boolean((leadData && leadData.fechaHora) || (session.leadSnapshot && session.leadSnapshot.fecha_hora_texto));
-      if (hasBookingClaim && !hasConfirmedDate) {
-        texto = 'Gracias por tu mensaje. ¿Qué día y a qué hora prefieres para la cita?';
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    return { texto, leadData, skipLeadPersistence: Boolean(options?.skipLeadPersistence) };
-  } catch (e) {
-    const sid = getSessionId(jid);
-    const prev = failureCounts.get(sid) || 0;
-    const nowCount = prev + 1;
-    failureCounts.set(sid, nowCount);
-
-    if (nowCount >= 2) {
-      return { texto: CONTINGENCY_MESSAGE, leadData: null };
-    }
-
-    return { texto: 'Disculpa, estoy teniendo problemas para procesar tu solicitud. Por favor intenta de nuevo en unos momentos.', leadData: null };
+    return { texto, leadData, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
+  } catch (error) {
+    const failures = (failureCounts.get(sid) || 0) + 1;
+    failureCounts.set(sid, failures);
+    return { texto: failures === 1 ? 'No pude procesar tu mensaje. ¿Me lo repites para ayudarte a agendar?' : CONTINGENCY_MESSAGE, leadData: null };
   }
 }
 
-export default { obtenerRespuestaIA, sanitizeModelTextOutput, isExplicitConfirmation };
+setInterval(() => {
+  const now = Date.now();
+  for (const [sid, session] of chatSessions) {
+    if (now - session.lastUserMessageAt > (session.booked ? BOOKED_TTL_MS : SESSION_TTL_MS)) {
+      chatSessions.delete(sid);
+      failureCounts.delete(sid);
+    }
+  }
+}, CLEANUP_MS).unref?.();
+
+export default {
+  obtenerRespuestaIA,
+  sanitizeModelTextOutput,
+  isExplicitConfirmation,
+  pauseSessionById,
+  resumeSessionById,
+  isSessionPaused,
+  getOrCreateSession,
+  extractLeadDataFromText,
+  isValidName,
+};
