@@ -650,33 +650,32 @@ export default async function webhookController(req, res, next) {
           replyTextToSend = `¡Hola ${patientName ? patientName : 'estimado/a paciente'}! Te comparto fotos de ejemplo de ${clinicDisplayName} para que puedas ver resultados. ¿Deseas que te ayude a agendar una cita?`;
         }
 
-        // First send one image (if any) to the patient, then the text so the patient sees the photo immediately
+        // Send media and text in one Meta payload so the customer sees the image immediately without a delay.
         const resolvedTreatmentUrl = resolveTreatmentImage(messageText, replyText);
         const resolvedTreatmentFilename = getTreatmentImageFilename(resolvedTreatmentUrl);
         const imageToSend = resolvedTreatmentFilename
           || ((Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null);
-        if (imageToSend && contactDigits) {
-          try {
-            await enviarImagenWhatsapp(contactDigits, imageToSend);
-            try {
-              const mediaUrl = getTreatmentImageUrl(imageToSend);
-              forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: null, mediaUrl } });
-            } catch (e) {
-              /* non-blocking */
-            }
-          } catch (e) {
-            console.error('webhookController: failed sending image via chatwoot fallback', imageToSend, e && e.message ? e.message : e);
-          }
-        }
+        const mediaUrl = imageToSend ? getTreatmentImageUrl(imageToSend) : null;
 
         if (accountId && convId && apiToken) {
           await chatwootService.sendMessageToConversation(accountId, convId, apiToken, replyTextToSend);
+          if (mediaUrl) {
+            try {
+              await enviarImagenWhatsapp(contactDigits, imageToSend);
+            } catch (e) {
+              console.error('webhookController: failed sending image via chatwoot fallback', imageToSend, e && e.message ? e.message : e);
+            }
+          }
         } else if (contactDigits) {
           if (replyTextToSend) {
-        await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, {});
-        try {
-          forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: replyTextToSend, mediaUrl: null } });
-        } catch (e) { /* non-blocking */ }
+            await whatsappService.sendWhatsAppMessage(contactDigits, replyTextToSend, mediaUrl ? {
+              type: 'image',
+              media: { link: mediaUrl },
+              caption: replyTextToSend,
+            } : {});
+            try {
+              forwardToDashboard({ direction: 'outgoing', outgoing: { to: contactDigits, text: replyTextToSend, mediaUrl } });
+            } catch (e) { /* non-blocking */ }
           }
         }
 

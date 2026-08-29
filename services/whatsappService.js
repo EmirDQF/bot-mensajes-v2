@@ -20,15 +20,25 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const fetchImpl = options.fetchImpl || (globalThis.fetch && globalThis.fetch.bind(globalThis));
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : DEFAULT_MAX_RETRIES;
+  const media = options.media || null;
+  const mediaType = options.type || (media && media.link ? 'image' : null);
+  const caption = options.caption || text || '';
 
   if (!fetchImpl) throw new Error('No fetch implementation provided');
 
   const url = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
-  const body = {
-    messaging_product: 'whatsapp',
-    to: toPhone,
-    text: { body: text },
-  };
+  const body = mediaType === 'image' && media && media.link
+    ? {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'image',
+        image: { link: media.link, caption },
+      }
+    : {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        text: { body: text || '' },
+      };
 
   const masked = maskPhone(toPhone);
   let attempt = 0;

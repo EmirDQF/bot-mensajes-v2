@@ -1,7 +1,7 @@
 import express from 'express';
 import rateLimiter from '../middleware/rateLimiter.js';
 import makeVerifySignature from '../middleware/verifySignature.js';
-import { webhookController } from '../controllers/webhookController.js';
+import webhookController from '../controllers/webhookController.js';
 import config from '../config/env.js';
 
 const router = express.Router();
@@ -23,7 +23,7 @@ router.get('/webhook', (req, res) => {
 router.post('/webhook', express.raw({ type: 'application/json' }), rateLimiter(), async (req, res, next) => {
   // Send immediate ACK to Meta to avoid retries/timeouts
   try {
-    res.status(200).send('EVENT_RECEIVED');
+    return res.sendStatus(200);
   } catch (e) {
     console.error('webhook route: failed to send immediate 200:', e && e.message ? e.message : e);
   }
