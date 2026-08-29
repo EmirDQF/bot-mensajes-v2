@@ -9,110 +9,34 @@ const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
 const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE
   || 'Estoy teniendo una demora técnica. ¿Me indicas tu nombre y el tratamiento que deseas agendar?';
 
-export const VALERIA_SYSTEM_PROMPT = `IDENTIDAD Y REGLAS DE ORO:
-- Eres el asesor virtual de LUMINZU Clínica Dental.
-- NUNCA inicies tus mensajes diciendo "El equipo de LUMINZU Clínica Dental..." ni repitas saludos o presentaciones institucionales en cada mensaje. Sé 100% humano, cercano y conversacional.
-- ESTÁ TOTALMENTE PROHIBIDO nombrar al "Dr. Frank". Refiérete siempre de forma genérica como "el doctor" o "nuestro especialista".
-- NUNCA inventes o asumas números de teléfono del cliente.
-
-ESTILO DE RESPUESTA (HUMANO, VISUAL Y BONITO):
-- Responde con energía, empatía y estética visual usando emojis y viñetas limpias.
-- Solo si es el PRIMER mensaje de la conversación, saluda cordialmente. En los siguientes mensajes, responde directo a la duda del paciente.
-- Cierra cada mensaje motivando amablemente a agendar su cita de evaluación con el doctor o coordinar una breve llamada explicativa.
-
-INFORMACIÓN DE LA CLÍNICA:
-- Ubicación: Alameda de la República N° 286, Esquina Jr. Abtao – Huánuco 📍
-- Teléfonos de contacto: 980 792 817 / 977 377 508 📞
-- Horario: Lunes a Sábado de 9:00 a.m. a 1:00 p.m. y de 2:00 p.m. a 8:00 p.m.
-
-CATÁLOGO EXACTO DE IMÁGENES POR TRATAMIENTO:
-Envía ÚNICAMENTE 1 etiqueta [ENVIAR_IMAGEN:archivo.jpeg] por respuesta según el tema consultado:
-
-1. Curaciones / Resina estética / Muela picada o rota / Cambiar calza gris:
-   ¡REPARA, RENUEVA Y VUELVE A SONREÍR!
-   Con nuestra Restauración con Resina Estética de alta calidad, recuperamos la forma, color y función natural de tu diente para que sonrías con total seguridad.
-   ✨ Acabado estético e imperceptible
-   ✨ Procedimiento rápido y seguro
-   ✨ La atención cuidadosa que mereces
-   ¿Te gustaría agendar una cita de evaluación con el doctor o prefieres que te llamemos para orientarte?
-   [ENVIAR_IMAGEN:restauracion_resina.jpeg]
-
-2. Limpieza Dental / Sarro / Manchas / Profilaxis / Mal Aliento / Kit Preventivo:
-   ¡DIENTES LIMPIOS, SANOS Y SIN MANCHAS!
-   Nuestro Kit Preventivo Completo está diseñado para renovar tu salud bucal desde la primera sesión:
-   ✨ Destartraje con ultrasonido (elimina sarro profundo)
-   ✨ Profilaxis profesional (remueve manchas y placa bacteriana)
-   ✨ Fluorización protectora
-   ¿Te agendamos un turno esta semana para tu limpieza?
-   [ENVIAR_IMAGEN:kit_preventivo.jpeg]
-
-3. Brackets / Ortodoncia General:
-   ¡LA SONRISA QUE SIEMPRE SOÑASTE!
-   Contamos con brackets metálicos, estéticos de zafiro y autoligados, con una cuota inicial desde S/ 600 que puedes financiar hasta en 3 cómodas cuotas previa evaluación diagnóstica.
-   ✨ Alineación y estética garantizada
-   ✨ Planes cómodos a tu medida
-   ¿Te gustaría agendar tu cita de diagnóstico o coordinar una breve llamada con el doctor para más detalles?
-   [ENVIAR_IMAGEN:bracketsmuestra.jpeg]
-
-4. Casos Reales / Antes y Después de Ortodoncia:
-   - Si el paciente pide ver resultados y evolución con brackets, envía: [ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg] (o según el caso específico: [ENVIAR_IMAGEN:ortodoncia_antes_despues1.jpeg], [ENVIAR_IMAGEN:ortodoncia_antes_despues2.jpeg], [ENVIAR_IMAGEN:ortodoncia_antes_despues3.jpeg]).
-
-5. Ortodoncia para Niños / Niños con Brackets:
-   [ENVIAR_IMAGEN:ortodoncia_antes_despues4.jpeg]
-
-6. Odontopediatría / Atención Infantil / Muelas de Niños:
-   [ENVIAR_IMAGEN:odontopediatria.jpeg]
-
-7. Blanqueamiento Dental:
-   ¡DEVUÉLVELE EL BRILLO Y LA LUMINOSIDAD A TUS DIENTES!
-   Aclaramos el tono de tu esmalte de manera segura, devolviendo blancura y frescura a tu sonrisa.
-   [ENVIAR_IMAGEN:blanqueamiento.jpeg]
-
-8. Carillas Dentales / Diseño de Sonrisa:
-   [ENVIAR_IMAGEN:carillas.jpeg]
-
-9. Implantes Dentales / Diente Perdido:
-   Recupera la fuerza de masticar y la estética de tu sonrisa con implantes fijos de titanio de máxima duración.
-   [ENVIAR_IMAGEN:implantes.jpeg]
-
-10. Endodoncia / Tratamiento de Conducto / Dolor Fuerte de Muela:
-    [ENVIAR_IMAGEN:endodoncia.jpeg]
-
-11. Prótesis Dentales / Adulto Mayor:
-    [ENVIAR_IMAGEN:protesis.jpeg]
-
-12. Chequeo Dental / Promoción del Mes:
-    [ENVIAR_IMAGEN:chequeo.jpeg] o [ENVIAR_IMAGEN:promo_consulta.jpeg]
-
-13. Fachada / Instalaciones de la Clínica:
-    [ENVIAR_IMAGEN:fachada.jpeg]
-
-14. Ubicación / Dirección / Croquis de cómo llegar:
-    Alameda de la República N° 286, Esquina Jr. Abtao – Huánuco 📍
-    [ENVIAR_IMAGEN:ubicacion.jpeg]
-
-15. Logo / Identidad Institucional:
-    [ENVIAR_IMAGEN:logo.jpeg]
-
-16. Catálogo General de Tratamientos:
-    [ENVIAR_IMAGEN:tratamientos.jpeg]
-
-17. Portafolio / Galería Completa (solo si el cliente pide ver todos los tratamientos juntos):
-    [ENVIAR_IMAGEN:tratamientos.jpeg]
-    [ENVIAR_IMAGEN:bracketsmuestra.jpeg]
-    [ENVIAR_IMAGEN:restauracion_resina.jpeg]
-    [ENVIAR_IMAGEN:blanqueamiento.jpeg]
-    [ENVIAR_IMAGEN:kit_preventivo.jpeg]
-
-FLUJO DE LLAMADA TELEFÓNICA:
-Si el paciente pide una llamada o tiene dudas complejas:
-- Responde: "¡Con gusto! El doctor puede realizarte una breve llamada para resolver todas tus dudas."
-- Solicita amablemente: "Por favor, indícanos tu nombre, a qué número te llamamos y en qué horario te queda mejor."
-
-FLUJO DE AGENDAMIENTO:
-Para agendar la cita, reúne: nombre completo, teléfono de contacto, tratamiento y fecha/turno (mañana o tarde). Al tenerlos, cierra con:
-[AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}]
-¡Listo! Tu cita ha quedado agendada con éxito para el {fecha} en el turno {turno}. Te esperamos en Alameda de la República N° 286, Esquina Jr. Abtao. [ENVIAR_IMAGEN:ubicacion.jpeg]`;
+export const VALERIA_SYSTEM_PROMPT = `Eres Valeria, la asesora virtual de LUMINZU Clínica Dental.
+Reglas: responde como humano, cercano y cálido; evita saludos institucionales repetitivos; nunca nombres al Dr. Frank; usa "el doctor" o "nuestro especialista". No inventes teléfonos.
+Estilo: viñetas limpias, emoji discreto y empatía. Saluda solo en el primer mensaje; en los siguientes responde directo a la duda y cierra motivando a agendar una evaluación con el doctor.
+Datos de la clínica:
+- Dirección: Alameda de la República N° 286, Esquina Jr. Abtao – Huánuco
+- Teléfonos: 980 792 817 / 977 377 508
+- Horario: Lunes a sábado, 9:00 a. m. a 1:00 p. m. y 2:00 p. m. a 8:00 p. m.
+Catálogo estricto de imágenes (usa solo 1 etiqueta por respuesta):
+1. Resina / restauración / muela rota / calza gris -> [ENVIAR_IMAGEN:restauracion_resina.jpeg]
+2. Limpieza / sarro / manchas / profilaxis / kit preventivo -> [ENVIAR_IMAGEN:kit_preventivo.jpeg]
+3. Brackets / ortodoncia general -> [ENVIAR_IMAGEN:bracketsmuestra.jpeg]
+4. Casos reales de ortodoncia -> [ENVIAR_IMAGEN:ortodoncia_antes_despues.jpeg] o [ENVIAR_IMAGEN:ortodoncia_antes_despues1.jpeg] / [ENVIAR_IMAGEN:ortodoncia_antes_despues2.jpeg] / [ENVIAR_IMAGEN:ortodoncia_antes_despues3.jpeg]
+5. Ortodoncia para niños -> [ENVIAR_IMAGEN:ortodoncia_antes_despues4.jpeg]
+6. Odontopediatría / niños -> [ENVIAR_IMAGEN:odontopediatria.jpeg]
+7. Blanqueamiento -> [ENVIAR_IMAGEN:blanqueamiento.jpeg]
+8. Carillas / diseño de sonrisa -> [ENVIAR_IMAGEN:carillas.jpeg]
+9. Implantes / diente perdido -> [ENVIAR_IMAGEN:implantes.jpeg]
+10. Endodoncia / conducto / dolor fuerte -> [ENVIAR_IMAGEN:endodoncia.jpeg]
+11. Prótesis dentales -> [ENVIAR_IMAGEN:protesis.jpeg]
+12. Chequeo / promoción -> [ENVIAR_IMAGEN:chequeo.jpeg] o [ENVIAR_IMAGEN:promo_consulta.jpeg]
+13. Fachada / clínica -> [ENVIAR_IMAGEN:fachada.jpeg]
+14. Ubicación / cómo llegar -> Alameda de la República N° 286, Esquina Jr. Abtao – Huánuco. [ENVIAR_IMAGEN:ubicacion.jpeg]
+15. Logo / identidad institucional -> [ENVIAR_IMAGEN:logo.jpeg]
+16. Catálogo general -> [ENVIAR_IMAGEN:tratamientos.jpeg]
+17. Portafolio completo -> [ENVIAR_IMAGEN:tratamientos.jpeg] + [ENVIAR_IMAGEN:bracketsmuestra.jpeg] + [ENVIAR_IMAGEN:restauracion_resina.jpeg] + [ENVIAR_IMAGEN:blanqueamiento.jpeg] + [ENVIAR_IMAGEN:kit_preventivo.jpeg]
+Llamadas: si pide llamada o dudas complejas, responde: "¡Con gusto! El doctor puede realizarte una breve llamada para resolver todas tus dudas. Por favor, indícanos tu nombre, a qué número te llamamos y en qué horario te queda mejor."
+Agendamiento: pida nombre completo, teléfono, tratamiento y fecha o turno. Cuando tengas esos datos, cierra con [AGENDAR_CITA:{"nombre":"...","telefono":"...","motivo":"...","fecha":"...","hora":"..."}] y confirma: "¡Listo! Tu cita ha quedado agendada para el {fecha} en el turno {turno}. Te esperamos en Alameda de la República N° 286, Esquina Jr. Abtao. [ENVIAR_IMAGEN:ubicacion.jpeg]"
+`;
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -216,10 +140,33 @@ export function mergeRecentUserMessages(history, windowMs = 10000) {
   return result;
 }
 
+function normalizeHistoryEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const partText = (Array.isArray(entry.parts) ? entry.parts : [])
+    .map((part) => part?.text || '')
+    .join(' ')
+    .trim();
+  const text = (entry.text && String(entry.text).trim()) || partText || '';
+  if (!text) return null;
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (/no pude procesar|demora t[eé]cnica|falla t[eé]cnica|payload de error|error de|error al/i.test(normalized)) {
+    return null;
+  }
+  return { ...entry, text: normalized, parts: [{ text: normalized }] };
+}
+
+function compactHistoryForPrompt(history, maxMessages = MAX_HISTORY_MESSAGES) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .map(normalizeHistoryEntry)
+    .filter(Boolean)
+    .slice(-maxMessages);
+}
+
 function textFromHistory(history) {
-  return (history || [])
+  return compactHistoryForPrompt(history)
     .filter((entry) => entry.role === 'user')
-    .map((entry) => (entry.parts || []).map((part) => part.text || '').join(' '))
+    .map((entry) => entry.text || '')
     .filter(Boolean)
     .join('\n');
 }
@@ -331,10 +278,21 @@ export function formatLimaFechaHoraText(iso) {
 }
 
 function buildRequest(client, message, session, jid, options) {
-  const history = textFromHistory(mergeRecentUserMessages(session.history));
-  const prompt = `${buildSystemPromptWithContext(jid, session, options.clinic)}\n\n${history}\nCliente: ${message}`;
+  const systemPrompt = buildSystemPromptWithContext(jid, session, options.clinic);
+  const history = textFromHistory(mergeRecentUserMessages(compactHistoryForPrompt(session.history)));
+  const prompt = `${systemPrompt}
+
+${history}
+Cliente: ${message}`;
   if (typeof client?.generateContent === 'function') {
-    return { structured: true, request: { contents: [{ role: 'user', parts: [{ text: prompt }] }], systemInstruction: buildSystemPromptWithContext(jid, session, options.clinic), generationConfig: { maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens } } };
+    return {
+      structured: true,
+      request: {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        systemInstruction: systemPrompt,
+        generationConfig: { maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens },
+      },
+    };
   }
   return { structured: false, prompt };
 }
@@ -383,10 +341,12 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   await ensureSessionLoaded(session);
   const sid = sessionId(jid);
   const now = Date.now();
-  if (!options.skipDebounce && now - session.lastUserMessageAt < DEBOUNCE_MS) return { texto: null, leadData: null, skipResponse: true };
+  if (!options.skipDebounce && now - session.lastUserMessageAt < DEBOUNCE_MS) {
+    return { texto: null, leadData: null, skipResponse: true };
+  }
   session.lastUserMessageAt = now;
   session.history.push({ role: 'user', parts: [{ text: String(mensaje || '') }], at: now });
-  session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
+  session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
   try {
     const result = await callGemini(options.client, buildRequest(options.client, mensaje, session, jid, options), options);
     const rawText = extractResultText(result);
@@ -395,19 +355,19 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     if (!leadData?.ready_to_notify && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
       texto = 'Para ayudarte a agendar, indícame tu nombre, teléfono, tratamiento y fecha o turno preferido.';
     }
-    session.history.push({ role: 'model', parts: [{ text: rawText }] });
-    session.history = session.history.slice(-MAX_HISTORY_MESSAGES);
+    session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });
+    session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
     failureCounts.delete(sid);
-      if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
+    if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
       session.booked = true;
       session.leadSnapshot = { ...leadData, fecha_hora_texto: leadData.fechaHora, fecha_hora_iso: leadData.fechaHoraISO, confirmedAt: new Date().toISOString() };
-        try {
-          const { saveLeadSnapshot } = await import('./leadService.js');
-          await saveLeadSnapshot(sid, session.leadSnapshot);
-        } catch (error) {
-          console.warn('geminiService: lead snapshot persistence failed:', error?.message || error);
-        }
-        scheduleCleanup(sid, session);
+      try {
+        const { saveLeadSnapshot } = await import('./leadService.js');
+        await saveLeadSnapshot(sid, session.leadSnapshot);
+      } catch (error) {
+        console.warn('geminiService: lead snapshot persistence failed:', error?.message || error);
+      }
+      scheduleCleanup(sid, session);
     }
     return { texto, leadData, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
   } catch (error) {

@@ -11,11 +11,16 @@ import { createClient } from '@supabase/supabase-js';
 import { TREATMENT_IMAGES } from '../src/config.js';
 
 // Helper: upsert a message into chat_sessions.history
+let supabaseClient = null;
+const chatSessionHistoryCache = new Map();
+
 async function getSupabaseClient() {
+  if (supabaseClient) return supabaseClient;
   const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
   const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
   if (!rawUrl || !key) return null;
-  return createClient(rawUrl, key);
+  supabaseClient = createClient(rawUrl, key);
+  return supabaseClient;
 }
 
 async function persistToSupabaseConversation({ conversationId, contactNumber, contactName, sender, text, mediaUrl, timestamp }) {
@@ -66,32 +71,30 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, co
 
 async function persistToChatSessions(sessionIdentifier, entry) {
   try {
-    const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
-    const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-    if (!rawUrl || !key) return null;
-    const client = createClient(rawUrl, key);
+    const client = await getSupabaseClient();
+    if (!client) return null;
 
-    // Normalize session id as digits string when possible
     const sessionId = String(sessionIdentifier || '').replace(/\D/g, '') || String(sessionIdentifier || '');
+    const cached = chatSessionHistoryCache.get(sessionId);
+    let history = Array.isArray(cached) ? [...cached] : [];
 
-    // Read existing session
-    let { data: existing, error: exErr } = await client.from('chat_sessions').select('id, history').eq('id', sessionId).maybeSingle();
-    if (exErr) {
-      // If table doesn't exist or other error, bail gracefully
-      const msg = String(exErr.message || '').toLowerCase();
-      if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
-      console.warn('persistToChatSessions read error', exErr);
-      return null;
-    }
-
-    let history = [];
-    if (existing && existing.history) {
-      history = Array.isArray(existing.history) ? existing.history : JSON.parse(existing.history || '[]');
+    if (!cached) {
+      let { data: existing, error: exErr } = await client.from('chat_sessions').select('id, history').eq('id', sessionId).maybeSingle();
+      if (exErr) {
+        const msg = String(exErr.message || '').toLowerCase();
+        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
+        console.warn('persistToChatSessions read error', exErr);
+        return null;
+      }
+      if (existing && existing.history) {
+        history = Array.isArray(existing.history) ? existing.history : JSON.parse(existing.history || '[]');
+      }
+      chatSessionHistoryCache.set(sessionId, history);
     }
 
     history.push(entry);
+    chatSessionHistoryCache.set(sessionId, history);
 
-    // Upsert session row
     const upsertPayload = { id: sessionId, history, updated_at: new Date().toISOString() };
     const { error: upErr } = await client.from('chat_sessions').upsert([upsertPayload], { onConflict: 'id' });
     if (upErr) {
