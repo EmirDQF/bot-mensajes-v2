@@ -1,4 +1,7 @@
 import config from '../config/env.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { CATALOGO_LUMINZU } = require('../config/catalogo.js');
 
 const LIMA_TIME_ZONE = 'America/Lima';
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -352,6 +355,57 @@ function collectLead(session, message, senderPhone = null) {
   return Object.values(lead).some(Boolean) ? lead : null;
 }
 
+/**
+ * Determina la categoría de imagen según el mensaje y la respuesta de la IA.
+ * @param {string} mensaje - Mensaje original del usuario.
+ * @param {string} respuestaIA - Respuesta generada por la IA.
+ * @returns {string} Clave de categoría existente en CATALOGO_LUMINZU.
+ */
+export function determinarCategoriaImagen(mensaje, respuestaIA) {
+  const texto = (mensaje + ' ' + respuestaIA).toLowerCase();
+
+  const mapeo = {
+    'brackets': 'brackets',
+    'ortodoncia': 'ortodoncia',
+    'aparato': 'aparato',
+    'invisalign': 'invisalign',
+    'limpieza': 'limpieza',
+    'chequeo': 'chequeo',
+    'blanqueamiento': 'blanqueamiento',
+    'carillas': 'carillas',
+    'implante': 'implante',
+    'implantes': 'implantes',
+    'endodoncia': 'endodoncia',
+    'odontopediatria': 'odontopediatria',
+    'niños': 'odontopediatria',
+    'protesis': 'protesis',
+    'restauracion': 'restauracion',
+    'resina': 'resina',
+    'tratamientos': 'tratamientos',
+    'preventivo': 'preventivo',
+    'kit': 'kit',
+    'ubicacion': 'ubicacion',
+    'direccion': 'ubicacion'
+  };
+
+  for (const [key, categoria] of Object.entries(mapeo)) {
+    if (texto.includes(key)) {
+      return categoria;
+    }
+  }
+
+  return 'default';
+}
+
+/**
+ * Obtiene la URL de la imagen correspondiente a una categoría.
+ * @param {string} categoria - Clave de categoría.
+ * @returns {string} URL de la imagen.
+ */
+export function getImagenCategoria(categoria) {
+  return CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default;
+}
+
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const session = getOrCreateSession(jid);
   await ensureSessionLoaded(session);
@@ -374,6 +428,11 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });
     session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
     failureCounts.delete(sid);
+
+    // Determinar imagen a enviar
+    const categoria = determinarCategoriaImagen(mensaje, texto);
+    const imagenURL = getImagenCategoria(categoria);
+
     if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
       session.booked = true;
       session.leadSnapshot = { ...leadData, fecha_hora_texto: leadData.fechaHora, fecha_hora_iso: leadData.fechaHoraISO, confirmedAt: new Date().toISOString() };
@@ -385,11 +444,16 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
       }
       scheduleCleanup(sid, session);
     }
-    return { texto, leadData, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
+
+    return { texto, leadData, imagenURL, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;
     failureCounts.set(sid, failures);
-    return { texto: failures === 1 ? 'No pude procesar tu mensaje. ¿Me lo repites para ayudarte a agendar? 🦷' : CONTINGENCY_MESSAGE, leadData: null };
+    return {
+      texto: failures === 1 ? 'No pude procesar tu mensaje. ¿Me lo repites para ayudarte a agendar? 🦷' : CONTINGENCY_MESSAGE,
+      leadData: null,
+      imagenURL: CATALOGO_LUMINZU.default,
+    };
   }
 }
 
@@ -414,4 +478,6 @@ export default {
   getOrCreateSession,
   extractLeadDataFromText,
   isValidName,
+  determinarCategoriaImagen,
+  getImagenCategoria,
 };
