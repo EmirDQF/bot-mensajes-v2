@@ -5,9 +5,7 @@ import notificationService from '../services/notificationService.js';
 import whatsappService from '../services/whatsappService.js';
 import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
-import { enviarImagenWhatsapp } from '../src/whatsappMedia.js';
 import { createClient } from '@supabase/supabase-js';
-import { TREATMENT_IMAGES } from '../src/config.js';
 
 // Helper: upsert a message into chat_sessions.history
 let supabaseClient = null;
@@ -17,30 +15,7 @@ const PROCESSED_IDS_TTL_MS = 5 * 60 * 1000;
 
 const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-reumatologia-cqpharma.onrender.com').replace(/\/+$/, '');
 
-const CATALOGO_LUMINZU = {
-  ortodoncia: `${BASE_URL}/media/bracketsmuestra.jpeg`,
-  brackets: `${BASE_URL}/media/bracketsmuestra.jpeg`,
-  ortodoncia_1: `${BASE_URL}/media/ortodoncia_antes_1.jpeg`,
-  ortodoncia_2: `${BASE_URL}/media/ortodoncia_antes_2.jpeg`,
-  ortodoncia_3: `${BASE_URL}/media/ortodoncia_antes_3.jpeg`,
-  ortodoncia_4: `${BASE_URL}/media/ortodoncia_antes_4.jpeg`,
-  ortodoncia_5: `${BASE_URL}/media/ortodoncia_antes_5.jpeg`,
-  carillas: `${BASE_URL}/media/carillas.jpeg`,
-  estetica: `${BASE_URL}/media/carillas.jpeg`,
-  blanqueamiento: `${BASE_URL}/media/blanqueamiento.jpeg`,
-  restauracion: `${BASE_URL}/media/restauracion_resina.jpeg`,
-  curaciones: `${BASE_URL}/media/restauracion_resina.jpeg`,
-  implantes: `${BASE_URL}/media/implantes.jpeg`,
-  endodoncia: `${BASE_URL}/media/endodoncia.jpeg`,
-  protesis: `${BASE_URL}/media/protesis.jpeg`,
-  odontopediatria: `${BASE_URL}/media/odontopediatria.jpeg`,
-  limpieza: `${BASE_URL}/media/kit_preventivo.jpeg`,
-  chequeo: `${BASE_URL}/media/chequeo.jpeg`,
-  fachada: `${BASE_URL}/media/fachada.jpeg`,
-  ubicacion: `${BASE_URL}/media/ubicacion.jpeg`,
-  promo: `${BASE_URL}/media/promo_consulta.jpeg`,
-  logo: `${BASE_URL}/media/logo.jpeg`,
-};
+// Se elimina CATALOGO_LUMINZU local porque el servicio ya devuelve la URL de imagen
 
 async function getSupabaseClient() {
   if (supabaseClient) return supabaseClient;
@@ -57,7 +32,6 @@ async function hardResetUserSession(phone) {
     const shortPhone = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
     const client = await getSupabaseClient();
 
-    // 1. Limpiar memoria RAM en geminiService
     const jid = `${rawDigits}@s.whatsapp.net`;
     if (geminiService.resetSession) {
       geminiService.resetSession(jid);
@@ -66,7 +40,6 @@ async function hardResetUserSession(phone) {
     chatSessionHistoryCache.delete(rawDigits);
     chatSessionHistoryCache.delete(shortPhone);
 
-    // 2. Limpiar base de datos Supabase usando ambos formatos (con y sin 51)
     if (client) {
       await Promise.allSettled([
         client.from('leads').delete().or(`telefono.ilike.%${shortPhone}%,telefono.eq.${shortPhone},telefono.eq.${rawDigits}`),
@@ -173,9 +146,7 @@ async function notifyMonitorPanel({ conversation_id, contact_name, sender, type,
   const panelBaseUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
   const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
   const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
-  if (!panelBaseUrl || !username || !password) {
-    return;
-  }
+  if (!panelBaseUrl || !username || !password) return;
 
   try {
     const authHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
@@ -244,7 +215,6 @@ function notifyDashboardIncoming(payload) {
 
 function extractPlainText(input) {
   let cleaned = typeof input === 'string' ? input : JSON.stringify(input);
-
   cleaned = cleaned.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
 
   if ((cleaned.startsWith('{') && cleaned.endsWith('}')) || (cleaned.startsWith('[') && cleaned.endsWith(']'))) {
@@ -301,86 +271,6 @@ function extractInstructionTags(text) {
   return { imageFiles: [...new Set(imageMatches)], agendaPayloads: agendaMatches };
 }
 
-const imageAliases = {
-  ortodoncia: 'ortodoncia_antes_despues.jpeg',
-  brackets: 'ortodoncia_antes_despues.jpeg',
-  frenillos: 'ortodoncia_antes_despues.jpeg',
-  ortodoncia1: 'ortodoncia_antes_despues1.jpeg',
-  ortodoncia2: 'ortodoncia_antes_despues2.jpeg',
-  ortodoncia3: 'ortodoncia_antes_despues3.jpeg',
-  ortodoncia_kids: 'ortodoncia_antes_despues4.jpeg',
-  carillas: 'carillas.jpeg',
-  estetica: 'carillas.jpeg',
-  diseno_sonrisa: 'carillas.jpeg',
-  implantes: 'implantes.jpeg',
-  endodoncia: 'endodoncia.jpeg',
-  conducto: 'endodoncia.jpeg',
-  protesis: 'protesis.jpeg',
-  odontopediatria: 'odontopediatria.jpeg',
-  ninos: 'odontopediatria.jpeg',
-  kit_preventivo: 'kit_preventivo.jpeg',
-  limpieza: 'kit_preventivo.jpeg',
-  preventivo: 'kit_preventivo.jpeg',
-  promo: 'promo_consulta.jpeg',
-  consulta: 'promo_consulta.jpeg',
-  restauracion: 'restauracion_resina.jpeg',
-  blanqueamiento: 'blanqueamiento.jpeg',
-  chequeo: 'chequeo.jpeg',
-  ubicacion: 'ubicacion.jpeg',
-  mapa: 'ubicacion.jpeg',
-  direccion: 'ubicacion.jpeg',
-  fachada: 'fachada.jpeg',
-  logo: 'logo.jpeg',
-};
-
-const orthodontiaImages = [
-  'ortodoncia_antes_despues.jpeg',
-  'ortodoncia_antes_despues1.jpeg',
-  'ortodoncia_antes_despues2.jpeg',
-  'ortodoncia_antes_despues3.jpeg',
-  'ortodoncia_antes_despues4.jpeg',
-];
-let orthodontiaImageIndex = 0;
-
-function nextOrthodontiaImage() {
-  const image = orthodontiaImages[orthodontiaImageIndex % orthodontiaImages.length];
-  orthodontiaImageIndex += 1;
-  return image;
-}
-
-function normalizeImageReference(reference) {
-  const value = String(reference || '').trim();
-  const key = value.toLowerCase().replace(/\.(jpeg|jpg|png)$/i, '');
-  return imageAliases[key] || value.split(/[\\/]/).pop();
-}
-
-function getTreatmentImageUrl(filename) {
-  const key = Object.entries(imageAliases).find(([, value]) => value === filename)?.[0];
-  return key ? TREATMENT_IMAGES[key] : null;
-}
-
-function resolveTreatmentImage(userText, botText) {
-  const combined = `${userText || ''} ${botText || ''}`.toLowerCase();
-  if (/bracket|ortodoncia|frenillo|alinead/.test(combined)) {
-    return getTreatmentImageUrl(nextOrthodontiaImage());
-  }
-  if (/carilla|estetic|diseño de sonrisa/.test(combined)) return TREATMENT_IMAGES.carillas;
-  if (/implante/.test(combined)) return TREATMENT_IMAGES.implantes;
-  if (/endodoncia|conducto/.test(combined)) return TREATMENT_IMAGES.endodoncia;
-  if (/protesis|postizo/.test(combined)) return TREATMENT_IMAGES.protesis;
-  if (/niñ|pediatr|odontopediatria/.test(combined)) return TREATMENT_IMAGES.odontopediatria;
-  if (/limpieza|profilaxis|preventiv/.test(combined)) return TREATMENT_IMAGES.limpieza;
-  if (/promo|promoci[oó]n|oferta|primera consulta|consulta inicial/.test(combined)) return TREATMENT_IMAGES.promo;
-  if (/donde|ubicacion|dirección|direccion|llegar|mapa/.test(combined)) return TREATMENT_IMAGES.ubicacion;
-  if (/fachada|clinica|clínica|local/.test(combined)) return TREATMENT_IMAGES.fachada;
-  return null;
-}
-
-function getTreatmentImageFilename(url) {
-  const key = Object.entries(TREATMENT_IMAGES).find(([, value]) => value === url)?.[0];
-  return key ? imageAliases[key] : null;
-}
-
 function stripInstructionTags(text) {
   return String(text || '')
     .replace(/\[ENVIAR[_ ]?IMAGEN:[^\]]+\]/gi, '')
@@ -397,25 +287,6 @@ function safeParseAgendaPayload(raw) {
     console.warn('webhookController: invalid AGENDAR_CITA payload:', raw, e && e.message ? e.message : e);
     return null;
   }
-}
-
-// Fallback mapping: when the model doesn't include [ENVIAR_IMAGEN] tags, use keywords from the user's message
-function mapKeywordsToImages(userText) {
-  if (!userText || typeof userText !== 'string') return [];
-  const t = userText.toLowerCase();
-  const images = [];
-  if (/bracket|ortodoncia|frenillos|brackets|alineador/i.test(t)) images.push(nextOrthodontiaImage());
-  if (/carilla|carillas|carilla dental/i.test(t)) images.push('carillas.jpeg');
-  if (/implante|implantes/i.test(t)) images.push('implantes.jpeg');
-  if (/protesis|pr[oó]tesis|pr[oó]tesis dental/i.test(t)) images.push('protesis.jpeg');
-  if (/endodoncia|conducto|tratamient[oó]n de conductos/i.test(t)) images.push('endodoncia.jpeg');
-  if (/odontopediatr|niñ|niños|pediatr/i.test(t)) images.push('odontopediatria.jpeg');
-  if (/fachada|consultorio|consultorio|clinica|clínica|instalaciones/i.test(t)) images.push('fachada.jpeg');
-  if (/limpieza|profilaxis|kit preventivo|kit_preventivo|mantenimiento/i.test(t)) images.push('kit_preventivo.jpeg');
-  if (/ubicaci|direcci|donde queda|direcci[oó]n|ubicacion/i.test(t)) images.push('ubicacion.jpeg');
-  if (/promo|promoci[oó]n|oferta/i.test(t)) images.push('promo_consulta.jpeg');
-  // Ensure uniqueness and limit to 3 images to avoid spamming
-  return [...new Set(images)].slice(0, 3);
 }
 
 async function persistAgendaPayload(payload, context = {}) {
@@ -467,8 +338,7 @@ async function persistAgendaPayload(payload, context = {}) {
   return null;
 }
 
-// Controller delgado que orquesta: Gemini -> lead -> WhatsApp -> admin notify
-// IMPORTANT: respond 200 early to Meta, then continue processing asynchronously
+// ============== CONTROLADOR PRINCIPAL ==============
 export default async function webhookController(req, res, next) {
   try {
     let incomingPayload = req.parsedBody || req.body;
@@ -483,7 +353,6 @@ export default async function webhookController(req, res, next) {
       notifyDashboardIncoming(incomingPayload);
     }
 
-    // Prefer parsedBody attached by verifySignature middleware; parse defensively
     let payload = null;
     try {
       if (req.parsedBody) payload = req.parsedBody;
@@ -521,13 +390,11 @@ export default async function webhookController(req, res, next) {
     }
 
     let clinicName = process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental';
-    // Existing WhatsApp webhook handling follows unchanged
     const entry = payload?.entry?.[0];
     const change = entry?.changes?.[0];
     const payloadValue = change?.value || {};
     const message = payloadValue?.messages?.[0] || null;
     if (!message) {
-      // nothing to process
       if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'no_message' });
       return;
     }
@@ -590,35 +457,27 @@ export default async function webhookController(req, res, next) {
       timestamp: new Date().toISOString()
     });
 
-    // At this point we have validated "from" and "messageText".
-    // Respond immediately to Meta to avoid retries/duplication.
     if (!res || !res.headersSent) {
       try { return res.status(200).json({ ok: true }); } catch (e) { /* safe no-op */ }
     }
-    // If headers already sent, continue silently
-    
 
-    // Continue processing in background without blocking the response.
-    // Use an immediately-invoked async function and internal try/catch to avoid unhandled rejections.
+    // Continuar en segundo plano
     (async () => {
       try {
         const jid = `${from}@s.whatsapp.net`;
 
-        // Apply a 15s timeout to the Gemini call (requirement).
         const geminiClient = getGeminiClient();
         const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 100 });
         const timeoutMs = 25_000;
         const timeoutPromise = new Promise((_, reject) => {
           const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
-          // ensure timer doesn't keep process alive
           t.unref && t.unref();
         });
- 
+
         const phoneNumberId = payloadValue?.metadata?.phone_number_id ? String(payloadValue.metadata.phone_number_id).trim() : (process.env.WHATSAPP_PHONE_NUMBER_ID ? String(process.env.WHATSAPP_PHONE_NUMBER_ID).trim() : null);
         let clinic = null;
         if (phoneNumberId) {
           try {
-            // Try to obtain a Supabase client from services/leadService.js to respect existing factory
             let client = null;
             try {
               const mod = await import('../services/leadService.js');
@@ -626,21 +485,17 @@ export default async function webhookController(req, res, next) {
                 client = mod.getSupabaseClient();
               }
             } catch (impErr) {
-              // Dynamic import failed or leadService not available in this context; fall back to creating a client from env if possible
               try {
                 const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
                 const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
                 if (rawUrl && key) client = createClient(rawUrl, key);
-              } catch (cErr) {
-                // ignore and fallback below
-              }
+              } catch (cErr) {}
             }
 
             if (client) {
               const { data } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
               clinic = data || null;
             } else {
-              // Graceful fallback: provide a minimal default clinic object so processing continues
               clinic = clinic || {
                 id: null,
                 name: 'LUMINZU',
@@ -652,8 +507,7 @@ export default async function webhookController(req, res, next) {
               };
             }
           } catch (e) {
-            console.error('webhookController: error looking up clinic by waba_phone_number_id', e && e.message ? e.message : e);
-            // Fallback to default minimal clinic so bot response is not interrupted
+            console.error('webhookController: error looking up clinic by waba_phone_number_id', e);
             clinic = clinic || {
               id: null,
               name: 'LUMINZU',
@@ -665,12 +519,13 @@ export default async function webhookController(req, res, next) {
             };
           }
         }
- 
+
         let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
         let leadData = null;
         let skipResponse = false;
-        // Ensure gemini result is available outside try/catch scope to avoid ReferenceError when Promise.race throws
+        let imagenURL = null; // <-- Nueva variable para imagen
         let geminiResult = null;
+
         try {
           geminiResult = await Promise.race([geminiPromise, timeoutPromise]);
           if (geminiResult) {
@@ -679,28 +534,24 @@ export default async function webhookController(req, res, next) {
             } else {
               texto = geminiResult.texto || geminiResult.text || (typeof geminiResult === 'string' ? geminiResult : texto);
               leadData = geminiResult.leadData || null;
+              imagenURL = geminiResult.imagenURL || null; // <-- Obtenemos la URL de imagen
             }
           }
         } catch (e) {
-          console.error('webhookController: gemini call failed or timed out', e && e.stack ? e.stack : e);
-          if (e && e.response) console.error('[GEMINI RESPONSE]:', e.response);
-          // On failure, fallback message is already in texto
+          console.error('webhookController: gemini call failed or timed out', e);
         }
-  
-        if (skipResponse) {
-          return;
-        }
-  
-        // Save lead if leadData is present. Use the remitente phone ('from') as the canonical source-of-truth for telefono.
+
+        if (skipResponse) return;
+
+        // Guardar lead si leadData existe
         let leadResult = null;
         if (leadData) {
           try {
             const telefonoKey = from || null;
             if (!telefonoKey) {
-              console.warn('webhookController: no remitente phone available in WhatsApp event; skipping lead save to avoid using model-extracted phone');
+              console.warn('webhookController: no remitente phone available; skipping lead save');
             } else {
               const shouldConfirm = typeof messageText === 'string' && geminiService.isExplicitConfirmation(messageText);
-              // Only attempt persistence if the Gemini response did not request skipping lead persistence
               const shouldPersistLead = !(geminiResult && geminiResult.skipLeadPersistence);
               if (shouldPersistLead) {
                 try {
@@ -715,133 +566,44 @@ export default async function webhookController(req, res, next) {
                     clinic: clinic || null,
                   });
                 } catch (dbErr) {
-                  // Log DB errors but do not let them interrupt message sending
-                  console.error('webhookController: leadService.saveLead failed', dbErr && (dbErr.message || dbErr));
+                  console.error('webhookController: leadService.saveLead failed', dbErr);
                 }
               }
-              // If user explicitly confirmed, force an admin notify regardless (best-effort)
               if (shouldConfirm && leadResult && leadResult.lead) {
                 try {
                   await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
                 } catch (err) {
-                  console.error('webhookController: forced admin notify after explicit confirmation failed', err && err.message ? err.message : err);
+                  console.error('webhookController: forced admin notify after explicit confirmation failed', err);
                 }
               }
             }
           } catch (e) {
-            console.error('webhookController: error saving lead', e && e.message ? e.message : e);
+            console.error('webhookController: error saving lead', e);
           }
         }
 
-        // Send message to user (best-effort). Failures are logged but do not affect response to Meta.
+        // Enviar respuesta al usuario
         try {
-          // Persist incoming WhatsApp patient message into chat_sessions
-          try {
-            if (from && messageText) {
-              await persistToChatSessions(from, { from: 'patient', text: String(messageText).trim(), phone: from, timestamp: new Date().toISOString() });
-            }
-          } catch (e) {
-            console.warn('webhookController: failed to persist incoming whatsapp message to chat_sessions', e && e.message ? e.message : e);
+          // Persistir mensaje entrante
+          if (from && messageText) {
+            await persistToChatSessions(from, { from: 'patient', text: String(messageText).trim(), phone: from, timestamp: new Date().toISOString() });
           }
 
-          // === SANITIZACIÓN DEFENSIVA EN CONTROLADOR DE WEBHOOK ===
+          // Sanitizar texto final
           let textoFinal = extractPlainText(texto);
-
           textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
-          // Ensure admin-only alert text is never forwarded to the patient.
           textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
 
-          // Clean any backslashes that Gemini may inject before extracting instruction tags
-          const textoLimpioGemini = String(textoFinal || '').replace(/\\/g, '');
-          const { imageFiles: modelImageFiles, agendaPayloads } = extractInstructionTags(textoLimpioGemini);
-          const sanitizedText = stripInstructionTags(textoLimpioGemini);
+          // Limpiar etiquetas residuales (por si acaso)
+          const textoLimpio = stripInstructionTags(textoFinal);
+          const textoParaWhatsApp = textoLimpio;
 
-          // Only explicit model image tags may trigger image delivery.
-          const requestedImageFiles = (Array.isArray(modelImageFiles) && modelImageFiles.length > 0)
-            ? modelImageFiles
-            : [];
-          const finalImageFiles = requestedImageFiles.map(normalizeImageReference);
-
-          // Handle AGENDAR_CITA payloads safely and without breaking the user response.
-          for (const rawAgenda of agendaPayloads) {
-            try {
-              const parsed = safeParseAgendaPayload(rawAgenda);
-              if (parsed) {
-                console.log('[AGENDAR_CITA]', parsed);
-                await persistAgendaPayload(parsed, { clinicId: clinic?.id || null, phone: from, source: 'whatsapp' });
-              }
-            } catch (e) {
-              console.error('webhookController: failed parsing AGENDAR_CITA payload', e && e.message ? e.message : e);
-            }
-          }
-
-          // Defensive placeholder cleanup before sending to user
-          clinicName = (typeof clinic !== 'undefined' && clinic?.name) || clinicName;
-          const session = (() => { try { return geminiService.getOrCreateSession(from + '@s.whatsapp.net'); } catch (e) { return null; } })();
-          let patientName = null;
-          try {
-            if (session && Array.isArray(session.history)) {
-              for (let i = session.history.length - 1; i >= 0; i--) {
-                const h = session.history[i];
-                if (h.role === 'user') {
-                  const t = (h.parts || []).map(p => p.text || '').join(' ').trim();
-                  const parsed = geminiService.extractLeadDataFromText ? geminiService.extractLeadDataFromText(t) : null;
-                  if (parsed && parsed.nombre && geminiService.isValidName && geminiService.isValidName(parsed.nombre)) {
-                    patientName = parsed.nombre;
-                    break;
-                  }
-                }
-              }
-            }
-          } catch (e) { patientName = null; }
-
-          let finalTextForUser = sanitizedText.replace(/\[NOMBRE_CLINICA\]/g, clinicName);
-          if (patientName) {
-            finalTextForUser = finalTextForUser.replace(/\[NOMBRE_PACIENTE\]/g, patientName);
-          } else {
-            finalTextForUser = finalTextForUser.replace(/\[NOMBRE_PACIENTE\]/g, 'estimado/a paciente');
-          }
-          finalTextForUser = finalTextForUser.replace(/\s{2,}/g, ' ').trim();
-
-          let replyText = finalTextForUser;
-
-          const rawBotText = String(replyText || '').trim();
-          let tagKey = null;
-          let finalMediaUrl = null;
-
-          const tagMatch = rawBotText.match(/\[(?:ENVIARIMAGEN|ENVIAR_IMAGEN|ENVIAR IMAGEN):([a-zA-Z0-9_-]+)\]/i);
-          if (tagMatch) {
-            tagKey = tagMatch[1].toLowerCase().replace(/\.(jpeg|jpg|png)$/i, '');
-            finalMediaUrl = CATALOGO_LUMINZU[tagKey] || null;
-          }
-
-          if (!finalMediaUrl && /foto|imagen|como se ven|como son|muestra|muestrame|ejemplo/i.test(messageText)) {
-            if (/bracket|ortodoncia|frenillo/i.test(`${messageText} ${rawBotText}`)) {
-              finalMediaUrl = CATALOGO_LUMINZU.ortodoncia;
-            } else if (/carilla|estetic|diseño/i.test(`${messageText} ${rawBotText}`)) {
-              finalMediaUrl = CATALOGO_LUMINZU.carillas;
-            } else if (/implante/i.test(`${messageText} ${rawBotText}`)) {
-              finalMediaUrl = CATALOGO_LUMINZU.implantes;
-            } else if (/limpieza|preventiv|profilaxis/i.test(`${messageText} ${rawBotText}`)) {
-              finalMediaUrl = CATALOGO_LUMINZU.limpieza;
-            } else if (/blanqueamiento/i.test(`${messageText} ${rawBotText}`)) {
-              finalMediaUrl = CATALOGO_LUMINZU.blanqueamiento;
-            } else if (/curaci|resina|restauraci/i.test(`${messageText} ${rawBotText}`)) {
-              finalMediaUrl = CATALOGO_LUMINZU.restauracion;
-            }
-          }
-
-          const textoParaWhatsApp = rawBotText
-            .replace(/\[(?:ENVIARIMAGEN|ENVIAR_IMAGEN|ENVIAR IMAGEN):[^\]]*\]?/gi, '')
-            .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
-            .replace(/\[ENVI\b.*/gi, '')
-            .trim();
-
-          const imageToSend = finalMediaUrl ? 'catalogo_luminzu' : null;
+          // Determinar imagen a enviar usando imagenURL del servicio
+          let finalMediaUrl = imagenURL || null;
 
           if (finalMediaUrl) {
+            const caption = textoParaWhatsApp || 'Te comparto esta imagen informativa de Clínica LUMINZU 🦷✨';
             try {
-              const caption = textoParaWhatsApp || 'Te comparto esta imagen informativa de Clínica LUMINZU 🦷✨';
               const sendResult = await whatsappService.sendWhatsAppMessage(from, caption, {
                 type: 'image',
                 image: { link: finalMediaUrl },
@@ -860,38 +622,41 @@ export default async function webhookController(req, res, next) {
             await notifyDashboardReply(from, textoParaWhatsApp, null, sendResult?.messages?.[0]?.id || null);
           }
 
-          const replyImageUrl = finalMediaUrl;
+          // Notificar al panel de monitoreo
           await notifyMonitorPanel({
             conversation_id: from,
             contact_name: patientName || payloadValue?.contacts?.[0]?.profile?.name || null,
             sender: 'bot',
-            type: imageToSend ? 'image' : 'text',
-            content: textoParaWhatsApp || replyText || null,
-            media_url: replyImageUrl,
+            type: finalMediaUrl ? 'image' : 'text',
+            content: textoParaWhatsApp || null,
+            media_url: finalMediaUrl,
             timestamp: new Date().toISOString(),
           });
+
+          // Persistir respuesta del bot
           await persistToSupabaseConversation({
             conversationId: from,
             contactNumber: from,
             contactName: patientName || payloadValue?.contacts?.[0]?.profile?.name || from,
             sender: 'bot',
-            text: textoParaWhatsApp || replyText || null,
-            mediaUrl: replyImageUrl,
+            text: textoParaWhatsApp || null,
+            mediaUrl: finalMediaUrl,
             timestamp: new Date().toISOString()
           });
 
-          // Persist bot reply (text and/or image) into chat_sessions
-          try {
-            const imgName = imageToSend ? 'catalogo_luminzu' : null;
-            await persistToChatSessions(from, { from: 'bot', text: textoParaWhatsApp || replyText || null, image: imgName, phone: from, timestamp: new Date().toISOString() });
-          } catch (e) {
-            console.warn('webhookController: failed to persist bot reply to chat_sessions', e && e.message ? e.message : e);
-          }
+          await persistToChatSessions(from, {
+            from: 'bot',
+            text: textoParaWhatsApp || null,
+            image: finalMediaUrl ? 'image_url' : null,
+            phone: from,
+            timestamp: new Date().toISOString()
+          });
+
         } catch (e) {
-          console.error('webhookController: failed sending message to user', e && e.message ? e.message : e);
+          console.error('webhookController: failed sending message to user', e);
         }
 
-        // Notify admin if needed (best-effort)
+        // Notificar admin si es necesario
         try {
           if (leadResult && leadResult.readyToNotify && leadResult.lead) {
             const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone || 'unknown';
@@ -899,18 +664,15 @@ export default async function webhookController(req, res, next) {
             await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
           }
         } catch (e) {
-          console.error('webhookController: error in admin notify flow', e && e.message ? e.message : e);
+          console.error('webhookController: error in admin notify flow', e);
         }
       } catch (err) {
-        // This catch is for the entire background processing block.
-        console.error('webhookController: unexpected background processing error', err && err.message ? err.message : err);
+        console.error('webhookController: unexpected background processing error', err);
       }
     })();
 
-    // We already sent response to Meta; do not await background work.
     return;
   } catch (err) {
-    // If we reach here before sending response, pass to centralized error handler
     return next(err);
   }
 }
