@@ -12,6 +12,35 @@ import { TREATMENT_IMAGES } from '../src/config.js';
 // Helper: upsert a message into chat_sessions.history
 let supabaseClient = null;
 const chatSessionHistoryCache = new Map();
+const processedMessageIds = new Set();
+const PROCESSED_IDS_TTL_MS = 5 * 60 * 1000;
+
+const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-reumatologia-cqpharma.onrender.com').replace(/\/+$/, '');
+
+const CATALOGO_LUMINZU = {
+  ortodoncia: `${BASE_URL}/media/bracketsmuestra.jpeg`,
+  brackets: `${BASE_URL}/media/bracketsmuestra.jpeg`,
+  ortodoncia_1: `${BASE_URL}/media/ortodoncia_antes_1.jpeg`,
+  ortodoncia_2: `${BASE_URL}/media/ortodoncia_antes_2.jpeg`,
+  ortodoncia_3: `${BASE_URL}/media/ortodoncia_antes_3.jpeg`,
+  ortodoncia_4: `${BASE_URL}/media/ortodoncia_antes_4.jpeg`,
+  ortodoncia_5: `${BASE_URL}/media/ortodoncia_antes_5.jpeg`,
+  carillas: `${BASE_URL}/media/carillas.jpeg`,
+  estetica: `${BASE_URL}/media/carillas.jpeg`,
+  blanqueamiento: `${BASE_URL}/media/blanqueamiento.jpeg`,
+  restauracion: `${BASE_URL}/media/restauracion_resina.jpeg`,
+  curaciones: `${BASE_URL}/media/restauracion_resina.jpeg`,
+  implantes: `${BASE_URL}/media/implantes.jpeg`,
+  endodoncia: `${BASE_URL}/media/endodoncia.jpeg`,
+  protesis: `${BASE_URL}/media/protesis.jpeg`,
+  odontopediatria: `${BASE_URL}/media/odontopediatria.jpeg`,
+  limpieza: `${BASE_URL}/media/kit_preventivo.jpeg`,
+  chequeo: `${BASE_URL}/media/chequeo.jpeg`,
+  fachada: `${BASE_URL}/media/fachada.jpeg`,
+  ubicacion: `${BASE_URL}/media/ubicacion.jpeg`,
+  promo: `${BASE_URL}/media/promo_consulta.jpeg`,
+  logo: `${BASE_URL}/media/logo.jpeg`,
+};
 
 async function getSupabaseClient() {
   if (supabaseClient) return supabaseClient;
@@ -233,7 +262,7 @@ function extractPlainText(input) {
 }
 
 function extractInstructionTags(text) {
-  const imageMatches = [...String(text || '').matchAll(/\[ENVIAR_IMAGEN:([^\]]+)\]/gi)]
+  const imageMatches = [...String(text || '').matchAll(/\[ENVIAR[_ ]?IMAGEN:([^\]]+)\]/gi)]
     .map((m) => m[1].trim())
     .filter(Boolean);
   const agendaMatches = [...String(text || '').matchAll(/\[AGENDAR_CITA:(\{.*?\})\]/gi)].map((m) => m[1].trim()).filter(Boolean);
@@ -322,7 +351,7 @@ function getTreatmentImageFilename(url) {
 
 function stripInstructionTags(text) {
   return String(text || '')
-    .replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '')
+    .replace(/\[ENVIAR[_ ]?IMAGEN:[^\]]+\]/gi, '')
     .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -444,6 +473,16 @@ export default async function webhookController(req, res, next) {
       return;
     }
     const firstMessage = incomingMessages[0];
+    const msgId = firstMessage?.id;
+    if (msgId) {
+      if (processedMessageIds.has(msgId)) {
+        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'duplicate_ignored' });
+        return;
+      }
+      processedMessageIds.add(msgId);
+      setTimeout(() => processedMessageIds.delete(msgId), PROCESSED_IDS_TTL_MS);
+    }
+
     if (!firstMessage || firstMessage.from === 'status@broadcast' || firstMessage.type === 'system') {
       if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'ignored_status_or_system' });
       return;
@@ -455,7 +494,6 @@ export default async function webhookController(req, res, next) {
     const change = entry?.changes?.[0];
     const payloadValue = change?.value || {};
     const message = payloadValue?.messages?.[0] || null;
-
     if (!message) {
       // nothing to process
       if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'no_message' });
@@ -724,56 +762,40 @@ export default async function webhookController(req, res, next) {
 
           let replyText = finalTextForUser;
 
-          // Send a single response: image with caption when the model includes an image tag,
-          // otherwise send the cleaned text only. No hardcoded follow-up text is appended.
-          // Desactivado para evitar reenvio automatico en cada turno
-          const resolvedTreatmentUrl = null;
-          const resolvedTreatmentFilename = getTreatmentImageFilename(resolvedTreatmentUrl);
-          const imageToSend = resolvedTreatmentFilename
-            || ((Array.isArray(finalImageFiles) && finalImageFiles.length) ? finalImageFiles[0] : null);
-          const mediaUrl = resolvedTreatmentUrl || (imageToSend ? getTreatmentImageUrl(imageToSend) : null);
-
-          if (imageToSend && mediaUrl) {
-            try {
-              const caption = replyText && replyText.length > 0 ? replyText : 'Te comparto esta imagen.';
-              const sendResult = await whatsappService.sendWhatsAppMessage(from, caption, {
-                type: 'image',
-                media: { link: mediaUrl },
-                caption,
-              });
-              try {
-                forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: caption, mediaUrl } });
-                await notifyDashboardReply(from, caption, mediaUrl, sendResult?.messages?.[0]?.id || null);
-              } catch (e) { /* non-blocking */ }
-            } catch (e) {
-              console.error('webhookController: failed sending image to patient', imageToSend, e && e.message ? e.message : e);
-              if (replyText && replyText.length > 0 && !skipResponse) {
-                await whatsappService.sendWhatsAppMessage(from, replyText, {});
-              }
-            }
-          } else if (replyText && replyText.length > 0 && !skipResponse) {
-            const sendResult = await whatsappService.sendWhatsAppMessage(from, replyText, {});
-            try {
-              forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: replyText, mediaUrl: null } });
-              await notifyDashboardReply(from, replyText, null, sendResult?.messages?.[0]?.id || null);
-            } catch (e) { /* non-blocking */ }
+          const rawBotText = String(replyText || '').trim();
+          const tagMatch = rawBotText.match(/\[(?:ENVIARIMAGEN|ENVIAR_IMAGEN|ENVIAR IMAGEN):([a-zA-Z0-9_-]+)\]/i);
+          let urlFoto = null;
+          if (tagMatch) {
+            const clave = tagMatch[1].toLowerCase().replace(/\.(jpeg|jpg|png)$/i, '');
+            urlFoto = CATALOGO_LUMINZU[clave] || null;
           }
 
-          if (imageToSend && !mediaUrl && replyText && replyText.length > 0 && !skipResponse) {
-            try {
-              await enviarImagenWhatsapp(from, imageToSend);
-            } catch (e) {
-              console.error('webhookController: failed sending image fallback to media upload', imageToSend, e && e.message ? e.message : e);
-            }
+          const textoParaWhatsApp = rawBotText
+            .replace(/\[(?:ENVIARIMAGEN|ENVIAR_IMAGEN|ENVIAR IMAGEN):[^\]]*\]?/gi, '')
+            .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
+            .replace(/\[ENVI\b.*/gi, '')
+            .trim();
+
+          const imageToSend = urlFoto ? 'catalogo_luminzu' : null;
+          const mediaUrl = urlFoto;
+
+          if (urlFoto) {
+            await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {
+              type: 'image',
+              media: { link: urlFoto },
+              caption: textoParaWhatsApp,
+            });
+          } else if (textoParaWhatsApp) {
+            await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
           }
 
-          const replyImageUrl = resolvedTreatmentUrl || getTreatmentImageUrl(imageToSend);
+          const replyImageUrl = mediaUrl;
           await notifyMonitorPanel({
             conversation_id: from,
             contact_name: patientName || payloadValue?.contacts?.[0]?.profile?.name || null,
             sender: 'bot',
             type: imageToSend ? 'image' : 'text',
-            content: replyText || null,
+            content: textoParaWhatsApp || replyText || null,
             media_url: replyImageUrl,
             timestamp: new Date().toISOString(),
           });
@@ -782,15 +804,15 @@ export default async function webhookController(req, res, next) {
             contactNumber: from,
             contactName: patientName || payloadValue?.contacts?.[0]?.profile?.name || from,
             sender: 'bot',
-            text: replyText || null,
+            text: textoParaWhatsApp || replyText || null,
             mediaUrl: replyImageUrl,
             timestamp: new Date().toISOString()
           });
 
           // Persist bot reply (text and/or image) into chat_sessions
           try {
-            const imgName = (Array.isArray(finalImageFiles) && finalImageFiles.length) ? String(finalImageFiles[0]).split(/[\\/]/).pop() : null;
-            await persistToChatSessions(from, { from: 'bot', text: replyText || null, image: imgName, phone: from, timestamp: new Date().toISOString() });
+            const imgName = imageToSend ? 'catalogo_luminzu' : null;
+            await persistToChatSessions(from, { from: 'bot', text: textoParaWhatsApp || replyText || null, image: imgName, phone: from, timestamp: new Date().toISOString() });
           } catch (e) {
             console.warn('webhookController: failed to persist bot reply to chat_sessions', e && e.message ? e.message : e);
           }

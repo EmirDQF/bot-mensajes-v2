@@ -10,36 +10,50 @@ const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE
   || 'Estoy teniendo una demora técnica. ¿Me indicas tu nombre y el tratamiento que deseas agendar?';
 
 export const SYSTEM_PROMPT = `Eres el Asistente Virtual Oficial de LUMINZU Clínica Dental.
-Tu objetivo es resolver dudas clínicas, brindar información clara y cualificar/agendar a cada paciente para su evaluación presencial.
+Tu objetivo es responder dudas clínicas de forma clara, empática y guiar siempre al paciente hacia el agendamiento de su cita de evaluación presencial.
 
 ======================================================================
 REGLAS DE IDENTIDAD Y PROHIBICIONES ESTRICTAS
 ======================================================================
-1. NUNCA uses nombres propios humanos (Queda prohibido llamarte "Valeria", "María" o mencionar al "Dr. Frank"). Eres únicamente: "el asistente virtual de LUMINZU Clínica Dental".
-2. NUNCA escribas la frase robótica "Te atiende LUMINZU Clínica Dental". Habla con naturalidad y calidez.
-3. Si el usuario pregunta por precios de Ortodoncia/Brackets, indica:
-   "Contamos con una cuota inicial desde S/ 600, la cual puedes financiar en cómodas cuotas tras tu evaluación clínica previa." (NUNCA digas "en tres partes").
-4. Para los demás tratamientos (curaciones, implantes, prótesis, etc.), explica el beneficio y menciona que el costo exacto se determina en su evaluación personalizada.
-5. Pregunta si desea agendar una cita de evaluación presencial o si prefiere que un especialista de la clínica le brinde más detalles por llamada.
+1. NUNCA uses nombres propios humanos (prohibido llamarte Valeria, María, Frank, etc.). Preséntate únicamente como: "el asistente virtual de LUMINZU Clínica Dental".
+2. NUNCA digas "Te atiende LUMINZU Clínica Dental" ni inventes que ya existe una cita previa salvo que el usuario lo mencione en esta sesión.
+3. Si preguntan por precios de Ortodoncia/Brackets: indica que la cuota inicial va desde S/ 600 y se financia en cómodas cuotas previa evaluación clínica (NUNCA digas "en tres partes").
+4. Para otros tratamientos, explica el beneficio general e indica que el presupuesto exacto se define en la evaluación presencial.
 
 ======================================================================
-REGLA DE ETIQUETAS DE IMÁGENES (USO EXACTO SEGÚN EL TEMA)
+REGLA DE TONO Y LONGITUD (ESTRICTO WHATSAPP)
 ======================================================================
-Usa EXCLUSIVAMENTE la etiqueta correspondiente al tratamiento del que habla el usuario. Añádela AL FINAL de tu respuesta:
+- Respuestas de MÁXIMO 2 a 3 oraciones cortas. Cero párrafos largos o abrumadores.
+- Usa de 1 a 2 emojis pertinentes por mensaje (🦷 tratamientos, 😊 calidez, 📅 agenda, ✨ estética/resultados, 📍 ubicación).
+- Si la conversación ya empezó, NO repitas el saludo institucional largo. Ve directo al punto.
+- Termina SIEMPRE con UNA sola pregunta para pedir el siguiente dato de cualificación o agendamiento.
 
-- Curaciones / Resinas: [ENVIAR_IMAGEN:restauracion]
+======================================================================
+REGLA DE ETIQUETAS DE IMÁGENES
+======================================================================
+Cuando el usuario consulte por un tratamiento y sea útil mostrarle referencias visuales o lo pida explícitamente, coloca la etiqueta exacta AL FINAL:
+
 - Brackets / Ortodoncia: [ENVIAR_IMAGEN:ortodoncia]
-- Carillas / Diseño de Sonrisa: [ENVIAR_IMAGEN:carillas]
-- Blanqueamiento Dental: [ENVIAR_IMAGEN:blanqueamiento]
-- Implantes Dentales: [ENVIAR_IMAGEN:implantes]
-- Limpieza / Kit Preventivo: [ENVIAR_IMAGEN:limpieza]
-- Niños / Odontopediatría: [ENVIAR_IMAGEN:odontopediatria]
+- Casos antes y después de ortodoncia: [ENVIAR_IMAGEN:ortodoncia_1]
+- Curaciones / Resinas: [ENVIAR_IMAGEN:restauracion]
+- Carillas / Diseño de sonrisa: [ENVIAR_IMAGEN:carillas]
+- Blanqueamiento: [ENVIAR_IMAGEN:blanqueamiento]
+- Implantes dentales: [ENVIAR_IMAGEN:implantes]
 - Endodoncia: [ENVIAR_IMAGEN:endodoncia]
-- Prótesis Dental: [ENVIAR_IMAGEN:protesis]
-- Chequeo / Diagnóstico: [ENVIAR_IMAGEN:chequeo]
-- Ubicación / Fachada: [ENVIAR_IMAGEN:fachada]
+- Limpieza / Kit preventivo: [ENVIAR_IMAGEN:limpieza]
+- Niños / Odontopediatría: [ENVIAR_IMAGEN:odontopediatria]
+- Prótesis dental: [ENVIAR_IMAGEN:protesis]
+- Fachada / Instalaciones: [ENVIAR_IMAGEN:fachada]
+- Ubicación / Mapa: [ENVIAR_IMAGEN:ubicacion]
 
-PROHIBIDO enviar [ENVIAR_IMAGEN:carillas] si el usuario pregunta por curaciones, blanqueamiento o limpieza.`;
+======================================================================
+FLUJO DE AGENDAMIENTO PASO A PASO
+======================================================================
+Recopila de forma natural (1 dato por mensaje):
+1. Nombre del paciente.
+2. Tratamiento que necesita.
+3. Distrito de procedencia o sede de preferencia.
+4. Día y turno preferido (mañana o tarde) o si desea que un especialista le brinde detalles por llamada.`;
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -174,16 +188,23 @@ function textFromHistory(history) {
     .join('\n');
 }
 
-export function extractLeadDataFromText(text) {
+export function extractLeadDataFromText(text, senderPhone = null) {
   if (typeof text !== 'string' || !text.trim()) return null;
   const nameMatch = text.match(/\b(?:me llamo|mi nombre es|soy)\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
-  const phoneMatch = text.replace(/\D/g, '').match(/(?:51)?(9\d{8})/);
+  
+  let phone = text.replace(/\D/g, '').match(/(?:51)?(9\d{8})/)?.[1] || null;
+  if (!phone && senderPhone && /este (mismo )?n[uú]mero|mi n[uú]mero de whatsapp|con este whatsapp|a este n[uú]mero/i.test(text)) {
+    const rawDigits = String(senderPhone).replace(/\D/g, '');
+    phone = rawDigits.match(/(?:51)?(9\d{8})/)?.[1] || (rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits);
+  }
+
   const dateMatch = text.match(/\b(?:hoy|mañana|pasado mañana|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado)(?:\s+\d{1,2}\s+de\s+[a-záéíóú]+)?(?:\s+(?:a\s*las?\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i)
     || text.match(/\b\d{1,2}\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:\s+(?:a\s*las?\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i);
   const motivoMatch = text.match(/\b(?:tratamiento|motivo)\s*(?:es|:)?\s*([^,.\n]+)/i);
+
   return {
     nombre: nameMatch?.[1]?.trim() || null,
-    telefono: phoneMatch?.[1] || null,
+    telefono: phone || null,
     motivo: motivoMatch?.[1]?.trim() || null,
     fechaHora: dateMatch?.[0]?.trim() || null,
   };
@@ -192,7 +213,7 @@ export function extractLeadDataFromText(text) {
 export function isValidName(name) {
   return typeof name === 'string'
     && name.trim().length >= 2
-    && !/^(?:no proporcionad[oa]|dr\.?\s*\w+)$/i.test(name.trim());
+    && !/^(?:no proporcionad[oa]|dr\.?\s*\w+|estimado|paciente)$/i.test(name.trim());
 }
 
 export function isExplicitConfirmation(text) {
@@ -296,7 +317,7 @@ Cliente: ${message}`;
       request: {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         systemInstruction: systemPrompt,
-        generationConfig: { maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens },
+        generationConfig: { maxOutputTokens: options.maxOutputTokens || 120 },
       },
     };
   }
@@ -310,7 +331,7 @@ async function callGemini(client, request, options) {
     try {
       if (request.structured) return await client.generateContent(request.request, { model: config.gemini.model });
       if (typeof client?.generate === 'function') {
-        return await client.generate(request.prompt, { model: config.gemini.model, maxOutputTokens: options.maxOutputTokens || config.gemini.maxOutputTokens });
+        return await client.generate(request.prompt, { model: config.gemini.model, maxOutputTokens: options.maxOutputTokens || 120 });
       }
       throw new Error('Gemini client does not support generate or generateContent');
     } catch (error) {
@@ -325,9 +346,9 @@ async function callGemini(client, request, options) {
   throw lastError;
 }
 
-function collectLead(session, message) {
-  const current = extractLeadDataFromText(textFromHistory(session.history));
-  const incoming = extractLeadDataFromText(message);
+function collectLead(session, message, senderPhone = null) {
+  const current = extractLeadDataFromText(textFromHistory(session.history), senderPhone);
+  const incoming = extractLeadDataFromText(message, senderPhone);
   const lead = {
     nombre: incoming?.nombre || current?.nombre || session.leadSnapshot?.nombre || null,
     telefono: incoming?.telefono || current?.telefono || session.leadSnapshot?.telefono || null,
@@ -356,10 +377,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   try {
     const result = await callGemini(options.client, buildRequest(options.client, mensaje, session, jid, options), options);
     const rawText = extractResultText(result);
-    const leadData = collectLead(session, mensaje);
+    const leadData = collectLead(session, mensaje, sid);
     let texto = sanitizeModelTextOutput(rawText);
     if (!leadData?.ready_to_notify && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
-      texto = 'Para ayudarte a agendar, indícame tu nombre, teléfono, tratamiento y fecha o turno preferido.';
+      texto = 'Para ayudarte a agendar, indícame tu nombre, teléfono, tratamiento y fecha o turno preferido. 😊📅';
     }
     session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });
     session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
@@ -379,7 +400,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;
     failureCounts.set(sid, failures);
-    return { texto: failures === 1 ? 'No pude procesar tu mensaje. ¿Me lo repites para ayudarte a agendar?' : CONTINGENCY_MESSAGE, leadData: null };
+    return { texto: failures === 1 ? 'No pude procesar tu mensaje. ¿Me lo repites para ayudarte a agendar? 🦷' : CONTINGENCY_MESSAGE, leadData: null };
   }
 }
 
