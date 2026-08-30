@@ -5,42 +5,20 @@ const LIMA_TIME_ZONE = 'America/Lima';
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
 const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
-const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 8);
+const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
+const MAX_OUTPUT_TOKENS = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 100);
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
 const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE
   || 'Estoy teniendo una demora técnica. ¿Me indicas tu nombre y el tratamiento que deseas agendar?';
 
-export const SYSTEM_PROMPT = `Eres el Asistente Virtual Oficial de LUMINZU Clínica Dental.
-Misión: Resolver dudas clínicas brevemente y guiar SIEMPRE al paciente hacia el agendamiento de su cita presencial.
+export const SYSTEM_PROMPT = `Eres el asistente virtual de LUMINZU Clínica Dental. Responde breve, amable y orienta siempre a agendar una cita presencial.
 
-REGLAS DE IDENTIDAD Y ESTILO:
-- Identidad: Únicamente "el asistente virtual de LUMINZU Clínica Dental". Prohibido usar nombres humanos.
-- Tono: Respuestas de MÁXIMO 2-3 oraciones cortas. Usa 1-2 emojis por mensaje (🦷, 😊, 📅, ✨, 📍).
-- Precios de Ortodoncia/Brackets: Indicar cuota inicial desde S/ 600 financiada en cómodas cuotas previa evaluación (prohibido decir "en 3 partes").
-- Otros tratamientos: Indicar que el costo exacto se define en la evaluación clínica.
-- Cierre: Termina SIEMPRE incentivando a agendar la cita presencial (pidiendo turno mañana/tarde o fecha).
-
-REGLA OBLIGATORIA DE IMÁGENES:
-Cada vez que el paciente consulte por un tratamiento, pida fotos/referencias o pregunte detalles, incluye AL FINAL de tu respuesta la etiqueta exacta correspondiente:
-
-- Ortodoncia / Brackets generales: [ENVIAR_IMAGEN:ortodoncia]
-- Casos antes y después de ortodoncia: [ENVIAR_IMAGEN:ortodoncia_1]
-- Implantes dentales: [ENVIAR_IMAGEN:implantes]
-- Limpieza dental / Profilaxis: [ENVIAR_IMAGEN:limpieza]
-- Kit preventivo / Higiene: [ENVIAR_IMAGEN:kit_preventivo]
-- Curaciones / Resinas / Restauración: [ENVIAR_IMAGEN:restauracion]
-- Carillas / Diseño de sonrisa: [ENVIAR_IMAGEN:carillas]
-- Blanqueamiento dental: [ENVIAR_IMAGEN:blanqueamiento]
-- Endodoncia: [ENVIAR_IMAGEN:endodoncia]
-- Odontopediatría / Niños: [ENVIAR_IMAGEN:odontopediatria]
-- Prótesis dental: [ENVIAR_IMAGEN:protesis]
-- Extracción / Cirugía: [ENVIAR_IMAGEN:extraccion]
-- Periodoncia / Encías: [ENVIAR_IMAGEN:periodoncia]
-- Corona dental: [ENVIAR_IMAGEN:corona]
-- Gingivectomía / Estética gingival: [ENVIAR_IMAGEN:gingivectomia]
-- Evaluación general / Diagnóstico: [ENVIAR_IMAGEN:evaluacion]
-- Instalaciones / Fachada: [ENVIAR_IMAGEN:fachada]
-- Ubicación / Mapa: [ENVIAR_IMAGEN:ubicacion]`;
+Reglas:
+- Máximo 2-3 oraciones cortas, 1-2 emojis.
+- Si hablas de ortodoncia, menciona cuota inicial desde S/ 600 previa evaluación.
+- Para otros tratamientos, indica que el costo exacto se define en la evaluación clínica.
+- Cuando el paciente consulte un tratamiento, agrega la etiqueta final exacta del tratamiento:
+  [ENVIAR_IMAGEN:ortodoncia], [ENVIAR_IMAGEN:implantes], [ENVIAR_IMAGEN:limpieza], [ENVIAR_IMAGEN:kit_preventivo], [ENVIAR_IMAGEN:restauracion], [ENVIAR_IMAGEN:carillas], [ENVIAR_IMAGEN:blanqueamiento], [ENVIAR_IMAGEN:endodoncia], [ENVIAR_IMAGEN:odontopediatria], [ENVIAR_IMAGEN:protesis], [ENVIAR_IMAGEN:extraccion], [ENVIAR_IMAGEN:periodoncia], [ENVIAR_IMAGEN:corona], [ENVIAR_IMAGEN:gingivectomia], [ENVIAR_IMAGEN:evaluacion], [ENVIAR_IMAGEN:fachada], [ENVIAR_IMAGEN:ubicacion].`;
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -230,7 +208,7 @@ export function sanitizeModelTextOutput(rawText) {
   let text = rawText
     .replace(/```json/gi, '')
     .replace(/```/g, '')
-    .replace(/\[ENVIAR_IMAGEN:[a-z0-9_]+\]/gi, '')
+    .replace(/\[ENVIAR[_ ]?IMAGEN:[^\]]+\]/gi, '')
     .replace(/\[AGENDAR_CITA:\{[\s\S]*?\}\]/gi, '')
     .trim();
   if (text.startsWith('{')) {
@@ -312,7 +290,7 @@ Cliente: ${message}`;
       request: {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         systemInstruction: systemPrompt,
-        generationConfig: { maxOutputTokens: options.maxOutputTokens || 120 },
+        generationConfig: { maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS },
       },
     };
   }
@@ -326,7 +304,7 @@ async function callGemini(client, request, options) {
     try {
       if (request.structured) return await client.generateContent(request.request, { model: config.gemini.model });
       if (typeof client?.generate === 'function') {
-        return await client.generate(request.prompt, { model: config.gemini.model, maxOutputTokens: options.maxOutputTokens || 120 });
+        return await client.generate(request.prompt, { model: config.gemini.model, maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS });
       }
       throw new Error('Gemini client does not support generate or generateContent');
     } catch (error) {
@@ -359,31 +337,31 @@ function collectLead(session, message, senderPhone = null) {
 }
 
 export function determinarCategoriaImagen(mensaje, respuestaIA) {
-  const matchEtiqueta = (respuestaIA || '').match(/\[ENVIAR_IMAGEN:([a-z0-9_]+)\]/i);
+  const matchEtiqueta = (respuestaIA || '').match(/\[ENVIAR[_ ]?IMAGEN:([a-z0-9_]+)\]/i);
   if (matchEtiqueta && matchEtiqueta[1]) {
     return matchEtiqueta[1].toLowerCase();
   }
 
   const texto = `${mensaje || ''} ${respuestaIA || ''}`.toLowerCase();
   const mapeoTratamientos = [
-    { claves: ['kit preventivo', 'preventivo', 'kit'], categoria: 'kit_preventivo' },
+    { claves: ['bracket', 'brackets', 'ortodoncia', 'frenillos', 'frenos', 'invisalign'], categoria: 'ortodoncia' },
+    { claves: ['antes y despues', 'antes y después', 'resultados ortodoncia', 'caso ortodoncia'], categoria: 'ortodoncia_1' },
     { claves: ['implante', 'implantes'], categoria: 'implantes' },
+    { claves: ['limpieza', 'profilaxis', 'destartraje', 'sarro'], categoria: 'limpieza' },
+    { claves: ['kit preventivo', 'preventivo', 'kit dental', 'kit'], categoria: 'kit_preventivo' },
+    { claves: ['resina', 'resinas', 'curacion', 'curaciones', 'restauracion', 'restauración'], categoria: 'restauracion' },
+    { claves: ['carilla', 'carillas', 'diseño de sonrisa', 'sonrisa'], categoria: 'carillas' },
     { claves: ['blanqueamiento', 'blanquear'], categoria: 'blanqueamiento' },
-    { claves: ['carilla', 'carillas', 'diseño de sonrisa'], categoria: 'carillas' },
     { claves: ['endodoncia', 'conducto'], categoria: 'endodoncia' },
-    { claves: ['limpieza', 'profilaxis', 'sarro', 'destartraje'], categoria: 'limpieza' },
     { claves: ['odontopediatria', 'odontopediatría', 'niño', 'niños', 'bebe', 'hijo'], categoria: 'odontopediatria' },
     { claves: ['protesis', 'prótesis', 'placa'], categoria: 'protesis' },
-    { claves: ['resina', 'resinas', 'curacion', 'curación', 'curaciones', 'restauracion', 'restauración', 'calza'], categoria: 'restauracion' },
     { claves: ['extraccion', 'extracción', 'muela del juicio', 'sacar muela'], categoria: 'extraccion' },
     { claves: ['periodoncia', 'encia', 'encía', 'encias'], categoria: 'periodoncia' },
     { claves: ['corona', 'coronas', 'funda'], categoria: 'corona' },
     { claves: ['gingivectomia', 'gingivectomía'], categoria: 'gingivectomia' },
-    { claves: ['ubicacion', 'ubicación', 'direccion', 'dirección', 'donde quedan', 'donde estan'], categoria: 'ubicacion' },
+    { claves: ['evaluacion', 'evaluación', 'diagnostico', 'diagnóstico'], categoria: 'evaluacion' },
+    { claves: ['ubicacion', 'ubicación', 'direccion', 'dirección', 'mapa', 'donde queda', 'donde quedan'], categoria: 'ubicacion' },
     { claves: ['fachada', 'clinica', 'consultorio', 'instalaciones'], categoria: 'fachada' },
-    { claves: ['antes y despues', 'cambio', 'resultados ortodoncia'], categoria: 'ortodoncia_1' },
-    { claves: ['bracket', 'brackets', 'ortodoncia', 'frenillos', 'frenos', 'invisalign'], categoria: 'ortodoncia' },
-    { claves: ['evaluacion', 'evaluación', 'diagnostico', 'revisión', 'cita'], categoria: 'evaluacion' }
   ];
 
   for (const item of mapeoTratamientos) {
@@ -396,7 +374,7 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
 }
 
 export function getImagenCategoria(categoria) {
-  return CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default || CATALOGO_LUMINZU.tratamientos;
+  return CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default || CATALOGO_LUMINZU.tratamientos || null;
 }
 
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {

@@ -114,7 +114,7 @@ function requirePanelAuth(req, res, next) {
   return next();
 }
 
-app.use('/media', express.static(path.join(__dirname, 'LUMINZU')));
+app.use('/media', express.static(path.join(process.cwd(), 'media')));
 app.use('/LUMINZU', express.static(luminzuDir));
 app.use(express.static(publicDir));
 
