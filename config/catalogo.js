@@ -55,4 +55,5 @@ const CATALOGO_LUMINZU = {
   default: BASE_URL + 'logo.jpeg'
 };
 
-module.exports = { CATALOGO_LUMINZU };
+export { CATALOGO_LUMINZU };
+export default CATALOGO_LUMINZU;

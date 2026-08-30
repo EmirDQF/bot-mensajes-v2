@@ -1,7 +1,5 @@
 import config from '../config/env.js';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const { CATALOGO_LUMINZU } = require('../config/catalogo.js');
+import { CATALOGO_LUMINZU } from '../config/catalogo.js';
 
 const LIMA_TIME_ZONE = 'America/Lima';
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
