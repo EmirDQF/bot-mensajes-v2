@@ -806,11 +806,29 @@ export default async function webhookController(req, res, next) {
           let replyText = finalTextForUser;
 
           const rawBotText = String(replyText || '').trim();
+          let tagKey = null;
+          let finalMediaUrl = null;
+
           const tagMatch = rawBotText.match(/\[(?:ENVIARIMAGEN|ENVIAR_IMAGEN|ENVIAR IMAGEN):([a-zA-Z0-9_-]+)\]/i);
-          let urlFoto = null;
           if (tagMatch) {
-            const clave = tagMatch[1].toLowerCase().replace(/\.(jpeg|jpg|png)$/i, '');
-            urlFoto = CATALOGO_LUMINZU[clave] || null;
+            tagKey = tagMatch[1].toLowerCase().replace(/\.(jpeg|jpg|png)$/i, '');
+            finalMediaUrl = CATALOGO_LUMINZU[tagKey] || null;
+          }
+
+          if (!finalMediaUrl && /foto|imagen|como se ven|como son|muestra|muestrame|ejemplo/i.test(messageText)) {
+            if (/bracket|ortodoncia|frenillo/i.test(`${messageText} ${rawBotText}`)) {
+              finalMediaUrl = CATALOGO_LUMINZU.ortodoncia;
+            } else if (/carilla|estetic|diseño/i.test(`${messageText} ${rawBotText}`)) {
+              finalMediaUrl = CATALOGO_LUMINZU.carillas;
+            } else if (/implante/i.test(`${messageText} ${rawBotText}`)) {
+              finalMediaUrl = CATALOGO_LUMINZU.implantes;
+            } else if (/limpieza|preventiv|profilaxis/i.test(`${messageText} ${rawBotText}`)) {
+              finalMediaUrl = CATALOGO_LUMINZU.limpieza;
+            } else if (/blanqueamiento/i.test(`${messageText} ${rawBotText}`)) {
+              finalMediaUrl = CATALOGO_LUMINZU.blanqueamiento;
+            } else if (/curaci|resina|restauraci/i.test(`${messageText} ${rawBotText}`)) {
+              finalMediaUrl = CATALOGO_LUMINZU.restauracion;
+            }
           }
 
           const textoParaWhatsApp = rawBotText
@@ -819,20 +837,30 @@ export default async function webhookController(req, res, next) {
             .replace(/\[ENVI\b.*/gi, '')
             .trim();
 
-          const imageToSend = urlFoto ? 'catalogo_luminzu' : null;
-          const mediaUrl = urlFoto;
+          const imageToSend = finalMediaUrl ? 'catalogo_luminzu' : null;
 
-          if (urlFoto) {
-            await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {
-              type: 'image',
-              media: { link: urlFoto },
-              caption: textoParaWhatsApp,
-            });
+          if (finalMediaUrl) {
+            try {
+              const caption = textoParaWhatsApp || 'Te comparto esta imagen informativa de Clínica LUMINZU 🦷✨';
+              const sendResult = await whatsappService.sendWhatsAppMessage(from, caption, {
+                type: 'image',
+                image: { link: finalMediaUrl },
+                media: { link: finalMediaUrl },
+                caption,
+              });
+              forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: caption, mediaUrl: finalMediaUrl } });
+              await notifyDashboardReply(from, caption, finalMediaUrl, sendResult?.messages?.[0]?.id || null);
+            } catch (e) {
+              console.error('Error enviando imagen:', e?.message || e);
+              if (textoParaWhatsApp) await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
+            }
           } else if (textoParaWhatsApp) {
-            await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
+            const sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
+            forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: textoParaWhatsApp, mediaUrl: null } });
+            await notifyDashboardReply(from, textoParaWhatsApp, null, sendResult?.messages?.[0]?.id || null);
           }
 
-          const replyImageUrl = mediaUrl;
+          const replyImageUrl = finalMediaUrl;
           await notifyMonitorPanel({
             conversation_id: from,
             contact_name: patientName || payloadValue?.contacts?.[0]?.profile?.name || null,
