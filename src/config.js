@@ -47,6 +47,11 @@ export const TREATMENT_IMAGES = {
   promo: `${BASE_URL}/media/promo_consulta.jpeg`,
   consulta: `${BASE_URL}/media/promo_consulta.jpeg`,
 
+  // Restauración y estética
+  restauracion: `${BASE_URL}/media/restauracion_resina.jpeg`,
+  blanqueamiento: `${BASE_URL}/media/blanqueamiento.jpeg`,
+  chequeo: `${BASE_URL}/media/chequeo.jpeg`,
+
   // Ubicación y Fachada
   ubicacion: `${BASE_URL}/media/ubicacion.jpeg`,
   mapa: `${BASE_URL}/media/ubicacion.jpeg`,
