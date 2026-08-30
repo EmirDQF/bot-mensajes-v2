@@ -3,7 +3,7 @@ BotMensajes
 
 Descripción
 -----------
-Bot de mensajería para agendamiento que integra WhatsApp (Baileys) con Gemini (Google Generative AI) para extracción de datos mediante Function Calling. Diseñado para alto volumen y respuestas cortas.
+Bot de mensajería para agendamiento que integra la API oficial de WhatsApp Cloud con Gemini (Google Generative AI) para extracción de datos mediante Function Calling. Diseñado para alto volumen y respuestas cortas.
 
 Variables de entorno (.env)
 ---------------------------
@@ -19,7 +19,7 @@ Colocar un archivo .env en la raíz con al menos las siguientes variables (NO su
 - CLINIC_DOCTOR_NAME=Dr(a). Ana García
 - PORT=3000
 
-Este proyecto utiliza un loader propio (src/envLoader.js) que lee .env y asigna variables a process.env solo si no existen ya (respeta variables definidas por PM2/host). No se usa dotenv.
+Este proyecto utiliza un loader propio (src/envLoader.js) que lee .env y asigna variables a process.env solo si no existen ya (respeta variables definidas por PM2/host).
 
 Cómo correr el bot
 ------------------
@@ -30,7 +30,7 @@ Cómo correr el bot
 Tests y verificaciones
 ----------------------
 - Smoke test que valida Function Calling y guardado de leads: npm run test:smoke (ejecuta scripts/smoke-test.js)
-- Test de parseo de fechas: node scripts/test-fechas.mjs
+- Tests unitarios de servicios: npm run test:unit
 
 Política de fallback heurístico
 ------------------------------
@@ -40,7 +40,6 @@ Política de fallback heurístico
 Seguridad
 --------
 - .env está incluido en .gitignore y nunca debe subirse.
-- Se eliminó la dependencia 'dotenv' y se reemplazó por un loader propio para evitar vectores de prompt-injection dirigidos a agentes de IA.
 
 Notas finales
 ------------

@@ -185,4 +185,4 @@ app.use('/', webhookRouter);
 // Mount centralized error handler at the end of middleware chain
 app.use(errorHandler);
 
-// No longer using Baileys socket — Cloud API uses webhooks + HTTP calls.
+// WhatsApp Cloud API integration is handled exclusively by routes/webhook.js.
