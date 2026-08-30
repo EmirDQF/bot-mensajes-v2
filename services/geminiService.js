@@ -135,6 +135,13 @@ export function isSessionPaused(jid) {
   return Boolean(chatSessions.get(sessionId(jid))?.paused);
 }
 
+export function resetSession(jid) {
+  const sid = sessionId(jid);
+  chatSessions.delete(sid);
+  failureCounts.delete(sid);
+  return true;
+}
+
 export function mergeRecentUserMessages(history, windowMs = 10000) {
   if (!Array.isArray(history)) return [];
   const result = [];
@@ -421,6 +428,7 @@ export default {
   pauseSessionById,
   resumeSessionById,
   isSessionPaused,
+  resetSession,
   getOrCreateSession,
   extractLeadDataFromText,
   isValidName,

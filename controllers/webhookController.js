@@ -51,6 +51,35 @@ async function getSupabaseClient() {
   return supabaseClient;
 }
 
+async function hardResetUserSession(phone) {
+  try {
+    const rawDigits = String(phone).replace(/\D/g, '');
+    const client = await getSupabaseClient();
+
+    const sid = rawDigits;
+    const jid = `${rawDigits}@s.whatsapp.net`;
+    if (geminiService.resetSession) {
+      geminiService.resetSession(jid);
+    }
+
+    chatSessionHistoryCache.delete(rawDigits);
+
+    if (client) {
+      await Promise.allSettled([
+        client.from('leads').delete().or(`telefono.ilike.%${rawDigits}%,telefono.eq.${rawDigits}`),
+        client.from('chat_sessions').delete().eq('id', rawDigits),
+        client.from('conversations').delete().or(`contact_number.ilike.%${rawDigits}%,conversation_id.ilike.%${rawDigits}%`),
+        client.from('messages').delete().or(`contact_number.ilike.%${rawDigits}%,conversation_id.ilike.%${rawDigits}%`),
+      ]);
+    }
+    console.log(`[RESET] Sesión y base de datos reseteadas con éxito para: ${rawDigits}`);
+    return true;
+  } catch (err) {
+    console.error('Error en hardResetUserSession:', err?.message || err);
+    return false;
+  }
+}
+
 async function persistToSupabaseConversation({ conversationId, contactNumber, contactName, sender, text, mediaUrl, timestamp }) {
   const supabase = await getSupabaseClient();
   if (!supabase || !conversationId) return null;
@@ -523,6 +552,17 @@ export default async function webhookController(req, res, next) {
     if (!messageText) {
       console.warn('webhookController: message text missing');
       if (!res.headersSent) return res.status(200).json({ ok: false, reason: 'no_text' });
+      return;
+    }
+
+    if (!res || !res.headersSent) {
+      try { res.status(200).json({ ok: true }); } catch (e) { /* safe no-op */ }
+    }
+
+    if (/^\/?(reset|reiniciar|borrar|clear)$/i.test(messageText.trim())) {
+      await hardResetUserSession(from);
+      const resetGreeting = '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨. ¿Con quién tengo el gusto y en qué tratamiento te gustaría consultar hoy? 😊';
+      await whatsappService.sendWhatsAppMessage(from, resetGreeting, {});
       return;
     }
 
