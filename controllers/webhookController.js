@@ -53,26 +53,29 @@ async function getSupabaseClient() {
 
 async function hardResetUserSession(phone) {
   try {
-    const rawDigits = String(phone).replace(/\D/g, '');
+    const rawDigits = String(phone || '').replace(/\D/g, '');
+    const shortPhone = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
     const client = await getSupabaseClient();
 
-    const sid = rawDigits;
+    // 1. Limpiar memoria RAM en geminiService
     const jid = `${rawDigits}@s.whatsapp.net`;
     if (geminiService.resetSession) {
       geminiService.resetSession(jid);
+      geminiService.resetSession(`${shortPhone}@s.whatsapp.net`);
     }
-
     chatSessionHistoryCache.delete(rawDigits);
+    chatSessionHistoryCache.delete(shortPhone);
 
+    // 2. Limpiar base de datos Supabase usando ambos formatos (con y sin 51)
     if (client) {
       await Promise.allSettled([
-        client.from('leads').delete().or(`telefono.ilike.%${rawDigits}%,telefono.eq.${rawDigits}`),
-        client.from('chat_sessions').delete().eq('id', rawDigits),
-        client.from('conversations').delete().or(`contact_number.ilike.%${rawDigits}%,conversation_id.ilike.%${rawDigits}%`),
-        client.from('messages').delete().or(`contact_number.ilike.%${rawDigits}%,conversation_id.ilike.%${rawDigits}%`),
+        client.from('leads').delete().or(`telefono.ilike.%${shortPhone}%,telefono.eq.${shortPhone},telefono.eq.${rawDigits}`),
+        client.from('chat_sessions').delete().or(`id.eq.${rawDigits},id.eq.${shortPhone}`),
+        client.from('conversations').delete().or(`contact_name.ilike.%${shortPhone}%`),
+        client.from('messages').delete().or(`sender.ilike.%${shortPhone}%`)
       ]);
     }
-    console.log(`[RESET] Sesión y base de datos reseteadas con éxito para: ${rawDigits}`);
+    console.log(`[RESET TOTAL] Lead y sesiones eliminadas para: ${shortPhone} (${rawDigits})`);
     return true;
   } catch (err) {
     console.error('Error en hardResetUserSession:', err?.message || err);
