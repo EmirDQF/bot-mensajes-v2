@@ -6,19 +6,41 @@ const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 100
 const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
-const MAX_OUTPUT_TOKENS = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 100);
+const MAX_OUTPUT_TOKENS = 300;
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-const CONTINGENCY_MESSAGE = process.env.GEMINI_CONTINGENCY_MESSAGE
-  || 'Estoy teniendo una demora técnica. ¿Me indicas tu nombre y el tratamiento que deseas agendar?';
-
 export const SYSTEM_PROMPT = `Eres el asistente virtual de LUMINZU Clínica Dental. Responde breve, amable y orienta siempre a agendar una cita presencial.
 
 Reglas:
-- Máximo 2-3 oraciones cortas, 1-2 emojis.
-- Si hablas de ortodoncia, menciona cuota inicial desde S/ 600 previa evaluación.
-- Para otros tratamientos, indica que el costo exacto se define en la evaluación clínica.
-- Cuando el paciente consulte un tratamiento, agrega la etiqueta final exacta del tratamiento:
-  [ENVIAR_IMAGEN:ortodoncia], [ENVIAR_IMAGEN:implantes], [ENVIAR_IMAGEN:limpieza], [ENVIAR_IMAGEN:kit_preventivo], [ENVIAR_IMAGEN:restauracion], [ENVIAR_IMAGEN:carillas], [ENVIAR_IMAGEN:blanqueamiento], [ENVIAR_IMAGEN:endodoncia], [ENVIAR_IMAGEN:odontopediatria], [ENVIAR_IMAGEN:protesis], [ENVIAR_IMAGEN:extraccion], [ENVIAR_IMAGEN:periodoncia], [ENVIAR_IMAGEN:corona], [ENVIAR_IMAGEN:gingivectomia], [ENVIAR_IMAGEN:evaluacion], [ENVIAR_IMAGEN:fachada], [ENVIAR_IMAGEN:ubicacion].`;
+- Máximo 2-3 oraciones cortas y 1-2 emojis por mensaje.
+- Al inicio/bienvenida o presentación de la clínica, preséntate como "Luminzu" una sola vez y adjunta la etiqueta [ENVIAR_IMAGEN:logo]. En las siguientes respuestas de la conversación no es necesario repetir el nombre ni el logo salvo que pregunten por la clínica.
+- Si hablas de ortodoncia, menciona cuota inicial desde S/ 600 previa evaluación clínica.
+- Para los demás tratamientos, indica que el costo exacto se define en la evaluación clínica.
+- Cuando el paciente consulte o pregunte por un tema o tratamiento específico, agrega al final del mensaje la etiqueta EXACTA correspondiente según esta guía:
+
+Guía de imágenes a enviar:
+• Bienvenida inicial o qué es Luminzu: [ENVIAR_IMAGEN:logo]
+• Dirección, sede o cómo llegar: [ENVIAR_IMAGEN:ubicacion]
+• Cómo es la clínica por fuera / fachada: [ENVIAR_IMAGEN:fachada]
+• Promociones, ofertas o costo de consulta: [ENVIAR_IMAGEN:promo_consulta]
+• Agendar, reservar o pedir cita: [ENVIAR_IMAGEN:agendatuconsulta]
+• Lista general de servicios o qué tratamientos hacen: [ENVIAR_IMAGEN:tratamientos]
+• Chequeo general o revisión de rutina: [ENVIAR_IMAGEN:chequeo]
+• Limpieza dental o prevención: [ENVIAR_IMAGEN:kit_preventivo]
+• Blanqueamiento dental: [ENVIAR_IMAGEN:blanqueamiento]
+• Carillas dentales: [ENVIAR_IMAGEN:carillas]
+• Ortodoncia / Brackets (información general): [ENVIAR_IMAGEN:bracketsmuestra]
+• Ortodoncia resultados o casos clínicos: [ENVIAR_IMAGEN:ortodoncia_antes_despues]
+• Ortodoncia para niños: [ENVIAR_IMAGEN:ortodonciakids]
+• Implantes dentales: [ENVIAR_IMAGEN:implantesdentales]
+• Prótesis dentales: [ENVIAR_IMAGEN:protesis]
+• Dolor de muela / dolor dental fuerte: [ENVIAR_IMAGEN:tienesdolormuela]
+• Endodoncia / tratamiento de conducto: [ENVIAR_IMAGEN:endodoncia]
+• Extracción dental / sacar muela: [ENVIAR_IMAGEN:extraccion]
+• Curaciones o calzas estéticas: [ENVIAR_IMAGEN:restauracion_resina]
+• Odontopediatría / atención de niños en general: [ENVIAR_IMAGEN:odontopediatria]
+• Curaciones en niños: [ENVIAR_IMAGEN:odontopediatricuracion]
+• Antes y después de estética dental general: [ENVIAR_IMAGEN:antesdespues]
+`;
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -280,15 +302,35 @@ function buildRequest(client, message, session, jid, options) {
   const history = compactHistoryForPrompt(mergeRecentUserMessages(session.history))
     .map((entry) => `${entry.role === 'model' ? 'Asistente' : 'Paciente'}: ${entry.text}`)
     .join('\n');
+  const messageParts = Array.isArray(options.messageParts) && options.messageParts.length
+    ? options.messageParts
+    : [{ type: 'text', content: String(message || '') }];
   const prompt = `${systemPrompt}
 
 ${history}
-Cliente: ${message}`;
+Cliente: ${messageParts.filter((part) => part.type === 'text').map((part) => part.content).join('\n')}`;
   if (typeof client?.generateContent === 'function') {
+    const parts = [];
+    let previousInputType = null;
+    for (const part of messageParts) {
+      if (part.type === 'image') {
+        parts.push({ inlineData: { mimeType: part.mimeType, data: part.base64Data } });
+        if (part.caption) parts.push({ text: part.caption });
+        previousInputType = 'image';
+      } else {
+        const previous = parts[parts.length - 1];
+        if (previous?.text && previousInputType === 'text') {
+          previous.text += `\n${part.content}`;
+        } else {
+          parts.push({ text: part.content });
+        }
+        previousInputType = 'text';
+      }
+    }
     return {
       structured: true,
       request: {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        contents: [{ role: 'user', parts: [{ text: prompt }, ...parts] }],
         systemInstruction: systemPrompt,
         generationConfig: { maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS },
       },
@@ -386,12 +428,16 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     return { texto: null, leadData: null, skipResponse: true };
   }
   session.lastUserMessageAt = now;
-  session.history.push({ role: 'user', parts: [{ text: String(mensaje || '') }], at: now });
+  const messageParts = Array.isArray(options.messageParts) && options.messageParts.length
+    ? options.messageParts
+    : [{ type: 'text', content: String(mensaje || '') }];
+  const messageText = messageParts.filter((part) => part.type === 'text').map((part) => part.content).join('\n');
+  session.history.push({ role: 'user', parts: [{ text: messageText }], at: now });
   session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
   try {
-    const result = await callGemini(options.client, buildRequest(options.client, mensaje, session, jid, options), options);
+    const result = await callGemini(options.client, buildRequest(options.client, messageText, session, jid, { ...options, messageParts }), options);
     const rawText = extractResultText(result);
-    const leadData = collectLead(session, mensaje, sid);
+    const leadData = collectLead(session, messageText, sid);
     let texto = sanitizeModelTextOutput(rawText);
     if (!leadData?.ready_to_notify && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
       texto = 'Para ayudarte a agendar, indícame tu nombre, teléfono, tratamiento y fecha o turno preferido. 😊📅';
@@ -400,7 +446,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
     failureCounts.delete(sid);
 
-    const categoria = determinarCategoriaImagen(mensaje, rawText);
+    const categoria = determinarCategoriaImagen(messageText, rawText);
     const imagenURL = getImagenCategoria(categoria);
 
     if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
@@ -420,9 +466,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     const failures = (failureCounts.get(sid) || 0) + 1;
     failureCounts.set(sid, failures);
     return {
-      texto: failures === 1 ? 'No pude procesar tu mensaje. ¿Me lo repites para ayudarte a agendar? 🦷' : CONTINGENCY_MESSAGE,
+      texto: null,
       leadData: null,
-      imagenURL: CATALOGO_LUMINZU.default,
+      imagenURL: null,
+      skipResponse: true,
     };
   }
 }

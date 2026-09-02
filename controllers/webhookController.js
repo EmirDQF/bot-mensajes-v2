@@ -57,7 +57,13 @@ async function hardResetUserSession(phone) {
 }
 
 async function persistToSupabaseConversation({ conversationId, contactNumber, contactName, sender, text, mediaUrl, timestamp }) {
-  const supabase = await getSupabaseClient();
+  let supabase;
+  try {
+    supabase = await getSupabaseClient();
+  } catch (error) {
+    console.error('[Supabase] Error al persistir conversación:', error);
+    return null;
+  }
   if (!supabase || !conversationId) return null;
 
   const normalizedId = String(conversationId).trim();
@@ -76,7 +82,7 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, co
     }, { onConflict: 'conversation_id' });
 
     if (upsertErr) {
-      console.warn('persistToSupabaseConversation upsert failed:', upsertErr);
+      console.error('[Supabase] Error al persistir conversación:', upsertErr);
       return null;
     }
 
@@ -91,13 +97,13 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, co
     });
 
     if (insertErr) {
-      console.warn('persistToSupabaseConversation insert failed:', insertErr);
+      console.error('[Supabase] Error al persistir conversación:', insertErr);
       return null;
     }
 
     return true;
   } catch (e) {
-    console.warn('persistToSupabaseConversation failed:', e && e.message ? e.message : e);
+    console.error('[Supabase] Error al persistir conversación:', e);
     return null;
   }
 }
@@ -114,9 +120,7 @@ async function persistToChatSessions(sessionIdentifier, entry) {
     if (!cached) {
       let { data: existing, error: exErr } = await client.from('chat_sessions').select('id, history').eq('id', sessionId).maybeSingle();
       if (exErr) {
-        const msg = String(exErr.message || '').toLowerCase();
-        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
-        console.warn('persistToChatSessions read error', exErr);
+        console.error('[Supabase] Error al persistir conversación:', exErr);
         return null;
       }
       if (existing && existing.history) {
@@ -131,13 +135,12 @@ async function persistToChatSessions(sessionIdentifier, entry) {
     const upsertPayload = { id: sessionId, history, updated_at: new Date().toISOString() };
     const { error: upErr } = await client.from('chat_sessions').upsert([upsertPayload], { onConflict: 'id' });
     if (upErr) {
-      const msg = String(upErr.message || '').toLowerCase();
-      if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) return null;
-      console.warn('persistToChatSessions upsert error', upErr);
+      console.error('[Supabase] Error al persistir conversación:', upErr);
+      return null;
     }
     return true;
   } catch (e) {
-    console.warn('persistToChatSessions failed', e && e.message ? e.message : e);
+    console.error('[Supabase] Error al persistir conversación:', e);
     return null;
   }
 }
@@ -338,341 +341,175 @@ async function persistAgendaPayload(payload, context = {}) {
   return null;
 }
 
-// ============== CONTROLADOR PRINCIPAL ==============
+const messageBuffers = new Map();
+const userProcessingQueues = new Map();
+const intakeQueues = new Map();
+const BUFFER_WAIT_MS = 3500;
+
+async function downloadIncomingImage(mediaId) {
+  const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN;
+  const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
+  if (!token || !mediaId) throw new Error('Missing WhatsApp token or media id');
+  const metadata = await fetch(`https://graph.facebook.com/${version}/${mediaId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!metadata.ok) throw new Error(`Media metadata request failed: ${metadata.status}`);
+  const { url, mime_type: mimeType } = await metadata.json();
+  const binary = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!binary.ok) throw new Error(`Media download failed: ${binary.status}`);
+  return { mimeType: mimeType || binary.headers.get('content-type') || 'application/octet-stream', base64Data: Buffer.from(await binary.arrayBuffer()).toString('base64') };
+}
+
+function enqueueUserWork(from, work) {
+  const previous = userProcessingQueues.get(from) || Promise.resolve();
+  const next = previous.catch(() => {}).then(work);
+  const tracked = next.finally(() => {
+    if (userProcessingQueues.get(from) === tracked) userProcessingQueues.delete(from);
+  });
+  userProcessingQueues.set(from, tracked);
+  return next;
+}
+
+async function processBatch(from, buffer) {
+  const messageText = buffer.parts.filter((part) => part.type === 'text').map((part) => part.content).join('\n');
+  const jid = `${from}@s.whatsapp.net`;
+  let clinic = null;
+  if (buffer.context?.phoneNumberId) {
+    try {
+      const client = await getSupabaseClient();
+      if (client) {
+        const { data, error } = await client.from('clinics').select('*')
+          .eq('waba_phone_number_id', buffer.context.phoneNumberId).maybeSingle();
+        if (error) console.error('[Supabase] Error al persistir conversación:', error);
+        clinic = data || null;
+      }
+    } catch (error) {
+      console.error('[Supabase] Error al persistir conversación:', error);
+    }
+  }
+  try {
+    await persistToSupabaseConversation({
+      conversationId: from, contactNumber: from, contactName: buffer.context?.contactName || from,
+      sender: 'user', text: messageText || null, mediaUrl: null, timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[Supabase] Error al persistir conversación:', error);
+  }
+  let geminiResult;
+  try {
+    geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
+      client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts, clinic,
+    });
+  } catch (error) {
+    console.error('webhookController: gemini call failed', error);
+    return;
+  }
+  if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) return;
+
+  const textoParaWhatsApp = stripInstructionTags(geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto)));
+  const finalMediaUrl = geminiResult.imagenURL || null;
+  let leadResult = null;
+  if (geminiResult.leadData && !geminiResult.skipLeadPersistence) {
+    try {
+      leadResult = await leadService.saveLead({
+        telefono: from, nombre: geminiResult.leadData.nombre, distrito: geminiResult.leadData.distrito,
+        fechaHoraISO: geminiResult.leadData.fechaHoraISO, fechaHoraTexto: geminiResult.leadData.fechaHora,
+        confirmed: geminiService.isExplicitConfirmation(messageText), clinicId: clinic?.id || null, clinic,
+      });
+    } catch (error) {
+      console.error('[Supabase] Error al persistir conversación:', error);
+    }
+  }
+
+  try {
+    const sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, finalMediaUrl
+      ? { type: 'image', image: { link: finalMediaUrl }, media: { link: finalMediaUrl }, caption: textoParaWhatsApp }
+      : {});
+    forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: textoParaWhatsApp, mediaUrl: finalMediaUrl } });
+    await notifyDashboardReply(from, textoParaWhatsApp, finalMediaUrl, sendResult?.messages?.[0]?.id || null);
+  } catch (error) {
+    console.error('webhookController: failed sending message to user', error);
+    return;
+  }
+
+  await notifyMonitorPanel({ conversation_id: from, sender: 'bot', type: finalMediaUrl ? 'image' : 'text', content: textoParaWhatsApp, media_url: finalMediaUrl, timestamp: new Date().toISOString() });
+  try {
+    await persistToSupabaseConversation({ conversationId: from, contactNumber: from, contactName: from, sender: 'bot', text: textoParaWhatsApp, mediaUrl: finalMediaUrl, timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('[Supabase] Error al persistir conversación:', error);
+  }
+  try {
+    await persistToChatSessions(from, { from: 'patient', text: messageText, phone: from, timestamp: new Date().toISOString() });
+    await persistToChatSessions(from, { from: 'bot', text: textoParaWhatsApp, phone: from, timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('[Supabase] Error al persistir conversación:', error);
+  }
+  if (leadResult?.readyToNotify && leadResult.lead) {
+    try { await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic }); }
+    catch (error) { console.error('webhookController: error in admin notify flow', error); }
+  }
+}
+
+async function addMessageToBuffer(from, part, context) {
+  const current = messageBuffers.get(from) || { parts: [], timer: null, lastActivity: 0, context };
+  current.parts.push(part);
+  current.lastActivity = Date.now();
+  current.context = context;
+  if (current.timer) clearTimeout(current.timer);
+  current.timer = setTimeout(() => {
+    messageBuffers.delete(from);
+    enqueueUserWork(from, () => processBatch(from, current)).catch((error) => console.error('webhookController: batch failed', error));
+  }, BUFFER_WAIT_MS);
+  messageBuffers.set(from, current);
+}
+
+// Buffering combines rapid text/image messages while the per-user queue prevents overlapping Gemini calls.
 export default async function webhookController(req, res, next) {
   try {
-    let incomingPayload = req.parsedBody || req.body;
-    if (Buffer.isBuffer(incomingPayload)) {
-      try {
-        incomingPayload = JSON.parse(incomingPayload.toString('utf8'));
-      } catch (error) {
-        incomingPayload = null;
-      }
-    }
-    if (incomingPayload) {
-      notifyDashboardIncoming(incomingPayload);
-    }
-
-    let payload = null;
-    try {
-      if (req.parsedBody) payload = req.parsedBody;
-      else if (req.body) {
-        if (req.body instanceof Buffer) {
-          try { payload = JSON.parse(req.body.toString('utf8')); } catch (e) { payload = null; }
-        } else {
-          payload = req.body;
-        }
-      }
-    } catch (e) {
-      payload = null;
-    }
-
+    let payload = req.parsedBody || req.body;
+    if (Buffer.isBuffer(payload)) payload = JSON.parse(payload.toString('utf8'));
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
-    const incomingMessages = Array.isArray(value?.messages) ? value.messages : [];
-    if (!incomingMessages.length) {
-      if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'ignored_non_message' });
-      return;
-    }
-    const firstMessage = incomingMessages[0];
-    const msgId = firstMessage?.id;
-    if (msgId) {
-      if (processedMessageIds.has(msgId)) {
-        if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'duplicate_ignored' });
-        return;
+    const messages = Array.isArray(value?.messages) ? value.messages : [];
+    if (payload) notifyDashboardIncoming(payload);
+    for (const message of messages) {
+      const msgId = message?.id;
+      if (msgId && processedMessageIds.has(msgId)) continue;
+      if (msgId) {
+        processedMessageIds.add(msgId);
+        setTimeout(() => processedMessageIds.delete(msgId), PROCESSED_IDS_TTL_MS).unref?.();
       }
-      processedMessageIds.add(msgId);
-      setTimeout(() => processedMessageIds.delete(msgId), PROCESSED_IDS_TTL_MS);
-    }
-
-    if (!firstMessage || firstMessage.from === 'status@broadcast' || firstMessage.type === 'system') {
-      if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'ignored_status_or_system' });
-      return;
-    }
-
-    let clinicName = process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental';
-    const entry = payload?.entry?.[0];
-    const change = entry?.changes?.[0];
-    const payloadValue = change?.value || {};
-    const message = payloadValue?.messages?.[0] || null;
-    if (!message) {
-      if (!res.headersSent) return res.status(200).json({ ok: true, reason: 'no_message' });
-      return;
-    }
-
-    const rawFrom = message?.from || message?.from_user_id || payloadValue?.contacts?.[0]?.wa_id || payloadValue?.contacts?.[0]?.user_id || null;
-    let from = rawFrom ? String(rawFrom).trim().replace(/^PE\./i, '') : null;
-    from = from ? from.replace(/\D/g, '') : null;
-    if (!from) {
-      console.warn('webhookController: invalid from, skipping');
-      if (!res.headersSent) return res.status(200).json({ ok: false, reason: 'invalid_from' });
-      return;
-    }
-
-    let messageText = null;
-    if (message?.type === 'text') {
-      messageText = message?.text?.body?.trim();
-    } else if (message?.type === 'button') {
-      messageText = message?.button?.text?.trim();
-    } else if (message?.type === 'interactive') {
-      messageText = message?.interactive?.button_reply?.title?.trim() || message?.interactive?.list_reply?.title?.trim();
-    } else {
-      messageText = message?.text?.body?.trim() || null;
-    }
-
-    if (!messageText) {
-      console.warn('webhookController: message text missing');
-      if (!res.headersSent) return res.status(200).json({ ok: false, reason: 'no_text' });
-      return;
-    }
-
-    if (!res || !res.headersSent) {
-      try { res.status(200).json({ ok: true }); } catch (e) { /* safe no-op */ }
-    }
-
-    if (/^\/?(reset|reiniciar|borrar|clear)$/i.test(messageText.trim())) {
-      await hardResetUserSession(from);
-      const resetGreeting = '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨. ¿Con quién tengo el gusto y en qué tratamiento te gustaría consultar hoy? 😊';
-      await whatsappService.sendWhatsAppMessage(from, resetGreeting, {});
-      return;
-    }
-
-    const incomingType = message?.type === 'image' ? 'image' : 'text';
-    const incomingMediaUrl = message?.type === 'image' && (message?.image?.link || message?.image?.url || null) ? (message.image.link || message.image.url) : null;
-    await notifyMonitorPanel({
-      conversation_id: from,
-      contact_name: payloadValue?.contacts?.[0]?.profile?.name || null,
-      sender: 'user',
-      type: incomingType,
-      content: messageText || null,
-      media_url: incomingMediaUrl,
-      timestamp: new Date().toISOString(),
-    });
-    await persistToSupabaseConversation({
-      conversationId: from,
-      contactNumber: from,
-      contactName: payloadValue?.contacts?.[0]?.profile?.name || from,
-      sender: 'user',
-      text: messageText,
-      mediaUrl: incomingMediaUrl,
-      timestamp: new Date().toISOString()
-    });
-
-    if (!res || !res.headersSent) {
-      try { return res.status(200).json({ ok: true }); } catch (e) { /* safe no-op */ }
-    }
-
-    // Continuar en segundo plano
-    (async () => {
-      try {
-        const jid = `${from}@s.whatsapp.net`;
-
-        const geminiClient = getGeminiClient();
-        const geminiPromise = geminiService.obtenerRespuestaIA(jid, messageText, { client: geminiClient, maxRetries: 1, maxOutputTokens: 100 });
-        const timeoutMs = 25_000;
-        const timeoutPromise = new Promise((_, reject) => {
-          const t = setTimeout(() => reject(new Error('gemini timeout')), timeoutMs);
-          t.unref && t.unref();
-        });
-
-        const phoneNumberId = payloadValue?.metadata?.phone_number_id ? String(payloadValue.metadata.phone_number_id).trim() : (process.env.WHATSAPP_PHONE_NUMBER_ID ? String(process.env.WHATSAPP_PHONE_NUMBER_ID).trim() : null);
-        let clinic = null;
-        if (phoneNumberId) {
+      if (!message || message.from === 'status@broadcast' || message.type === 'system') continue;
+      const from = String(message.from || '').replace(/\D/g, '');
+      if (!from) continue;
+      const text = message.type === 'text' ? message.text?.body?.trim() : message.image?.caption?.trim();
+      const context = {
+        contactName: value?.contacts?.[0]?.profile?.name || from,
+        phoneNumberId: value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || null,
+      };
+      const intake = intakeQueues.get(from) || Promise.resolve();
+      const next = intake.then(async () => {
+        if (message.type === 'text' && /^\/?(reset|reiniciar|borrar|clear)$/i.test(text || '')) {
+          messageBuffers.delete(from);
+          await hardResetUserSession(from);
+          await whatsappService.sendWhatsAppMessage(from, '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨. ¿Con quién tengo el gusto y en qué tratamiento te gustaría consultar hoy? 😊', {});
+          return;
+        }
+        if (message.type === 'image') {
           try {
-            let client = null;
-            try {
-              const mod = await import('../services/leadService.js');
-              if (mod && typeof mod.getSupabaseClient === 'function') {
-                client = mod.getSupabaseClient();
-              }
-            } catch (impErr) {
-              try {
-                const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
-                const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-                if (rawUrl && key) client = createClient(rawUrl, key);
-              } catch (cErr) {}
-            }
-
-            if (client) {
-              const { data } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
-              clinic = data || null;
-            } else {
-              clinic = clinic || {
-                id: null,
-                name: 'LUMINZU',
-                address: process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco',
-                chatwoot_inbox_id: null,
-                chatwoot_account_id: null,
-                chatwoot_api_token: process.env.CHATWOOT_API_TOKEN || null,
-                waba_phone_number_id: phoneNumberId,
-              };
-            }
-          } catch (e) {
-            console.error('webhookController: error looking up clinic by waba_phone_number_id', e);
-            clinic = clinic || {
-              id: null,
-              name: 'LUMINZU',
-              address: process.env.DIRECCION_CLINICA || 'Av. Alameda de la República N.º 261, Huánuco',
-              chatwoot_inbox_id: null,
-              chatwoot_account_id: null,
-              chatwoot_api_token: process.env.CHATWOOT_API_TOKEN || null,
-              waba_phone_number_id: phoneNumberId,
-            };
+            const media = await downloadIncomingImage(message.image?.id);
+            await addMessageToBuffer(from, { type: 'image', ...media, caption: message.image?.caption ?? null }, context);
+          } catch (error) {
+            console.error('webhookController: image download failed', error);
           }
+        } else if (text) {
+          await addMessageToBuffer(from, { type: 'text', content: text }, context);
         }
-
-        let texto = 'Disculpa, hubo un problema procesando tu mensaje.';
-        let leadData = null;
-        let skipResponse = false;
-        let imagenURL = null; // <-- Nueva variable para imagen
-        let geminiResult = null;
-
-        try {
-          geminiResult = await Promise.race([geminiPromise, timeoutPromise]);
-          if (geminiResult) {
-            if (geminiResult.skipResponse) {
-              skipResponse = true;
-            } else {
-              texto = geminiResult.texto || geminiResult.text || (typeof geminiResult === 'string' ? geminiResult : texto);
-              leadData = geminiResult.leadData || null;
-              imagenURL = geminiResult.imagenURL || null; // <-- Obtenemos la URL de imagen
-            }
-          }
-        } catch (e) {
-          console.error('webhookController: gemini call failed or timed out', e);
-        }
-
-        if (skipResponse) return;
-
-        // Guardar lead si leadData existe
-        let leadResult = null;
-        if (leadData) {
-          try {
-            const telefonoKey = from || null;
-            if (!telefonoKey) {
-              console.warn('webhookController: no remitente phone available; skipping lead save');
-            } else {
-              const shouldConfirm = typeof messageText === 'string' && geminiService.isExplicitConfirmation(messageText);
-              const shouldPersistLead = !(geminiResult && geminiResult.skipLeadPersistence);
-              if (shouldPersistLead) {
-                try {
-                  leadResult = await leadService.saveLead({
-                    telefono: telefonoKey,
-                    nombre: leadData.nombre,
-                    distrito: leadData.distrito,
-                    fechaHoraISO: leadData.fechaHoraISO || leadData.fecha_hora_iso || null,
-                    fechaHoraTexto: leadData.fechaHora || leadData.fecha_hora || null,
-                    confirmed: shouldConfirm,
-                    clinicId: clinic?.id || null,
-                    clinic: clinic || null,
-                  });
-                } catch (dbErr) {
-                  console.error('webhookController: leadService.saveLead failed', dbErr);
-                }
-              }
-              if (shouldConfirm && leadResult && leadResult.lead) {
-                try {
-                  await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
-                } catch (err) {
-                  console.error('webhookController: forced admin notify after explicit confirmation failed', err);
-                }
-              }
-            }
-          } catch (e) {
-            console.error('webhookController: error saving lead', e);
-          }
-        }
-
-        // Enviar respuesta al usuario
-        try {
-          // Persistir mensaje entrante
-          if (from && messageText) {
-            await persistToChatSessions(from, { from: 'patient', text: String(messageText).trim(), phone: from, timestamp: new Date().toISOString() });
-          }
-
-          // Sanitizar texto final
-          let textoFinal = extractPlainText(texto);
-          textoFinal = geminiService.sanitizeModelTextOutput(textoFinal);
-          textoFinal = textoFinal.replace(/🚨\s*¡NUEVO PACIENTE AGENDADO![\s\S]*$/gi, '').trim();
-
-          // Limpiar etiquetas residuales (por si acaso)
-          const textoLimpio = stripInstructionTags(textoFinal);
-          const textoParaWhatsApp = textoLimpio;
-
-          // Determinar imagen a enviar usando imagenURL del servicio
-          let finalMediaUrl = imagenURL || null;
-
-          if (finalMediaUrl) {
-            const caption = textoParaWhatsApp || 'Te comparto esta imagen informativa de Clínica LUMINZU 🦷✨';
-            try {
-              const sendResult = await whatsappService.sendWhatsAppMessage(from, caption, {
-                type: 'image',
-                image: { link: finalMediaUrl },
-                media: { link: finalMediaUrl },
-                caption,
-              });
-              forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: caption, mediaUrl: finalMediaUrl } });
-              await notifyDashboardReply(from, caption, finalMediaUrl, sendResult?.messages?.[0]?.id || null);
-            } catch (e) {
-              console.error('Error enviando imagen:', e?.message || e);
-              if (textoParaWhatsApp) await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
-            }
-          } else if (textoParaWhatsApp) {
-            const sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
-            forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: textoParaWhatsApp, mediaUrl: null } });
-            await notifyDashboardReply(from, textoParaWhatsApp, null, sendResult?.messages?.[0]?.id || null);
-          }
-
-          // Notificar al panel de monitoreo
-          await notifyMonitorPanel({
-            conversation_id: from,
-            contact_name: patientName || payloadValue?.contacts?.[0]?.profile?.name || null,
-            sender: 'bot',
-            type: finalMediaUrl ? 'image' : 'text',
-            content: textoParaWhatsApp || null,
-            media_url: finalMediaUrl,
-            timestamp: new Date().toISOString(),
-          });
-
-          // Persistir respuesta del bot
-          await persistToSupabaseConversation({
-            conversationId: from,
-            contactNumber: from,
-            contactName: patientName || payloadValue?.contacts?.[0]?.profile?.name || from,
-            sender: 'bot',
-            text: textoParaWhatsApp || null,
-            mediaUrl: finalMediaUrl,
-            timestamp: new Date().toISOString()
-          });
-
-          await persistToChatSessions(from, {
-            from: 'bot',
-            text: textoParaWhatsApp || null,
-            image: finalMediaUrl ? 'image_url' : null,
-            phone: from,
-            timestamp: new Date().toISOString()
-          });
-
-        } catch (e) {
-          console.error('webhookController: failed sending message to user', e);
-        }
-
-        // Notificar admin si es necesario
-        try {
-          if (leadResult && leadResult.readyToNotify && leadResult.lead) {
-            const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone || 'unknown';
-            console.log('[NOTIFICACION ENVIADA A ADMIN]:', adminNumber);
-            await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic });
-          }
-        } catch (e) {
-          console.error('webhookController: error in admin notify flow', e);
-        }
-      } catch (err) {
-        console.error('webhookController: unexpected background processing error', err);
-      }
-    })();
-
-    return;
-  } catch (err) {
-    return next(err);
+      });
+      const tracked = next.finally(() => { if (intakeQueues.get(from) === tracked) intakeQueues.delete(from); });
+      intakeQueues.set(from, tracked);
+    }
+  } catch (error) {
+    console.error('webhookController: background processing error', error);
+    if (next && !res.headersSent) next(error);
   }
 }

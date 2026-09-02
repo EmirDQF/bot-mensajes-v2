@@ -20,21 +20,9 @@ router.get('/webhook', (req, res) => {
 });
 
 // POST /webhook: respond 200 immediately, then process asynchronously.
-router.post('/webhook', express.raw({ type: 'application/json' }), makeVerifySignature(), rateLimiter(), async (req, res, next) => {
-  try {
-    const value = req.parsedBody?.entry?.[0]?.changes?.[0]?.value;
-    const messages = Array.isArray(value?.messages) ? value.messages : [];
-    if (!messages.length) {
-      return res.sendStatus(200);
-    }
-    const message = messages[0];
-    if (!message || message.from === 'status@broadcast' || message.type === 'system') {
-      return res.sendStatus(200);
-    }
-    res.sendStatus(200);
-  } catch (e) {
-    console.error('webhook route: failed to send immediate 200:', e && e.message ? e.message : e);
-  }
+router.post('/webhook', express.raw({ type: 'application/json' }), makeVerifySignature(), rateLimiter(), (req, res, next) => {
+  // Meta debe recibir el acuse antes de cualquier trabajo de negocio o await.
+  res.sendStatus(200);
 
   const safeRes = {
     headersSent: true,
@@ -46,7 +34,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), makeVerifySig
     end() { return this; }
   };
 
-  (async () => {
+  void (async () => {
     try {
       await webhookController(req, safeRes, next);
     } catch (err) {
