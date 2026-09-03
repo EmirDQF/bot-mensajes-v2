@@ -1,31 +1,25 @@
 // config/catalogo.js
 
-// URL base absoluta para servir las imágenes
 const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-reumatologia-cqpharma.onrender.com').replace(/\/+$/, '') + '/media/';
 
-// Función auxiliar para construir URLs completas
 const toUrl = (file) => `${BASE_URL}${file}`;
 
-// Casos reales de antes y después de ortodoncia
+// Casos reales de ortodoncia disponibles actualmente
 const CASOS_ORTODONCIA = [
-  toUrl('ortodoncia_antes_despues.jpeg'),
-  toUrl('ortodoncia_antes_despues1.jpeg'),
-  toUrl('ortodoncia_antes_despues2.jpeg'),
-  toUrl('ortodoncia_antes_despues3.jpeg'),
-  toUrl('ortodoncia_antes_despues4.jpeg'),
+  toUrl('ortodoncia_caso_1.jpeg'),
+  toUrl('ortodoncia_caso_3.jpeg'),
 ];
 
 // Casos de blanqueamiento dental
 const CASOS_BLANQUEAMIENTO = [
-  toUrl('blanqueamiento.jpeg'),
-  toUrl('blanqueamientodeental.jpeg'),
+  toUrl('blanqueamiento_1.jpeg'),
+  toUrl('blanqueamiento_2.jpeg'),
 ];
 
-// Estructura organizada por servicios (Ideal para lógica avanzada y respuestas ricas)
 const SERVICIOS = {
   ortodoncia: {
     nombre: 'Ortodoncia y Brackets',
-    imagen_promo: toUrl('bracketsmuestra.jpeg'),
+    imagen_promo: toUrl('ortodoncia_promo.jpeg'),
     casos: CASOS_ORTODONCIA,
     kids: toUrl('ortodonciakids.jpeg'),
   },
@@ -35,7 +29,7 @@ const SERVICIOS = {
   },
   blanqueamiento: {
     nombre: 'Blanqueamiento Dental',
-    imagen_promo: toUrl('blanqueamiento.jpeg'),
+    imagen_promo: toUrl('blanqueamiento_1.jpeg'),
     casos: CASOS_BLANQUEAMIENTO,
   },
   resinas: {
@@ -52,23 +46,22 @@ const SERVICIOS = {
   }
 };
 
-// Diccionario plano de alias y palabras clave directas del bot / System Prompt
 const CATALOGO_LUMINZU = {
   // === ORTODONCIA & BRACKETS ===
-  ortodoncia: toUrl('bracketsmuestra.jpeg'),
-  brackets: toUrl('bracketsmuestra.jpeg'),
-  aparato: toUrl('bracketsmuestra.jpeg'),
-  invisalign: toUrl('bracketsmuestra.jpeg'),
-  ortodoncia_promo: toUrl('bracketsmuestra.jpeg'),
+  ortodoncia: toUrl('ortodoncia_promo.jpeg'),
+  brackets: toUrl('ortodoncia_promo.jpeg'),
+  aparato: toUrl('ortodoncia_promo.jpeg'),
+  invisalign: toUrl('ortodoncia_promo.jpeg'),
+  ortodoncia_promo: toUrl('ortodoncia_promo.jpeg'),
   ortodoncia_antes_despues: CASOS_ORTODONCIA,
   antesdespues: CASOS_ORTODONCIA,
   ortodonciakids: toUrl('ortodonciakids.jpeg'),
   ortodoncia_kids: toUrl('ortodonciakids.jpeg'),
 
   // === BLANQUEAMIENTO DENTAL ===
-  blanqueamiento: toUrl('blanqueamiento.jpeg'),
-  blanqueamientodental: toUrl('blanqueamientodeental.jpeg'),
-  blanqueamiento_dental: toUrl('blanqueamientodeental.jpeg'),
+  blanqueamiento: toUrl('blanqueamiento_1.jpeg'),
+  blanqueamientodental: toUrl('blanqueamiento_2.jpeg'),
+  blanqueamiento_dental: toUrl('blanqueamiento_2.jpeg'),
   blanqueamiento_casos: CASOS_BLANQUEAMIENTO,
 
   // === CARILLAS & ESTÉTICA ===
@@ -129,17 +122,10 @@ const CATALOGO_LUMINZU = {
   default: toUrl('logo.jpeg'),
 };
 
-/**
- * Función helper para resolver imágenes de forma segura:
- * - Si es un array, rota o elige una al azar para no saturar con la misma.
- * - Si es string URL, la devuelve directo.
- * - Si no existe, devuelve null (evita mandar el logo por error).
- */
 function obtenerImagen(clave) {
   if (!clave) return null;
   const key = clave.toLowerCase().trim();
 
-  // Si piden formato objeto: "ortodoncia.casos" o "ubicacion.fachada"
   if (key.includes('.')) {
     const [modulo, propiedad] = key.split('.');
     if (SERVICIOS[modulo] && SERVICIOS[modulo][propiedad]) {
@@ -158,7 +144,6 @@ function obtenerImagen(clave) {
   return resultado;
 }
 
-// Exportación para CommonJS (require) y ESM (import)
 module.exports = {
   BASE_URL,
   SERVICIOS,
