@@ -5,8 +5,7 @@ const GRAPH_VERSION = 'v20.0';
 const mediaIdCache = new Map();
 
 function resolveLocalImagesDir() {
-  const luminzuDir = path.resolve(process.cwd(), 'LUMINZU');
-  return fs.existsSync(luminzuDir) ? luminzuDir : path.resolve(process.cwd(), 'imagenes');
+  return path.resolve(process.cwd(), 'media');
 }
 
 export async function subirImagenYObtenerId(nombreArchivo) {

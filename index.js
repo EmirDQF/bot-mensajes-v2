@@ -6,11 +6,7 @@ import webhookRouter from './routes/webhook.js';
 import panelRouter from './routes/panel.js';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import errorHandler from './middleware/errorHandler.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 
@@ -74,7 +70,6 @@ app.get('/api/conversations/:id/messages', async (req, res) => {
 });
 
 const publicDir = path.join(process.cwd(), 'public');
-const luminzuDir = path.join(__dirname, 'LUMINZU');
 
 function requirePanelAuth(req, res, next) {
   const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
@@ -115,7 +110,6 @@ function requirePanelAuth(req, res, next) {
 }
 
 app.use('/media', express.static(path.join(process.cwd(), 'media')));
-app.use('/LUMINZU', express.static(luminzuDir));
 app.use(express.static(publicDir));
 
 app.get('/panel', requirePanelAuth, (req, res) => {

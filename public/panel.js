@@ -115,7 +115,7 @@ function buildMessageMarkup(message) {
     : '';
 
   const imageMarkup = imageName
-    ? `<img class="message-image" src="/LUMINZU/${imageName}" alt="Imagen del chat" data-image="/LUMINZU/${imageName}" />`
+    ? `<img class="message-image" src="/media/${imageName}" alt="Imagen del chat" data-image="/media/${imageName}" />`
     : '';
 
   return `
@@ -368,7 +368,7 @@ async function fetchMessagesFromApi(phone) {
     conv.messages = msgs.map((m) => ({
       sender: (m.from && String(m.from).toLowerCase().includes('bot')) || (m.from === 'panel') ? 'bot' : 'patient',
       text: m.text || null,
-      image: (m.image && String(m.image).startsWith('/LUMINZU/')) ? String(m.image).replace(/^\/LUMINZU\//,'') : (m.image ? String(m.image) : null),
+      image: (m.image && String(m.image).startsWith('/media/')) ? String(m.image).replace(/^\/media\//,'') : (m.image ? String(m.image) : null),
       timestamp: m.timestamp || null
     }));
     renderThread();

@@ -1,3 +1,5 @@
+import { CLINIC_NAME } from './catalogo.js';
+
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || null;
 const webhookVerifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
   || process.env.VERIFY_TOKEN
@@ -12,7 +14,7 @@ export default {
   },
   clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental',
   clinicProfile: {
-    name: process.env.CLINIC_NAME || process.env.CLINIC_NAME_FALLBACK || 'LUMINZU Clínica Dental',
+    name: process.env.CLINIC_NAME || process.env.CLINIC_NAME_FALLBACK || CLINIC_NAME,
     address: process.env.CLINIC_ADDRESS
       || process.env.DIRECCION_O_SEDES
       || '📍 Av. Alameda de la República N° 261 - Huánuco',

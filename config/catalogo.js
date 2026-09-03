@@ -1,5 +1,7 @@
 // config/catalogo.js
 
+const CLINIC_NAME = 'LUMINZU Clínica Dental';
+
 // URL base absoluta para servir las imágenes
 const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-reumatologia-cqpharma.onrender.com').replace(/\/+$/, '') + '/media/';
 
@@ -59,4 +61,5 @@ const CATALOGO_LUMINZU = {
 
 // Exportación dual compatible con CommonJS y ESM
 export { CATALOGO_LUMINZU };
+export { CLINIC_NAME };
 export default CATALOGO_LUMINZU;

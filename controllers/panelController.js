@@ -205,7 +205,7 @@ export async function getMessages(req, res) {
           if (rawImgName) {
             // Extract only filename portion
             const fname = String(rawImgName).split(/[\\/]/).pop();
-            img = fname.startsWith('/LUMINZU/') ? fname : `/LUMINZU/${fname}`;
+            img = fname.startsWith('/media/') ? fname : `/media/${fname}`;
           }
 
           return {

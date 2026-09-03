@@ -13,10 +13,6 @@ const chatSessionHistoryCache = new Map();
 const processedMessageIds = new Set();
 const PROCESSED_IDS_TTL_MS = 5 * 60 * 1000;
 
-const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-reumatologia-cqpharma.onrender.com').replace(/\/+$/, '');
-
-// Se elimina CATALOGO_LUMINZU local porque el servicio ya devuelve la URL de imagen
-
 async function getSupabaseClient() {
   if (supabaseClient) return supabaseClient;
   const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
@@ -266,30 +262,12 @@ function extractPlainText(input) {
   return cleaned;
 }
 
-function extractInstructionTags(text) {
-  const imageMatches = [...String(text || '').matchAll(/\[ENVIAR[_ ]?IMAGEN:([^\]]+)\]/gi)]
-    .map((m) => m[1].trim())
-    .filter(Boolean);
-  const agendaMatches = [...String(text || '').matchAll(/\[AGENDAR_CITA:(\{.*?\})\]/gi)].map((m) => m[1].trim()).filter(Boolean);
-  return { imageFiles: [...new Set(imageMatches)], agendaPayloads: agendaMatches };
-}
-
 function stripInstructionTags(text) {
   return String(text || '')
     .replace(/\[ENVIAR[_ ]?IMAGEN:[^\]]+\]/gi, '')
     .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
-}
-
-function safeParseAgendaPayload(raw) {
-  if (!raw || typeof raw !== 'string') return null;
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    console.warn('webhookController: invalid AGENDAR_CITA payload:', raw, e && e.message ? e.message : e);
-    return null;
-  }
 }
 
 async function persistAgendaPayload(payload, context = {}) {
