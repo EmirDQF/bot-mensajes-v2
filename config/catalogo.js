@@ -3,105 +3,166 @@
 // URL base absoluta para servir las imágenes
 const BASE_URL = (process.env.RENDER_EXTERNAL_URL || 'https://bot-reumatologia-cqpharma.onrender.com').replace(/\/+$/, '') + '/media/';
 
-// Array aparte (no dentro del objeto) porque dos claves distintas —
-// "ortodoncia_antes_despues" y su alias "antesdespues"— deben apuntar
-// exactamente a la MISMA lista de fotos, no a copias separadas.
-const CASOS_ORTODONCIA_ANTES_DESPUES = [
-  BASE_URL + 'ortodoncia_antes_despues.jpeg',
-  BASE_URL + 'ortodoncia_antes_despues1.jpeg',
-  BASE_URL + 'ortodoncia_antes_despues2.jpeg',
-  BASE_URL + 'ortodoncia_antes_despues3.jpeg',
-  BASE_URL + 'ortodoncia_antes_despues4.jpeg',
+// Función auxiliar para construir URLs completas
+const toUrl = (file) => `${BASE_URL}${file}`;
+
+// Casos reales de antes y después de ortodoncia
+const CASOS_ORTODONCIA = [
+  toUrl('ortodoncia_antes_despues.jpeg'),
+  toUrl('ortodoncia_antes_despues1.jpeg'),
+  toUrl('ortodoncia_antes_despues2.jpeg'),
+  toUrl('ortodoncia_antes_despues3.jpeg'),
+  toUrl('ortodoncia_antes_despues4.jpeg'),
 ];
 
-const CATALOGO_LUMINZU = {
-  ortodoncia: BASE_URL + 'bracketsmuestra.jpeg',
-  brackets: BASE_URL + 'bracketsmuestra.jpeg',
-  aparato: BASE_URL + 'bracketsmuestra.jpeg',
-  invisalign: BASE_URL + 'bracketsmuestra.jpeg',
+// Casos de blanqueamiento dental
+const CASOS_BLANQUEAMIENTO = [
+  toUrl('blanqueamiento.jpeg'),
+  toUrl('blanqueamientodeental.jpeg'),
+];
 
-  // Fotos de "antes" sueltas (sin pareja de "después"): se dejan igual,
-  // son una familia distinta a los casos completos de abajo.
-  ortodoncia_1: BASE_URL + 'ortodoncia_antes_1.jpeg',
-  ortodoncia_2: BASE_URL + 'ortodoncia_antes_2.jpeg',
-  ortodoncia_3: BASE_URL + 'ortodoncia_antes_3.jpeg',
-  ortodoncia_4: BASE_URL + 'ortodoncia_antes_4.jpeg',
-  ortodoncia_5: BASE_URL + 'ortodoncia_antes_5.jpeg',
-
-  // NUEVO: casos completos antes/después. Es un array — cada vez que se pida
-  // esta categoría, el bot rota entre las 5 fotos en vez de repetir siempre
-  // la misma. Cubre lo que pide el SYSTEM_PROMPT ("Ortodoncia resultados o
-  // casos clínicos") y lo que preguntó el cliente en el video de prueba
-  // ("fotos de casos similares que hayan arreglado").
-  ortodoncia_antes_despues: CASOS_ORTODONCIA_ANTES_DESPUES,
-  // Alias: el SYSTEM_PROMPT también usa esta otra etiqueta para "antes y
-  // después de estética dental general" — apunta al mismo array, sin
-  // duplicar las URLs.
-  antesdespues: CASOS_ORTODONCIA_ANTES_DESPUES,
-
-  blanqueamiento: BASE_URL + 'blanqueamiento.jpeg',
-
-  carillas: BASE_URL + 'carillas.jpeg',
-  estetica: BASE_URL + 'carillas.jpeg',
-
-  endodoncia: BASE_URL + 'endodoncia.jpeg',
-
-  implante: BASE_URL + 'implantes.jpeg',
-  implantes: BASE_URL + 'implantes.jpeg',
-  // NUEVO: el SYSTEM_PROMPT pide esta etiqueta para "Implantes dentales"
-  // y no existía la clave — caía siempre al logo.
-  implantesdentales: BASE_URL + 'implantes.jpeg',
-
-  limpieza: BASE_URL + 'chequeo.jpeg',
-  chequeo: BASE_URL + 'chequeo.jpeg',
-  kit_preventivo: BASE_URL + 'kit_preventivo.jpeg',
-  preventivo: BASE_URL + 'kit_preventivo.jpeg',
-
-  odontopediatria: BASE_URL + 'odontopediatria.jpeg',
-  niños: BASE_URL + 'odontopediatria.jpeg',
-  // NUEVO: no hay foto dedicada a "ortodoncia para niños", se reutiliza
-  // la de odontopediatría por ser la más cercana semánticamente.
-  ortodonciakids: BASE_URL + 'odontopediatria.jpeg',
-  // NUEVO: "curaciones en niños" — mismo criterio, reutiliza la foto
-  // de restauración/resina ya que no existe una imagen específica.
-  odontopediatricuracion: BASE_URL + 'restauracion_resina.jpeg',
-
-  protesis: BASE_URL + 'protesis.jpeg',
-
-  restauracion: BASE_URL + 'restauracion_resina.jpeg',
-  resina: BASE_URL + 'restauracion_resina.jpeg',
-  curaciones: BASE_URL + 'restauracion_resina.jpeg',
-  // NUEVO: el SYSTEM_PROMPT usa literalmente esta etiqueta para
-  // "Curaciones o calzas estéticas" y no existía como clave.
-  restauracion_resina: BASE_URL + 'restauracion_resina.jpeg',
-
-  tratamientos: BASE_URL + 'tratamientos.jpeg',
-
-  ubicacion: BASE_URL + 'ubicacion.jpeg',
-  direccion: BASE_URL + 'ubicacion.jpeg',
-  fachada: BASE_URL + 'fachada.jpeg',
-
-  promo: BASE_URL + 'promo_consulta.jpeg',
-  // NUEVO: el SYSTEM_PROMPT pide "promo_consulta" (con guion bajo) para
-  // "Promociones, ofertas o costo de consulta" — clave distinta a "promo".
-  promo_consulta: BASE_URL + 'promo_consulta.jpeg',
-
-  extraccion: BASE_URL + 'extraccion.jpeg',
-  periodoncia: BASE_URL + 'periodoncia.jpeg',
-  corona: BASE_URL + 'corona.jpeg',
-  gingivectomia: BASE_URL + 'gingivectomia.jpeg',
-  evaluacion: BASE_URL + 'evaluacion.jpeg',
-  // NUEVO: "Agendar, reservar o pedir cita" — se usa la foto de
-  // evaluación porque agendar siempre deriva en una cita de evaluación.
-  agendatuconsulta: BASE_URL + 'evaluacion.jpeg',
-  // NUEVO: "Dolor de muela fuerte" — se usa evaluación porque el primer
-  // paso ante dolor siempre es un diagnóstico, no un tratamiento fijo.
-  tienesdolormuela: BASE_URL + 'evaluacion.jpeg',
-
-  default: BASE_URL + 'logo.jpeg',
-  logo: BASE_URL + 'logo.jpeg',
+// Estructura organizada por servicios (Ideal para lógica avanzada y respuestas ricas)
+const SERVICIOS = {
+  ortodoncia: {
+    nombre: 'Ortodoncia y Brackets',
+    imagen_promo: toUrl('bracketsmuestra.jpeg'),
+    casos: CASOS_ORTODONCIA,
+    kids: toUrl('ortodonciakids.jpeg'),
+  },
+  ubicacion: {
+    imagen: toUrl('ubicacion.jpeg'),
+    fachada: toUrl('fachada.jpeg'),
+  },
+  blanqueamiento: {
+    nombre: 'Blanqueamiento Dental',
+    imagen_promo: toUrl('blanqueamiento.jpeg'),
+    casos: CASOS_BLANQUEAMIENTO,
+  },
+  resinas: {
+    nombre: 'Restauración con Resina Estética',
+    casos: [toUrl('restauracion_resina.jpeg')],
+  },
+  implantes: {
+    nombre: 'Implantes Dentales',
+    casos: [toUrl('implantes.jpeg'), toUrl('implantesdentales.jpeg')],
+  },
+  odontopediatria: {
+    nombre: 'Odontopediatría Integral',
+    casos: [toUrl('odontopediatria.jpeg'), toUrl('odontopediatriacuracion.jpeg')],
+  }
 };
 
-// Exportación dual compatible con CommonJS y ESM
-export { CATALOGO_LUMINZU };
-export default CATALOGO_LUMINZU;
+// Diccionario plano de alias y palabras clave directas del bot / System Prompt
+const CATALOGO_LUMINZU = {
+  // === ORTODONCIA & BRACKETS ===
+  ortodoncia: toUrl('bracketsmuestra.jpeg'),
+  brackets: toUrl('bracketsmuestra.jpeg'),
+  aparato: toUrl('bracketsmuestra.jpeg'),
+  invisalign: toUrl('bracketsmuestra.jpeg'),
+  ortodoncia_promo: toUrl('bracketsmuestra.jpeg'),
+  ortodoncia_antes_despues: CASOS_ORTODONCIA,
+  antesdespues: CASOS_ORTODONCIA,
+  ortodonciakids: toUrl('ortodonciakids.jpeg'),
+  ortodoncia_kids: toUrl('ortodonciakids.jpeg'),
+
+  // === BLANQUEAMIENTO DENTAL ===
+  blanqueamiento: toUrl('blanqueamiento.jpeg'),
+  blanqueamientodental: toUrl('blanqueamientodeental.jpeg'),
+  blanqueamiento_dental: toUrl('blanqueamientodeental.jpeg'),
+  blanqueamiento_casos: CASOS_BLANQUEAMIENTO,
+
+  // === CARILLAS & ESTÉTICA ===
+  carillas: toUrl('carillas.jpeg'),
+  estetica: toUrl('carillas.jpeg'),
+
+  // === ENDODONCIA & DOLOR ===
+  endodoncia: toUrl('endodoncia.jpeg'),
+  tienesdolormuela: toUrl('tienesdolormuela.jpeg'),
+  dolor_muela: toUrl('tienesdolormuela.jpeg'),
+
+  // === IMPLANTES DENTALES ===
+  implante: toUrl('implantes.jpeg'),
+  implantes: toUrl('implantes.jpeg'),
+  implantesdentales: toUrl('implantesdentales.jpeg'),
+  implantes_dentales: toUrl('implantesdentales.jpeg'),
+
+  // === LIMPIEZA & PREVENTIVO ===
+  limpieza: toUrl('chequeo.jpeg'),
+  chequeo: toUrl('chequeo.jpeg'),
+  kit_preventivo: toUrl('kit_preventivo.jpeg'),
+  preventivo: toUrl('kit_preventivo.jpeg'),
+
+  // === ODONTOPEDIATRÍA ===
+  odontopediatria: toUrl('odontopediatria.jpeg'),
+  niños: toUrl('odontopediatria.jpeg'),
+  odontopediatricuracion: toUrl('odontopediatriacuracion.jpeg'),
+  odontopediatria_curacion: toUrl('odontopediatriacuracion.jpeg'),
+
+  // === PRÓTESIS DENTAL ===
+  protesis: toUrl('protesis.jpeg'),
+
+  // === RESINAS & CURACIONES ===
+  restauracion: toUrl('restauracion_resina.jpeg'),
+  resina: toUrl('restauracion_resina.jpeg'),
+  resinas: toUrl('restauracion_resina.jpeg'),
+  curaciones: toUrl('restauracion_resina.jpeg'),
+  restauracion_resina: toUrl('restauracion_resina.jpeg'),
+
+  // === UBICACIÓN & SEDE ===
+  ubicacion: toUrl('ubicacion.jpeg'),
+  direccion: toUrl('ubicacion.jpeg'),
+  croquis: toUrl('ubicacion.jpeg'),
+  fachada: toUrl('fachada.jpeg'),
+
+  // === PROMOCIONES & AGENDAMIENTO ===
+  promo: toUrl('promo_consulta.jpeg'),
+  promo_consulta: toUrl('promo_consulta.jpeg'),
+  agendatuconsulta: toUrl('agendatuconsulta.jpeg'),
+  agendar_cita: toUrl('agendatuconsulta.jpeg'),
+  tratamientos: toUrl('tratamientos.jpeg'),
+
+  // === EXTRACCIÓN ===
+  extraccion: toUrl('extraccion.jpeg'),
+
+  // === FALLBACKS ===
+  logo: toUrl('logo.jpeg'),
+  default: toUrl('logo.jpeg'),
+};
+
+/**
+ * Función helper para resolver imágenes de forma segura:
+ * - Si es un array, rota o elige una al azar para no saturar con la misma.
+ * - Si es string URL, la devuelve directo.
+ * - Si no existe, devuelve null (evita mandar el logo por error).
+ */
+function obtenerImagen(clave) {
+  if (!clave) return null;
+  const key = clave.toLowerCase().trim();
+
+  // Si piden formato objeto: "ortodoncia.casos" o "ubicacion.fachada"
+  if (key.includes('.')) {
+    const [modulo, propiedad] = key.split('.');
+    if (SERVICIOS[modulo] && SERVICIOS[modulo][propiedad]) {
+      const target = SERVICIOS[modulo][propiedad];
+      return Array.isArray(target) ? target[Math.floor(Math.random() * target.length)] : target;
+    }
+  }
+
+  const resultado = CATALOGO_LUMINZU[key];
+  if (!resultado) return null;
+
+  if (Array.isArray(resultado)) {
+    return resultado[Math.floor(Math.random() * resultado.length)];
+  }
+
+  return resultado;
+}
+
+// Exportación para CommonJS (require) y ESM (import)
+module.exports = {
+  BASE_URL,
+  SERVICIOS,
+  CATALOGO_LUMINZU,
+  obtenerImagen,
+  default: CATALOGO_LUMINZU,
+};
