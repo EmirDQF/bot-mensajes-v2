@@ -8,7 +8,7 @@ const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-export const SYSTEM_PROMPT = `Eres el asistente virtual de LUMINZU Clínica Dental. Responde breve, amable y orienta siempre a agendar una cita presencial.
+export const SYSTEM_PROMPT = `Eres el asistente virtual de LUMINZU Clínica Dental. Responde breve y amable. Prioriza responder exactamente lo que el cliente pregunta; invita a agendar solo cuando ya diste la información pedida o el cliente muestra intención de cita, sin repetir la invitación en cada mensaje.
 
 Reglas:
 - Máximo 2-3 oraciones cortas y 1-2 emojis por mensaje.
@@ -416,7 +416,13 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
 }
 
 export function getImagenCategoria(categoria) {
-  return CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default || CATALOGO_LUMINZU.tratamientos || null;
+  const valor = CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default || CATALOGO_LUMINZU.tratamientos || null;
+  // Si la categoría tiene varias fotos (ej. casos antes/después), elige una al azar
+  // en vez de mandar siempre la primera — así no se repite la misma imagen cada vez.
+  if (Array.isArray(valor)) {
+    return valor[Math.floor(Math.random() * valor.length)];
+  }
+  return valor;
 }
 
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
