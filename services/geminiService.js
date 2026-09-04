@@ -381,15 +381,20 @@ function collectLead(session, message, senderPhone = null) {
 }
 
 export function determinarCategoriaImagen(mensaje, respuestaIA) {
-  const matchEtiqueta = (respuestaIA || '').match(/\[ENVIAR[_ ]?IMAGEN:([a-z0-9_]+)\]/i);
-  if (matchEtiqueta && matchEtiqueta[1]) {
-    return matchEtiqueta[1].toLowerCase();
-  }
+  const texto = String(mensaje || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!texto.trim()) return null;
 
-  const texto = `${mensaje || ''} ${respuestaIA || ''}`.toLowerCase();
+  const exclusiones = [
+    /\b(?:atienden|abierto|abierta|siguen|hora|horario|horarios)\b/,
+    /\b(?:cuota|cuotas|mensualidad|mensualidades|financiamiento|forma de pago|formas de pago)\b/,
+    /\b(?:sacar cita|agendar|quiero cita|turno|reservar|reserva)\b/,
+    /^(?:hola|buenas(?: tardes| dias| noches)?|gracias|ok|dale)[!.?\s]*$/,
+  ];
+  if (exclusiones.some((pattern) => pattern.test(texto))) return null;
+
   const mapeoTratamientos = [
     { claves: ['bracket', 'brackets', 'ortodoncia', 'frenillos', 'frenos', 'invisalign'], categoria: 'ortodoncia' },
-    { claves: ['antes y despues', 'antes y después', 'resultados ortodoncia', 'caso ortodoncia'], categoria: 'ortodoncia_1' },
+    { claves: ['antes y despues', 'resultados ortodoncia', 'caso ortodoncia'], categoria: 'ortodoncia_1' },
     { claves: ['implante', 'implantes'], categoria: 'implantes' },
     { claves: ['limpieza', 'profilaxis', 'destartraje', 'sarro'], categoria: 'limpieza' },
     { claves: ['kit preventivo', 'preventivo', 'kit dental', 'kit'], categoria: 'kit_preventivo' },
@@ -403,8 +408,8 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
     { claves: ['periodoncia', 'encia', 'encía', 'encias'], categoria: 'periodoncia' },
     { claves: ['corona', 'coronas', 'funda'], categoria: 'corona' },
     { claves: ['gingivectomia', 'gingivectomía'], categoria: 'gingivectomia' },
-    { claves: ['evaluacion', 'evaluación', 'diagnostico', 'diagnóstico'], categoria: 'evaluacion' },
-    { claves: ['ubicacion', 'ubicación', 'direccion', 'dirección', 'mapa', 'donde queda', 'donde quedan'], categoria: 'ubicacion' },
+    { claves: ['cuanto cuesta la evaluacion', 'costo de consulta', 'que incluye el chequeo', 'diagnostico', 'consulta inicial'], categoria: 'evaluacion' },
+    { claves: ['ubicacion', 'ubicados', 'ubicadas', 'sede', 'direccion', 'mapa', 'donde queda', 'donde quedan'], categoria: 'ubicacion' },
     { claves: ['fachada', 'clinica', 'consultorio', 'instalaciones'], categoria: 'fachada' },
   ];
 
@@ -414,10 +419,11 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
     }
   }
 
-  return 'default';
+  return null;
 }
 
 export function getImagenCategoria(categoria) {
+  if (!categoria) return null;
   const valor = CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default || CATALOGO_LUMINZU.tratamientos || null;
   // Si la categoría tiene varias fotos (ej. casos antes/después), elige una al azar
   // en vez de mandar siempre la primera — así no se repite la misma imagen cada vez.
