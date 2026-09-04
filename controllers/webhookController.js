@@ -19,6 +19,7 @@ import { obtenerImagen } from '../config/catalogo.js';
 let supabaseClient = null;
 const chatSessionHistoryCache = new Map();
 const processedMessageIds = new Set();
+const welcomeSentRecipients = new Set();
 const PROCESSED_IDS_TTL_MS = 5 * 60 * 1000;
 
 async function getSupabaseClient() {
@@ -468,6 +469,38 @@ async function addMessageToBuffer(from, part, context) {
   messageBuffers.set(from, current);
 }
 
+const CAMPAIGN_WELCOME_TEXT = `¡Hola! 👋 Bienvenido/a a LUMINZU Clínica Dental (Sede Huánuco) 🦷✨
+
+Te atendemos de lunes a sábado de 9:00 am a 8:00 pm.
+Llegas en el momento ideal para aprovechar nuestros beneficios por campaña (facilidades de pago en cuotas, brackets con cuota inicial S/ 0 y evaluación digital con cámara intraoral).
+Para ayudarte rápido y de forma personalizada, cuéntanos:
+
+👉 ¿Qué tratamiento o molestia dental deseas solucionar primero?
+
+👉 ¿O prefieres que veamos de una vez día y hora para tu cita? 📅`;
+
+async function sendCampaignWelcomeMessage(from) {
+  if (welcomeSentRecipients.has(from)) return false;
+  try {
+    const imageUrl = obtenerImagen('logo');
+    const result = await sendCampaignWelcome({
+      recipient: from,
+      imageKey: 'logo',
+      send: () => whatsappService.sendWhatsAppMessage(from, CAMPAIGN_WELCOME_TEXT, {
+        type: 'image',
+        image: { link: imageUrl },
+        media: { link: imageUrl },
+        caption: CAMPAIGN_WELCOME_TEXT,
+      }),
+    });
+    if (result.sent || result.alreadySent) welcomeSentRecipients.add(from);
+    return result.sent;
+  } catch (error) {
+    console.error('webhookController: campaign welcome failed', error);
+    return false;
+  }
+}
+
 // Buffering combines rapid text/image messages while the per-user queue prevents overlapping Gemini calls.
 export default async function webhookController(req, res, next) {
   try {
@@ -496,18 +529,10 @@ export default async function webhookController(req, res, next) {
         if (message.type === 'text' && /^\/?(reset|reiniciar|borrar|clear)$/i.test(text || '')) {
           messageBuffers.delete(from);
           await hardResetUserSession(from);
-          await sendCampaignWelcome({
-            recipient: from,
-            imageKey: 'logo',
-            send: () => whatsappService.sendWhatsAppMessage(
-              from,
-              '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨. ¿Con quién tengo el gusto y en qué tratamiento te gustaría consultar hoy? 😊',
-              { type: 'image', image: { link: obtenerImagen('logo') }, media: { link: obtenerImagen('logo') }, caption: '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨.',
-              },
-            ),
-          });
+          await sendCampaignWelcomeMessage(from);
           return;
         }
+        await sendCampaignWelcomeMessage(from);
         if (message.type === 'image') {
           try {
             const media = await downloadIncomingImage(message.image?.id);
