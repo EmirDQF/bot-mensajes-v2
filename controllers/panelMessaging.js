@@ -1,6 +1,28 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+async function uploadLocalImage(filename, token, phoneId) {
+  const safeFilename = path.basename(String(filename));
+  const filePath = path.resolve(process.cwd(), 'media', safeFilename);
+  const fileBuffer = await fs.readFile(filePath);
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', 'image/jpeg');
+  form.append('file', new Blob([fileBuffer], { type: 'image/jpeg' }), safeFilename);
+
+  const response = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result?.id) {
+    console.error('WhatsApp media upload failed:', { status: response.status, body: result });
+    throw new Error('No se pudo subir la imagen local a WhatsApp');
+  }
+  return result.id;
+}
+
 async function readJsonIfExists(p) {
   try {
     const raw = await fs.readFile(p, 'utf8');
@@ -44,9 +66,15 @@ export async function sendPanelMessage(req, res) {
   }
 
   try {
-    const url = `https://graph.facebook.com/v20.0/${phoneId}/messages`;
+    const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
+    const isPublicUrl = /^https?:\/\//i.test(String(imageUrl || ''));
+    const image = imageUrl
+      ? isPublicUrl
+        ? { link: imageUrl, caption: text || '' }
+        : { id: await uploadLocalImage(imageUrl, token, phoneId), caption: text || '' }
+      : null;
     const body = imageUrl
-      ? { messaging_product: 'whatsapp', to: phone, type: 'image', image: { link: imageUrl, caption: text || '' } }
+      ? { messaging_product: 'whatsapp', to: phone, type: 'image', image }
       : { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text || '' } };
 
     const resp = await fetch(url, {
