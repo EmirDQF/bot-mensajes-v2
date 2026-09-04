@@ -17,6 +17,48 @@ function getClient() {
   return clientOverride;
 }
 
+export async function hasMediaBeenSent(recipient, imageKey, campaignKey = 'catalog') {
+  const supabase = getClient();
+  if (!supabase || !recipient || !imageKey) return false;
+  try {
+    const { data, error } = await supabase
+      .from('whatsapp_media_sends')
+      .select('id')
+      .eq('recipient', String(recipient))
+      .eq('image_key', String(imageKey))
+      .eq('campaign_key', String(campaignKey))
+      .eq('status', 'sent')
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  } catch (error) {
+    console.warn('[mediaTracking] sent lookup failed:', error?.message || error);
+    return false;
+  }
+}
+
+export async function markMediaAsSent(recipient, imageKey, campaignKey = 'catalog') {
+  const supabase = getClient();
+  if (!supabase || !recipient || !imageKey) return false;
+  try {
+    const { error } = await supabase
+      .from('whatsapp_media_sends')
+      .upsert({
+        recipient: String(recipient),
+        image_key: String(imageKey),
+        campaign_key: String(campaignKey),
+        status: 'sent',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'recipient,image_key,campaign_key' });
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.warn('[mediaTracking] sent marker failed:', error?.message || error);
+    return false;
+  }
+}
+
 /**
  * Claims one logical send. The unique constraint in Supabase makes this safe
  * when two webhook deliveries for the same message run concurrently.
@@ -77,8 +119,8 @@ export async function completeMediaSend(id, status = 'sent', errorMessage = null
   }
 }
 
-export async function sendCampaignWelcome({ recipient, send, campaignKey = 'welcome' } = {}) {
-  const claim = await claimMediaSend({ recipient, imageKey: '__welcome__', campaignKey });
+export async function sendCampaignWelcome({ recipient, send, imageKey = 'logo', campaignKey = 'catalog' } = {}) {
+  const claim = await claimMediaSend({ recipient, imageKey, campaignKey });
   if (!claim.claimed) return { sent: false, alreadySent: Boolean(claim.alreadySent) };
   try {
     const result = await send();
@@ -90,4 +132,11 @@ export async function sendCampaignWelcome({ recipient, send, campaignKey = 'welc
   }
 }
 
-export default { claimMediaSend, completeMediaSend, sendCampaignWelcome, initMediaTrackingClient };
+export default {
+  claimMediaSend,
+  completeMediaSend,
+  sendCampaignWelcome,
+  hasMediaBeenSent,
+  markMediaAsSent,
+  initMediaTrackingClient,
+};

@@ -6,7 +6,13 @@ import whatsappService from '../services/whatsappService.js';
 import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
-import { claimMediaSend, completeMediaSend, sendCampaignWelcome } from '../services/mediaTrackingService.js';
+import {
+  claimMediaSend,
+  completeMediaSend,
+  hasMediaBeenSent,
+  markMediaAsSent,
+  sendCampaignWelcome,
+} from '../services/mediaTrackingService.js';
 import { obtenerImagen } from '../config/catalogo.js';
 
 // Helper: upsert a message into chat_sessions.history
@@ -405,13 +411,15 @@ async function processBatch(from, buffer) {
     let sendResult;
     if (finalMediaUrl) {
       const imageKey = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto) || finalMediaUrl;
-      const claim = await claimMediaSend({ recipient: from, imageKey });
+      const alreadySent = await hasMediaBeenSent(from, imageKey);
+      const claim = alreadySent ? { claimed: false } : await claimMediaSend({ recipient: from, imageKey });
       if (claim.claimed) {
         try {
           sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {
             type: 'image', image: { link: finalMediaUrl }, media: { link: finalMediaUrl }, caption: textoParaWhatsApp,
           });
           await completeMediaSend(claim.id, 'sent');
+          await markMediaAsSent(from, imageKey);
         } catch (error) {
           await completeMediaSend(claim.id, 'failed', error?.message || error);
           throw error;
@@ -490,6 +498,7 @@ export default async function webhookController(req, res, next) {
           await hardResetUserSession(from);
           await sendCampaignWelcome({
             recipient: from,
+            imageKey: 'logo',
             send: () => whatsappService.sendWhatsAppMessage(
               from,
               '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨. ¿Con quién tengo el gusto y en qué tratamiento te gustaría consultar hoy? 😊',

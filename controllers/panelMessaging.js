@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { claimMediaSend, completeMediaSend, hasMediaBeenSent, markMediaAsSent } from '../services/mediaTrackingService.js';
 
 async function uploadLocalImage(filename, token, phoneId) {
   const safeFilename = path.basename(String(filename));
@@ -68,12 +69,17 @@ export async function sendPanelMessage(req, res) {
   try {
     const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
     const isPublicUrl = /^https?:\/\//i.test(String(imageUrl || ''));
-    const image = imageUrl
+    const imageKey = imageUrl ? path.basename(String(imageUrl).split('?')[0]) : null;
+    const alreadySent = imageKey ? await hasMediaBeenSent(phone, imageKey) : false;
+    const claim = imageKey && !alreadySent
+      ? await claimMediaSend({ recipient: phone, imageKey })
+      : { claimed: false };
+    const image = imageUrl && claim.claimed
       ? isPublicUrl
         ? { link: imageUrl, caption: text || '' }
         : { id: await uploadLocalImage(imageUrl, token, phoneId), caption: text || '' }
       : null;
-    const body = imageUrl
+    const body = image
       ? { messaging_product: 'whatsapp', to: phone, type: 'image', image }
       : { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: text || '' } };
 
@@ -89,9 +95,14 @@ export async function sendPanelMessage(req, res) {
     const j = await resp.json();
     if (!resp.ok) {
       console.error('WhatsApp API error', j);
+      if (claim.id) await completeMediaSend(claim.id, 'failed', j?.error?.message || 'WhatsApp API error');
       return res.status(502).json({ error: 'Error from WhatsApp API', details: j });
     }
 
+    if (claim.id) {
+      await completeMediaSend(claim.id, 'sent');
+      await markMediaAsSent(phone, imageKey);
+    }
     await persistSentPanelMessage(phone, text, imageUrl);
     res.json({ ok: true, result: j });
   } catch (error) {
