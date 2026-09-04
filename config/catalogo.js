@@ -51,10 +51,12 @@ const CATALOGO_LUMINZU = {
   // === ORTODONCIA & BRACKETS ===
   ortodoncia: toUrl('ortodoncia_promo.jpeg'),
   brackets: toUrl('ortodoncia_promo.jpeg'),
+  bracketsmuestra: toUrl('ortodoncia_promo.jpeg'),
   aparato: toUrl('ortodoncia_promo.jpeg'),
   invisalign: toUrl('ortodoncia_promo.jpeg'),
   ortodoncia_promo: toUrl('ortodoncia_promo.jpeg'),
   ortodoncia_antes_despues: CASOS_ORTODONCIA,
+  ortodoncia_1: CASOS_ORTODONCIA,
   antesdespues: CASOS_ORTODONCIA,
   ortodonciakids: toUrl('ortodonciakids.jpeg'),
   ortodoncia_kids: toUrl('ortodonciakids.jpeg'),
@@ -117,6 +119,10 @@ const CATALOGO_LUMINZU = {
 
   // === EXTRACCIÓN ===
   extraccion: toUrl('extraccion.jpeg'),
+  periodoncia: toUrl('chequeo.jpeg'),
+  evaluacion: toUrl('chequeo.jpeg'),
+  corona: toUrl('carillas.jpeg'),
+  gingivectomia: toUrl('chequeo.jpeg'),
 
   // === FALLBACKS ===
   logo: toUrl('logo.jpeg'),

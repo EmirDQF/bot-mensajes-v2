@@ -6,6 +6,8 @@ import whatsappService from '../services/whatsappService.js';
 import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
+import { claimMediaSend, completeMediaSend, sendCampaignWelcome } from '../services/mediaTrackingService.js';
+import { obtenerImagen } from '../config/catalogo.js';
 
 // Helper: upsert a message into chat_sessions.history
 let supabaseClient = null;
@@ -400,9 +402,26 @@ async function processBatch(from, buffer) {
   }
 
   try {
-    const sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, finalMediaUrl
-      ? { type: 'image', image: { link: finalMediaUrl }, media: { link: finalMediaUrl }, caption: textoParaWhatsApp }
-      : {});
+    let sendResult;
+    if (finalMediaUrl) {
+      const imageKey = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto) || finalMediaUrl;
+      const claim = await claimMediaSend({ recipient: from, imageKey });
+      if (claim.claimed) {
+        try {
+          sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {
+            type: 'image', image: { link: finalMediaUrl }, media: { link: finalMediaUrl }, caption: textoParaWhatsApp,
+          });
+          await completeMediaSend(claim.id, 'sent');
+        } catch (error) {
+          await completeMediaSend(claim.id, 'failed', error?.message || error);
+          throw error;
+        }
+      } else {
+        sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
+      }
+    } else {
+      sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
+    }
     forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: textoParaWhatsApp, mediaUrl: finalMediaUrl } });
     await notifyDashboardReply(from, textoParaWhatsApp, finalMediaUrl, sendResult?.messages?.[0]?.id || null);
   } catch (error) {
@@ -469,7 +488,15 @@ export default async function webhookController(req, res, next) {
         if (message.type === 'text' && /^\/?(reset|reiniciar|borrar|clear)$/i.test(text || '')) {
           messageBuffers.delete(from);
           await hardResetUserSession(from);
-          await whatsappService.sendWhatsAppMessage(from, '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨. ¿Con quién tengo el gusto y en qué tratamiento te gustaría consultar hoy? 😊', {});
+          await sendCampaignWelcome({
+            recipient: from,
+            send: () => whatsappService.sendWhatsAppMessage(
+              from,
+              '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨. ¿Con quién tengo el gusto y en qué tratamiento te gustaría consultar hoy? 😊',
+              { type: 'image', image: { link: obtenerImagen('logo') }, media: { link: obtenerImagen('logo') }, caption: '¡Hola! Bienvenido a LUMINZU Clínica Dental 🦷✨.',
+              },
+            ),
+          });
           return;
         }
         if (message.type === 'image') {

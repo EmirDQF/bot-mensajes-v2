@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { claimMediaSend, completeMediaSend } from '../services/mediaTrackingService.js';
 
 const GRAPH_VERSION = 'v20.0';
 const mediaIdCache = new Map();
@@ -56,6 +57,7 @@ export async function subirImagenYObtenerId(nombreArchivo) {
 }
 
 export async function enviarImagenWhatsapp(numeroDestino, nombreArchivo) {
+  let tracking = null;
   try {
     const token = process.env.WHATSAPP_TOKEN;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -63,10 +65,13 @@ export async function enviarImagenWhatsapp(numeroDestino, nombreArchivo) {
       console.error('❌ Falta WHATSAPP_TOKEN o WHATSAPP_PHONE_NUMBER_ID en las variables de entorno.');
       return false;
     }
+    tracking = await claimMediaSend({ recipient: numeroDestino, imageKey: nombreArchivo });
+    if (!tracking.claimed) return false;
 
     const mediaId = await subirImagenYObtenerId(nombreArchivo);
     if (!mediaId) {
       console.warn(`⚠️ No se obtuvo mediaId para ${nombreArchivo}; omitiendo envío de imagen.`);
+      await completeMediaSend(tracking.id, 'failed', 'media upload failed');
       return false;
     }
 
@@ -93,8 +98,10 @@ export async function enviarImagenWhatsapp(numeroDestino, nombreArchivo) {
     }
 
     console.log(`✅ Imagen enviada a ${numeroDestino} (${nombreArchivo}) - message response: ${JSON.stringify(data).slice(0, 200)}`);
+    await completeMediaSend(tracking.id, 'sent');
     return true;
   } catch (err) {
+    await completeMediaSend(tracking?.id, 'failed', err?.message || err);
     console.error('❌ Excepción en enviarImagenWhatsapp:', err && (err.message || err));
     return false;
   }
