@@ -61,7 +61,7 @@ async function hardResetUserSession(phone) {
   }
 }
 
-async function persistToSupabaseConversation({ conversationId, contactNumber, contactName, sender, text, mediaUrl, timestamp }) {
+async function persistToSupabaseConversation({ conversationId, contactNumber, sender, text, mediaUrl, timestamp }) {
   let supabase;
   try {
     supabase = await getSupabaseClient();
@@ -74,16 +74,13 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, co
   const normalizedId = String(conversationId).trim();
   const phone = contactNumber || normalizedId;
   const ts = timestamp || new Date().toISOString();
-  const lastMessage = text && String(text).trim().length ? String(text).trim() : (mediaUrl ? '[Imagen]' : 'Mensaje');
-
   try {
     const { error: upsertErr } = await supabase.from('conversations').upsert({
       conversation_id: normalizedId,
       contact_number: phone,
-      contact_name: contactName || phone,
-      last_message: lastMessage,
       last_message_at: ts,
-      created_at: ts
+      created_at: ts,
+      updated_at: ts,
     }, { onConflict: 'conversation_id' });
 
     if (upsertErr) {
@@ -360,28 +357,26 @@ function enqueueUserWork(from, work) {
 async function processBatch(from, buffer) {
   const messageText = buffer.parts.filter((part) => part.type === 'text').map((part) => part.content).join('\n');
   const jid = `${from}@s.whatsapp.net`;
-  let clinic = null;
-  if (buffer.context?.phoneNumberId) {
+  const clinicPromise = (async () => {
+    if (!buffer.context?.phoneNumberId) return null;
     try {
       const client = await getSupabaseClient();
-      if (client) {
-        const { data, error } = await client.from('clinics').select('*')
-          .eq('waba_phone_number_id', buffer.context.phoneNumberId).maybeSingle();
-        if (error) console.error('[Supabase] Error al persistir conversación:', error);
-        clinic = data || null;
-      }
+      if (!client) return null;
+      const { data, error } = await client.from('clinics').select('*')
+        .eq('waba_phone_number_id', buffer.context.phoneNumberId).maybeSingle();
+      if (error) throw error;
+      return data || null;
     } catch (error) {
-      console.error('[Supabase] Error al persistir conversación:', error);
+      console.error('[Supabase] Error al consultar clínica:', error);
+      return null;
     }
-  }
-  try {
-    await persistToSupabaseConversation({
-      conversationId: from, contactNumber: from, contactName: buffer.context?.contactName || from,
-      sender: 'user', text: messageText || null, mediaUrl: null, timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('[Supabase] Error al persistir conversación:', error);
-  }
+  })();
+  const persistencePromise = persistToSupabaseConversation({
+    conversationId: from, contactNumber: from,
+    sender: 'user', text: messageText || null, mediaUrl: null, timestamp: new Date().toISOString(),
+  });
+  const clinic = await clinicPromise;
+  void persistencePromise.catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
   let geminiResult;
   try {
     geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
@@ -439,11 +434,10 @@ async function processBatch(from, buffer) {
   }
 
   await notifyMonitorPanel({ conversation_id: from, sender: 'bot', type: finalMediaUrl ? 'image' : 'text', content: textoParaWhatsApp, media_url: finalMediaUrl, timestamp: new Date().toISOString() });
-  try {
-    await persistToSupabaseConversation({ conversationId: from, contactNumber: from, contactName: from, sender: 'bot', text: textoParaWhatsApp, mediaUrl: finalMediaUrl, timestamp: new Date().toISOString() });
-  } catch (error) {
-    console.error('[Supabase] Error al persistir conversación:', error);
-  }
+  void persistToSupabaseConversation({
+    conversationId: from, contactNumber: from, sender: 'bot',
+    text: textoParaWhatsApp, mediaUrl: finalMediaUrl, timestamp: new Date().toISOString(),
+  }).catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
   try {
     await persistToChatSessions(from, { from: 'patient', text: messageText, phone: from, timestamp: new Date().toISOString() });
     await persistToChatSessions(from, { from: 'bot', text: textoParaWhatsApp, phone: from, timestamp: new Date().toISOString() });

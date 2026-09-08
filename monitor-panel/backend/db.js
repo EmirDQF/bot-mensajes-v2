@@ -62,14 +62,21 @@ async function saveMessage(msg) {
   const convPayload = {
     conversation_id: msg.conversation_id,
     contact_number: msg.conversation_id,
-    contact_name: msg.contact_name || null,
-    last_message_at: t
+    last_message_at: t,
+    created_at: t,
+    updated_at: t,
   };
 
   // Upsert conversation by conversation_id
-  const { error: upsertErr } = await supabase
-    .from('conversations')
-    .upsert(convPayload, { onConflict: 'conversation_id' });
+  let upsertErr = null;
+  try {
+    ({ error: upsertErr } = await supabase
+      .from('conversations')
+      .upsert(convPayload, { onConflict: 'conversation_id' }));
+  } catch (error) {
+    console.error('upsert conversation error', error);
+    upsertErr = error;
+  }
   if (upsertErr) console.error('upsert conversation error', upsertErr);
 
   // Insert message
@@ -83,11 +90,18 @@ async function saveMessage(msg) {
     raw_payload: msg.raw_payload || null
   };
 
-  const { data, error: insertErr } = await supabase
-    .from('messages')
-    .insert([insertPayload])
-    .select()
-    .single();
+  let data = null;
+  let insertErr = null;
+  try {
+    ({ data, error: insertErr } = await supabase
+      .from('messages')
+      .insert([insertPayload])
+      .select()
+      .single());
+  } catch (error) {
+    console.error('insert message error', error);
+    insertErr = error;
+  }
 
   if (insertErr) {
     console.error('insert message error', insertErr);
@@ -98,11 +112,15 @@ async function saveMessage(msg) {
   }
 
   // Update conversation last_message_at (in case upsert didn't)
-  const { error: convUpdateErr } = await supabase
-    .from('conversations')
-    .update({ last_message_at: t, contact_name: msg.contact_name || null })
-    .eq('conversation_id', msg.conversation_id);
-  if (convUpdateErr) console.error('conversation update error', convUpdateErr);
+  try {
+    const { error: convUpdateErr } = await supabase
+      .from('conversations')
+      .update({ last_message_at: t, updated_at: t })
+      .eq('conversation_id', msg.conversation_id);
+    if (convUpdateErr) console.error('conversation update error', convUpdateErr);
+  } catch (error) {
+    console.error('conversation update error', error);
+  }
 
   // Compose message object to emit
   const message = {

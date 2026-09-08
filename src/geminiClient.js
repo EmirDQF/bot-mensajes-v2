@@ -28,3 +28,7 @@ export function getGeminiClient() {
 
   return cachedClient;
 }
+
+export function initializeGeminiClient() {
+  return getGeminiClient();
+}

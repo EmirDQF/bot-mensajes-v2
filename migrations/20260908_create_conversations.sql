@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS public.conversations (
   contact_name TEXT,
   last_message TEXT,
   last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE public.conversations
@@ -17,7 +18,8 @@ ALTER TABLE public.conversations
   ADD COLUMN IF NOT EXISTS contact_name TEXT,
   ADD COLUMN IF NOT EXISTS last_message TEXT,
   ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ DEFAULT NOW(),
-  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
 -- Existing rows must have a key before enforcing the webhook's upsert contract.
 UPDATE public.conversations
@@ -27,7 +29,19 @@ WHERE conversation_id IS NULL OR conversation_id = '';
 ALTER TABLE public.conversations
   ALTER COLUMN conversation_id SET NOT NULL,
   ALTER COLUMN last_message_at SET DEFAULT NOW(),
-  ALTER COLUMN created_at SET DEFAULT NOW();
+  ALTER COLUMN created_at SET DEFAULT NOW(),
+  ALTER COLUMN updated_at SET DEFAULT NOW();
+
+-- Keep one row per conversation before creating the unique key required by upsert.
+WITH duplicates AS (
+  SELECT ctid,
+         ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at NULLS LAST, ctid) AS row_number
+  FROM public.conversations
+)
+DELETE FROM public.conversations AS c
+USING duplicates AS d
+WHERE c.ctid = d.ctid
+  AND d.row_number > 1;
 
 CREATE UNIQUE INDEX IF NOT EXISTS conversations_conversation_id_key
   ON public.conversations (conversation_id);

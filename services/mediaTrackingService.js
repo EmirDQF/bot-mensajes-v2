@@ -13,7 +13,12 @@ function getClient() {
   const url = config.supabase?.url || process.env.SUPABASE_URL;
   const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
   if (!url || !key) return null;
-  clientOverride = createClient(url, key);
+  try {
+    clientOverride = createClient(url, key);
+  } catch (error) {
+    console.error('[mediaTracking] Supabase client initialization failed:', error);
+    return null;
+  }
   return clientOverride;
 }
 

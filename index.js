@@ -7,6 +7,7 @@ import panelRouter from './routes/panel.js';
 import fs from 'fs/promises';
 import path from 'path';
 import errorHandler from './middleware/errorHandler.js';
+import { initializeGeminiClient } from './src/geminiClient.js';
 
 const app = express();
 
@@ -135,6 +136,9 @@ app.get('/panel', requirePanelAuth, (req, res) => {
   }
 })();
 const port = process.env.PORT || 3000;
+
+// Initialize once at startup so webhook batches reuse the same Gemini client.
+initializeGeminiClient();
 
 // Validaciones ligeras de variables de entorno para evitar que PM2 entre en crash loop silencioso
 const requiredLike = ['GEMINI_MODEL', 'ADMIN_WHATSAPP_NUMBER', 'WHATSAPP_WEBHOOK_VERIFY_TOKEN'];
