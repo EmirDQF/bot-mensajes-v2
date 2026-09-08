@@ -62,9 +62,12 @@ async function saveMessage(msg) {
   const convPayload = {
     conversation_id: msg.conversation_id,
     contact_number: msg.conversation_id,
+    phone: msg.conversation_id,
+    last_message: msg.content || (msg.media_url ? '[Imagen]' : 'Mensaje'),
     last_message_at: t,
     created_at: t,
     updated_at: t,
+    status: 'active',
   };
 
   // Upsert conversation by conversation_id
@@ -115,7 +118,13 @@ async function saveMessage(msg) {
   try {
     const { error: convUpdateErr } = await supabase
       .from('conversations')
-      .update({ last_message_at: t, updated_at: t })
+      .update({
+        contact_number: msg.conversation_id,
+        phone: msg.conversation_id,
+        last_message_at: t,
+        updated_at: t,
+        status: 'active',
+      })
       .eq('conversation_id', msg.conversation_id);
     if (convUpdateErr) console.error('conversation update error', convUpdateErr);
   } catch (error) {

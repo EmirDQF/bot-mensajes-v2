@@ -5,11 +5,15 @@ const webhookVerifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
   || process.env.VERIFY_TOKEN
   || process.env.WEBHOOK_VERIFY_TOKEN
   || null;
+const configuredGeminiModel = process.env.GEMINI_MODEL;
+const geminiModel = configuredGeminiModel && /^gemini-(?:1\.5|2\.0)-flash(?:-lite)?$/i.test(configuredGeminiModel)
+  ? configuredGeminiModel
+  : 'gemini-1.5-flash';
 
 export default {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || null,
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    model: geminiModel,
     maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 100),
   },
   clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental',

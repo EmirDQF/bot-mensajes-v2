@@ -2,7 +2,7 @@ import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
 import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
-import whatsappService from '../services/whatsappService.js';
+import whatsappService, { markMessageAsRead, sendTypingIndicator } from '../services/whatsappService.js';
 import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
@@ -72,38 +72,39 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, se
   if (!supabase || !conversationId) return null;
 
   const normalizedId = String(conversationId).trim();
-  const phone = contactNumber || normalizedId;
+  const cleanPhone = String(contactNumber || normalizedId).replace(/\D/g, '');
   const ts = timestamp || new Date().toISOString();
   try {
-    const { error: upsertErr } = await supabase.from('conversations').upsert({
-      conversation_id: normalizedId,
-      contact_number: phone,
-      last_message_at: ts,
-      created_at: ts,
-      updated_at: ts,
-    }, { onConflict: 'conversation_id' });
-
-    if (upsertErr) {
-      console.error('[Supabase] Error al persistir conversación:', upsertErr);
-      return null;
+    try {
+      const { error } = await supabase.from('conversations').upsert({
+        conversation_id: cleanPhone,
+        contact_number: cleanPhone,
+        phone: cleanPhone,
+        last_message: text ? String(text).trim() : (mediaUrl ? '[Imagen]' : 'Mensaje'),
+        last_message_at: ts,
+        created_at: ts,
+        updated_at: ts,
+        status: 'active',
+      }, { onConflict: 'conversation_id' });
+      if (error) console.error('[Supabase] Error al persistir conversación:', error);
+    } catch (error) {
+      console.error('[Supabase] Error al persistir conversación:', error);
     }
 
-    const { error: insertErr } = await supabase.from('messages').insert({
-      conversation_id: normalizedId,
-      contact_number: phone,
-      sender,
-      text: text || null,
-      media_url: mediaUrl || null,
-      media_type: mediaUrl ? 'image' : 'text',
-      created_at: ts
-    });
-
-    if (insertErr) {
-      console.error('[Supabase] Error al persistir conversación:', insertErr);
-      return null;
+    try {
+      const { error } = await supabase.from('messages').insert({
+        conversation_id: cleanPhone,
+        contact_number: cleanPhone,
+        sender,
+        text: text || null,
+        media_url: mediaUrl || null,
+        media_type: mediaUrl ? 'image' : 'text',
+        created_at: ts
+      });
+      if (error) console.error('[Supabase] Error al persistir mensaje:', error);
+    } catch (error) {
+      console.error('[Supabase] Error al persistir mensaje:', error);
     }
-
-    return true;
   } catch (e) {
     console.error('[Supabase] Error al persistir conversación:', e);
     return null;
@@ -328,7 +329,8 @@ async function persistAgendaPayload(payload, context = {}) {
 const messageBuffers = new Map();
 const userProcessingQueues = new Map();
 const intakeQueues = new Map();
-const BUFFER_WAIT_MS = 3500;
+const BUFFER_WAIT_MS = 2500;
+const GEMINI_FALLBACK_MESSAGE = '¡Hola! Con gusto te brindo información. ¿Te gustaría agendar una consulta de evaluación?';
 
 async function downloadIncomingImage(mediaId) {
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN;
@@ -354,9 +356,28 @@ function enqueueUserWork(from, work) {
   return next;
 }
 
+async function sendFallbackWhatsAppMessage(from) {
+  try {
+    await whatsappService.sendWhatsAppMessage(from, GEMINI_FALLBACK_MESSAGE, {});
+  } catch (error) {
+    console.error('[WhatsApp] Error al enviar fallback de Gemini:', error);
+  }
+}
+
 async function processBatch(from, buffer) {
   const messageText = buffer.parts.filter((part) => part.type === 'text').map((part) => part.content).join('\n');
   const jid = `${from}@s.whatsapp.net`;
+  // Give immediate visual feedback without making Meta or Gemini wait for it.
+  if (buffer.context?.messageId) {
+    void Promise.allSettled([
+      markMessageAsRead(buffer.context.messageId),
+      sendTypingIndicator(buffer.context.messageId),
+    ]).then((results) => {
+      for (const result of results) {
+        if (result.status === 'rejected') console.error('[WhatsApp] Status update failed:', result.reason);
+      }
+    });
+  }
   const clinicPromise = (async () => {
     if (!buffer.context?.phoneNumberId) return null;
     try {
@@ -375,7 +396,10 @@ async function processBatch(from, buffer) {
     conversationId: from, contactNumber: from,
     sender: 'user', text: messageText || null, mediaUrl: null, timestamp: new Date().toISOString(),
   });
-  const clinic = await clinicPromise;
+  const clinic = await Promise.race([
+    clinicPromise,
+    new Promise((resolve) => setTimeout(() => resolve(null), 750)),
+  ]);
   void persistencePromise.catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
   let geminiResult;
   try {
@@ -383,10 +407,15 @@ async function processBatch(from, buffer) {
       client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts, clinic,
     });
   } catch (error) {
-    console.error('webhookController: gemini call failed', error);
+    console.error('[Gemini] Error al generar respuesta:', error);
+    await sendFallbackWhatsAppMessage(from);
     return;
   }
-  if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) return;
+  if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) {
+    console.error('[Gemini] No se obtuvo una respuesta utilizable');
+    await sendFallbackWhatsAppMessage(from);
+    return;
+  }
 
   const textoParaWhatsApp = stripInstructionTags(geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto)));
   const finalMediaUrl = geminiResult.imagenURL || null;
@@ -401,6 +430,7 @@ async function processBatch(from, buffer) {
     } catch (error) {
       console.error('[Supabase] Error al persistir conversación:', error);
     }
+
   }
 
   try {
@@ -458,6 +488,7 @@ async function addMessageToBuffer(from, part, context) {
   if (current.timer) clearTimeout(current.timer);
   current.timer = setTimeout(() => {
     messageBuffers.delete(from);
+    current.timer = null;
     enqueueUserWork(from, () => processBatch(from, current)).catch((error) => console.error('webhookController: batch failed', error));
   }, BUFFER_WAIT_MS);
   messageBuffers.set(from, current);
@@ -517,13 +548,18 @@ export default async function webhookController(req, res, next) {
       const context = {
         contactName: value?.contacts?.[0]?.profile?.name || from,
         phoneNumberId: value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || null,
+        messageId: message.id || null,
       };
       const intake = intakeQueues.get(from) || Promise.resolve();
       const next = intake.then(async () => {
         if (message.type === 'text' && /^\/?(reset|reiniciar|borrar|clear)$/i.test(text || '')) {
+          const pending = messageBuffers.get(from);
+          if (pending?.timer) clearTimeout(pending.timer);
           messageBuffers.delete(from);
           await hardResetUserSession(from);
-          await sendCampaignWelcomeMessage(from);
+          void sendCampaignWelcomeMessage(from).catch((error) => {
+            console.error('webhookController: welcome message failed', error);
+          });
           return;
         }
         await sendCampaignWelcomeMessage(from);
@@ -543,6 +579,6 @@ export default async function webhookController(req, res, next) {
     }
   } catch (error) {
     console.error('webhookController: background processing error', error);
-    if (next && !res.headersSent) next(error);
+    console.error('webhookController: request payload processing failed', error);
   }
 }

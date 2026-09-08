@@ -3,7 +3,7 @@ import assert from 'assert';
 
 // set minimal env for config/env.js
 process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test';
-process.env.GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+process.env.GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 process.env.WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '12345';
 process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'verify-token';
 

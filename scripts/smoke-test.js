@@ -48,7 +48,7 @@ async function run() {
 
   process.env.LEADS_TEST_FILE = process.env.LEADS_TEST_FILE || 'leads.test.json';
   process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-key';
-  process.env.GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  process.env.GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
 
   const required = [
     'SUPABASE_URL',

@@ -129,4 +129,32 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   throw lastError || new Error('Failed to send message');
 }
 
-export default { sendWhatsAppMessage };
+async function sendStatus(toPhone, status, messageId = null, typing = false) {
+  const phoneNumberId = config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
+  if (!phoneNumberId || !token || !messageId) return null;
+
+  const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
+  const response = await fetch(`https://graph.facebook.com/${version}/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      status,
+      message_id: messageId,
+      ...(typing ? { typing_indicator: { type: 'text' } } : {}),
+    }),
+  });
+  if (!response.ok) throw new Error(`WhatsApp status update failed: ${response.status}`);
+  return response.json().catch(() => null);
+}
+
+export function markMessageAsRead(messageId) {
+  return sendStatus(null, 'read', messageId);
+}
+
+export function sendTypingIndicator(messageId) {
+  return sendStatus(null, 'read', messageId, true);
+}
+
+export default { sendWhatsAppMessage, markMessageAsRead, sendTypingIndicator };
