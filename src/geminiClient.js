@@ -9,7 +9,7 @@ export function getGeminiClient() {
   }
 
   const apiKey = config.gemini?.apiKey;
-  const modelName = config.gemini?.model || 'gemini-1.5-flash';
+  const modelName = 'gemini-1.5-flash';
   const maxOutputTokens = Number(config.gemini?.maxOutputTokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 110);
 
   if (!apiKey) {

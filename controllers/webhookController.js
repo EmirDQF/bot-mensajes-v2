@@ -21,6 +21,15 @@ const chatSessionHistoryCache = new Map();
 const processedMessageIds = new Set();
 const welcomeSentRecipients = new Set();
 const PROCESSED_IDS_TTL_MS = 5 * 60 * 1000;
+export const DEFAULT_CLINIC = {
+  name: 'LUMINZU Clínica Dental (Sede Huánuco)',
+  city: 'Huánuco',
+  address: 'Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú',
+  schedule: 'Lunes a sábado de 9:00 am a 8:00 pm',
+  phone: '51949737257',
+  promos: 'Brackets con cuota inicial S/ 600, facilidades de pago en cuotas y evaluación digital con cámara intraoral sin costo.',
+  treatments: 'Ortodoncia (brackets metálicos y estéticos), Implantes dentales, Endodoncia, Curaciones con resina, Blanqueamiento, Diseño de sonrisa, Odontopediatría y Extracciones.',
+};
 
 async function getSupabaseClient() {
   if (supabaseClient) return supabaseClient;
@@ -94,7 +103,6 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, se
     try {
       const { error } = await supabase.from('messages').insert({
         conversation_id: cleanPhone,
-        contact_number: cleanPhone,
         sender,
         text: text || null,
         media_url: mediaUrl || null,
@@ -379,17 +387,17 @@ async function processBatch(from, buffer) {
     });
   }
   const clinicPromise = (async () => {
-    if (!buffer.context?.phoneNumberId) return null;
+    if (!buffer.context?.phoneNumberId) return DEFAULT_CLINIC;
     try {
       const client = await getSupabaseClient();
-      if (!client) return null;
+      if (!client) return DEFAULT_CLINIC;
       const { data, error } = await client.from('clinics').select('*')
         .eq('waba_phone_number_id', buffer.context.phoneNumberId).maybeSingle();
       if (error) throw error;
-      return data || null;
+      return data ? { ...DEFAULT_CLINIC, ...data } : DEFAULT_CLINIC;
     } catch (error) {
       console.error('[Supabase] Error al consultar clínica:', error);
-      return null;
+      return DEFAULT_CLINIC;
     }
   })();
   const persistencePromise = persistToSupabaseConversation({
@@ -398,7 +406,7 @@ async function processBatch(from, buffer) {
   });
   const clinic = await Promise.race([
     clinicPromise,
-    new Promise((resolve) => setTimeout(() => resolve(null), 750)),
+    new Promise((resolve) => setTimeout(() => resolve(DEFAULT_CLINIC), 750)),
   ]);
   void persistencePromise.catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
   let geminiResult;
@@ -528,30 +536,32 @@ async function sendCampaignWelcomeMessage(from) {
 
 // Buffering combines rapid text/image messages while the per-user queue prevents overlapping Gemini calls.
 export default async function webhookController(req, res, next) {
+  res.status(200).send('EVENT_RECEIVED');
   try {
     let payload = req.parsedBody || req.body;
     if (Buffer.isBuffer(payload)) payload = JSON.parse(payload.toString('utf8'));
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
-    const messages = Array.isArray(value?.messages) ? value.messages : [];
+    if (Array.isArray(value?.statuses) && value.statuses.length > 0) return;
+    const message = value?.messages?.[0];
+    if (!message) return;
     if (payload) notifyDashboardIncoming(payload);
-    for (const message of messages) {
-      const msgId = message?.id;
-      if (msgId && processedMessageIds.has(msgId)) continue;
-      if (msgId) {
-        processedMessageIds.add(msgId);
-        setTimeout(() => processedMessageIds.delete(msgId), PROCESSED_IDS_TTL_MS).unref?.();
-      }
-      if (!message || message.from === 'status@broadcast' || message.type === 'system') continue;
-      const from = String(message.from || '').replace(/\D/g, '');
-      if (!from) continue;
-      const text = message.type === 'text' ? message.text?.body?.trim() : message.image?.caption?.trim();
-      const context = {
-        contactName: value?.contacts?.[0]?.profile?.name || from,
-        phoneNumberId: value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || null,
-        messageId: message.id || null,
-      };
-      const intake = intakeQueues.get(from) || Promise.resolve();
-      const next = intake.then(async () => {
+    const msgId = message.id;
+    if (msgId && processedMessageIds.has(msgId)) return;
+    if (msgId) {
+      processedMessageIds.add(msgId);
+      setTimeout(() => processedMessageIds.delete(msgId), PROCESSED_IDS_TTL_MS).unref?.();
+    }
+    if (message.from === 'status@broadcast' || message.type === 'system') return;
+    const from = String(message.from || '').replace(/\D/g, '');
+    if (!from) return;
+    const text = message.type === 'text' ? message.text?.body?.trim() : message.image?.caption?.trim();
+    const context = {
+      contactName: value?.contacts?.[0]?.profile?.name || from,
+      phoneNumberId: value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || null,
+      messageId: message.id || null,
+    };
+    const intake = intakeQueues.get(from) || Promise.resolve();
+    const next = intake.then(async () => {
         if (message.type === 'text' && /^\/?(reset|reiniciar|borrar|clear)$/i.test(text || '')) {
           const pending = messageBuffers.get(from);
           if (pending?.timer) clearTimeout(pending.timer);
@@ -573,10 +583,9 @@ export default async function webhookController(req, res, next) {
         } else if (text) {
           await addMessageToBuffer(from, { type: 'text', content: text }, context);
         }
-      });
-      const tracked = next.finally(() => { if (intakeQueues.get(from) === tracked) intakeQueues.delete(from); });
-      intakeQueues.set(from, tracked);
-    }
+    });
+    const tracked = next.finally(() => { if (intakeQueues.get(from) === tracked) intakeQueues.delete(from); });
+    intakeQueues.set(from, tracked);
   } catch (error) {
     console.error('webhookController: background processing error', error);
     console.error('webhookController: request payload processing failed', error);

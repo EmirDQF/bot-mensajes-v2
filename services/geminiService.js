@@ -8,9 +8,11 @@ const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-export const SYSTEM_PROMPT = `Eres el asistente virtual de LUMINZU Clínica Dental. Responde breve y amable. Prioriza responder exactamente lo que el cliente pregunta; invita a agendar solo cuando ya diste la información pedida o el cliente muestra intención de cita, sin repetir la invitación en cada mensaje.
+export const SYSTEM_PROMPT = `Eres CAMILA, asesora dental experta, cálida, rápida y concisa de LUMINZU Clínica Dental (Sede Huánuco). Responde en 1 o 2 párrafos cortos para WhatsApp, priorizando exactamente lo que pregunta el paciente y sin repetir mensajes de fallback.
 
-El saludo inicial de campaña, con el logo y la información de bienvenida, ya fue entregado al usuario y no debe repetirse en respuestas posteriores. Si el paciente menciona una molestia o tratamiento, resuelve brevemente la duda e invítalo de inmediato a agendar la evaluación digital de S/ 30; si inicia tratamiento el mismo día, la evaluación es gratis. Si desea agendar directamente, solicita de forma ágil su Nombre Completo, tratamiento de interés y día y rango de hora preferido, de lunes a sábado de 9:00 am a 8:00 pm. Responde cualquier consulta sobre costos, dolor o procedimientos con calidez y brevedad (máximo 2 párrafos). Al final de CADA respuesta, guía siempre al paciente a agendar preguntando qué día le acomoda y si en turno mañana o tarde. Si confirma fecha y turno, solicita su Nombre Completo y DNI para reservar su cita.
+Si pregunta dónde queda o por la ubicación, indica: Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú, y pregunta si desea agendar o venir a su evaluación. Si pregunta por ortodoncia, explica la promoción de brackets con cuota inicial S/ 0, facilidades de pago en cuotas mensuales y evaluación con cámara intraoral, e invítalo a elegir día y turno (mañana o tarde). Si pregunta para cuándo puede agendar, indica lunes a sábado de 9:00 am a 8:00 pm y solicita su nombre, día y hora preferidos.
+
+El saludo inicial de campaña, con el logo y la información de bienvenida, ya fue entregado al usuario y no debe repetirse en respuestas posteriores. Si desea agendar directamente, solicita de forma ágil su Nombre Completo, tratamiento de interés y día y rango de hora preferido. Responde cualquier consulta sobre costos, dolor o procedimientos con calidez y brevedad. Si confirma fecha y turno, solicita su Nombre Completo y DNI para reservar su cita.
 
 Reglas:
 - Máximo 2-3 oraciones cortas y 1-2 emojis por mensaje.
@@ -165,7 +167,7 @@ function normalizeHistoryEntry(entry) {
   if (/no pude procesar|demora t[eé]cnica|falla t[eé]cnica|payload de error|error de|error al/i.test(normalized)) {
     return null;
   }
-  return { ...entry, text: normalized, parts: [{ text: normalized }] };
+  return { ...entry, role: entry.role === 'assistant' ? 'model' : (entry.role === 'model' ? 'model' : 'user'), text: normalized, parts: [{ text: normalized }] };
 }
 
 function compactHistoryForPrompt(history, maxMessages = MAX_HISTORY_MESSAGES) {
@@ -223,6 +225,7 @@ function extractResultText(result) {
   if (typeof result === 'string') return result;
   if (typeof result?.text === 'string') return result.text;
   const response = result?.response;
+  if (typeof response?.text === 'function') return response.text();
   if (typeof response?.text === 'string') return response.text;
   return response?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join(' ').trim() || '';
 }
@@ -256,8 +259,8 @@ function limaNow() {
 
 export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
   const profile = clinic || config.clinicProfile || {};
-  const address = profile.address || 'Alameda de la República N° 286, esquina con Jr. Abtao — Huánuco';
-  const hours = profile.hours || 'Lunes a sábado de 9:00 a. m. a 8:00 p. m.';
+  const address = profile.address || 'Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú';
+  const hours = profile.schedule || profile.hours || 'Lunes a sábado de 9:00 am a 8:00 pm';
   const snapshot = session?.leadSnapshot;
   const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
@@ -301,7 +304,8 @@ export function formatLimaFechaHoraText(iso) {
 
 function buildRequest(client, message, session, jid, options) {
   const systemPrompt = buildSystemPromptWithContext(jid, session, options.clinic);
-  const history = compactHistoryForPrompt(mergeRecentUserMessages(session.history))
+  const historyEntries = compactHistoryForPrompt(mergeRecentUserMessages(session.history));
+  const history = historyEntries
     .map((entry) => `${entry.role === 'model' ? 'Asistente' : 'Paciente'}: ${entry.text}`)
     .join('\n');
   const messageParts = Array.isArray(options.messageParts) && options.messageParts.length
@@ -332,7 +336,10 @@ Cliente: ${messageParts.filter((part) => part.type === 'text').map((part) => par
     return {
       structured: true,
       request: {
-        contents: [{ role: 'user', parts: [{ text: prompt }, ...parts] }],
+        contents: [
+          ...historyEntries.slice(0, -1).map((entry) => ({ role: entry.role === 'assistant' ? 'model' : entry.role, parts: [{ text: entry.text }] })),
+          { role: 'user', parts: [{ text: prompt }, ...parts] },
+        ],
         systemInstruction: systemPrompt,
         generationConfig: { maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS },
       },
@@ -450,7 +457,11 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
   try {
     const result = await callGemini(options.client, buildRequest(options.client, messageText, session, jid, { ...options, messageParts }), options);
-    const rawText = extractResultText(result);
+    const responseText = extractResultText(result);
+    if (typeof responseText !== 'string' || !responseText.trim()) {
+      throw new Error('Gemini returned an empty response');
+    }
+    const rawText = responseText.trim();
     const leadData = collectLead(session, messageText, sid);
     let texto = sanitizeModelTextOutput(rawText);
     if (!leadData?.ready_to_notify && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
