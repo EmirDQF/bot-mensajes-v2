@@ -11,15 +11,12 @@ import {
   completeMediaSend,
   hasMediaBeenSent,
   markMediaAsSent,
-  sendCampaignWelcome,
 } from '../services/mediaTrackingService.js';
-import { obtenerImagen } from '../config/catalogo.js';
 
 // Helper: upsert a message into chat_sessions.history
 let supabaseClient = null;
 const chatSessionHistoryCache = new Map();
 const processedMessages = new Map();
-const welcomeSentRecipients = new Set();
 const PROCESSED_IDS_TTL_MS = 60 * 1000;
 export const DEFAULT_CLINIC = {
   name: 'LUMINZU Clínica Dental (Sede Huánuco)',
@@ -357,7 +354,7 @@ function buildLocalFallback(messageText) {
   if (/\b(cita|agendar|agenda|reservar)\b/.test(text)) {
     return 'Atendemos de lunes a sábado de 9:00 am a 8:00 pm. Indícame tu nombre, tratamiento y qué día y hora te quedan cómodos. 📅';
   }
-  return 'Gracias por escribir a LUMINZU. ¿Qué tratamiento dental deseas consultar y cómo te llamas? 😊';
+  return 'Puedo ayudarte con información sobre tratamientos, precios, ubicación o agendamiento. ¿Qué deseas consultar?';
 }
 
 async function downloadIncomingImage(mediaId) {
@@ -447,9 +444,10 @@ async function processBatch(from, buffer) {
   }
 
   let botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto));
-  const photoMatch = botReplyText.match(/\[ENVIAR_FOTO:\s*([a-zA-Z0-9_-]+)\]/i);
-  const photoCategory = photoMatch?.[1]?.toLowerCase() || null;
-  if (photoMatch) botReplyText = botReplyText.replace(photoMatch[0], '').trim();
+  const photoRegex = /\[ENVIAR_?FOTO:\s*([a-zA-Z0-9_-]+)\]/gi;
+  const photoMatches = [...botReplyText.matchAll(photoRegex)];
+  const photoCategory = photoMatches[0]?.[1]?.toLowerCase() || null;
+  botReplyText = botReplyText.replace(photoRegex, '').trim();
   const textoParaWhatsApp = stripInstructionTags(botReplyText);
   const imageCategory = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto);
   const baseUrl = (process.env.RENDER_EXTERNAL_URL
@@ -563,38 +561,6 @@ async function addMessageToBuffer(from, part, context) {
   messageBuffers.set(from, current);
 }
 
-const CAMPAIGN_WELCOME_TEXT = `¡Hola! 👋 Bienvenido/a a LUMINZU Clínica Dental (Sede Huánuco) 🦷✨
-
-Te atendemos de lunes a sábado de 9:00 am a 8:00 pm.
-Llegas en el momento ideal para aprovechar nuestros beneficios por campaña (facilidades de pago en cuotas, brackets con cuota inicial S/ 0 y evaluación digital con cámara intraoral).
-Para ayudarte rápido y de forma personalizada, cuéntanos:
-
-👉 ¿Qué tratamiento o molestia dental deseas solucionar primero?
-
-👉 ¿O prefieres que veamos de una vez día y hora para tu cita? 📅`;
-
-async function sendCampaignWelcomeMessage(from) {
-  if (welcomeSentRecipients.has(from)) return false;
-  try {
-    const imageUrl = obtenerImagen('logo');
-    const result = await sendCampaignWelcome({
-      recipient: from,
-      imageKey: 'logo',
-      send: () => whatsappService.sendWhatsAppMessage(from, CAMPAIGN_WELCOME_TEXT, {
-        type: 'image',
-        image: { link: imageUrl },
-        media: { link: imageUrl },
-        caption: CAMPAIGN_WELCOME_TEXT,
-      }),
-    });
-    if (result.sent || result.alreadySent) welcomeSentRecipients.add(from);
-    return result.sent;
-  } catch (error) {
-    console.error('webhookController: campaign welcome failed', error);
-    return false;
-  }
-}
-
 // Buffering combines rapid text/image messages while the per-user queue prevents overlapping Gemini calls.
 export default async function webhookController(req, res, next) {
   res.status(200).send('EVENT_RECEIVED');
@@ -633,13 +599,8 @@ export default async function webhookController(req, res, next) {
           if (pending?.timer) clearTimeout(pending.timer);
           messageBuffers.delete(from);
           await hardResetUserSession(from);
-          void sendCampaignWelcomeMessage(from).catch((error) => {
-            console.error('webhookController: welcome message failed', error);
-          });
           return;
         }
-        const welcomeSent = await sendCampaignWelcomeMessage(from);
-        if (welcomeSent && /^\/?(hola|buenas|buenos días|buenos dias|hello|hi)[!.?\s]*$/i.test(text || '')) return;
         if (message.type === 'image') {
           try {
             const media = await downloadIncomingImage(message.image?.id);
