@@ -24,7 +24,9 @@ describe('regression: model hallucination should not assert bookings', () => {
     const jid = `51990001111@s.whatsapp.net`;
     const res = await obtenerRespuestaIA(jid, '¿Cuánto cuesta el tratamiento?', { client });
     const reply = (res.texto || res.text || '').toLowerCase();
-    // Should NOT assert booking
-    assert.ok(!/qued(o|ó) agend/i.test(reply) && !/tu cita/.test(reply), 'Reply must not claim a confirmed booking');
+    assert.equal(/qued(o|ó) agend/i.test(reply), false, 'Reply must not claim a confirmed booking');
+    assert.match(reply, /nombre completo:/i);
+    assert.match(reply, /tratamiento de interés:/i);
+    assert.match(reply, /día y turno de preferencia/i);
   });
 });

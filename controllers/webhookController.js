@@ -17,6 +17,7 @@ import {
 let supabaseClient = null;
 const chatSessionHistoryCache = new Map();
 const processedMessages = new Map();
+const welcomeSentRecipients = new Set();
 const PROCESSED_IDS_TTL_MS = 60 * 1000;
 export const DEFAULT_CLINIC = {
   name: 'LUMINZU Clínica Dental (Sede Huánuco)',
@@ -50,6 +51,8 @@ async function hardResetUserSession(phone) {
     }
     chatSessionHistoryCache.delete(rawDigits);
     chatSessionHistoryCache.delete(shortPhone);
+    welcomeSentRecipients.delete(rawDigits);
+    welcomeSentRecipients.delete(shortPhone);
 
     if (client) {
       await Promise.allSettled([
@@ -343,20 +346,6 @@ const messageBuffers = new Map();
 const userProcessingQueues = new Map();
 const intakeQueues = new Map();
 const BUFFER_WAIT_MS = 2500;
-function buildLocalFallback(messageText) {
-  const text = String(messageText || '').toLowerCase();
-  if (/\b(d[oó]nde|ubicaci[oó]n|direcci[oó]n)\b/.test(text)) {
-    return 'Estamos en el Centro de Huánuco, a media cuadra de la Plaza de Armas. ¿Deseas agendar tu evaluación o venir a conocer la sede? 📍';
-  }
-  if (/\b(ortodoncia|brackets|frenillos)\b/.test(text)) {
-    return 'Contamos con brackets con cuota inicial S/ 0, facilidades de pago y evaluación digital con cámara intraoral. ¿Qué día te acomoda y prefieres turno mañana o tarde? 🦷';
-  }
-  if (/\b(cita|agendar|agenda|reservar)\b/.test(text)) {
-    return 'Atendemos de lunes a sábado de 9:00 am a 8:00 pm. Indícame tu nombre, tratamiento y qué día y hora te quedan cómodos. 📅';
-  }
-  return 'Puedo ayudarte con información sobre tratamientos, precios, ubicación o agendamiento. ¿Qué deseas consultar?';
-}
-
 async function downloadIncomingImage(mediaId) {
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN;
   const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
@@ -381,12 +370,82 @@ function enqueueUserWork(from, work) {
   return next;
 }
 
-async function sendFallbackWhatsAppMessage(from, messageText) {
+const OFFICIAL_WELCOME_CAPTION = `¡Hola! 👋 Bienvenido/a a LUMINZU Clínica Dental (Sede Huánuco) 🦷✨
+
+Te atendemos de lunes a sábado de 9:00 am a 8:00 pm. Llegas en el momento ideal para aprovechar nuestros beneficios por campaña (facilidades de pago en cuotas, brackets con cuota inicial S/ 0 y evaluación digital con cámara intraoral).
+
+Para ayudarte rápido y de forma personalizada, cuéntanos:
+👉 ¿Qué tratamiento o molestia dental deseas solucionar primero?
+👉 ¿O prefieres que veamos de una vez día y hora para tu cita? 📅`;
+
+async function hasPreviousConversation(senderPhone) {
+  const sessionId = String(senderPhone || '').replace(/\D/g, '');
+  if (!sessionId) return true;
+  if (welcomeSentRecipients.has(sessionId)) return true;
+  const cached = chatSessionHistoryCache.get(sessionId);
+  if (Array.isArray(cached) && cached.length > 0) return true;
+
+  const client = await getSupabaseClient();
+  if (!client) return true;
   try {
-    await whatsappService.sendWhatsAppMessage(from, buildLocalFallback(messageText), {});
+    const { data: session, error: sessionError } = await client
+      .from('chat_sessions')
+      .select('id, history')
+      .eq('id', sessionId)
+      .maybeSingle();
+    if (sessionError) throw sessionError;
+    if (Array.isArray(session?.history) && session.history.length > 0) return true;
+
+    const { data: message, error: messageError } = await client
+      .from('messages')
+      .select('id')
+      .eq('phone', sessionId)
+      .limit(1)
+      .maybeSingle();
+    if (messageError) throw messageError;
+    return Boolean(message);
   } catch (error) {
-    console.error('[WhatsApp] Error al enviar fallback de Gemini:', error);
+    console.error('[Supabase] No se pudo comprobar el primer contacto; se omite bienvenida:', error);
+    return true;
   }
+}
+
+async function sendFirstContactWelcome(senderPhone, context, messageText) {
+  const baseUrl = (process.env.RENDER_EXTERNAL_URL || process.env.APP_URL
+    || 'https://bot-mensajes-v2.onrender.com').replace(/\/+$/, '');
+  const imageUrl = `${baseUrl}/media/logo.jpeg`;
+  const result = await whatsappService.sendImageMessage(senderPhone, imageUrl, OFFICIAL_WELCOME_CAPTION);
+  welcomeSentRecipients.add(String(senderPhone).replace(/\D/g, ''));
+  const timestamp = new Date().toISOString();
+  await persistToSupabaseConversation({
+    conversationId: senderPhone,
+    contactNumber: senderPhone,
+    sender: 'user',
+    text: messageText || '[Imagen]',
+    timestamp,
+    whatsappMessageId: context.messageId || null,
+  });
+  await persistToSupabaseConversation({
+    conversationId: senderPhone,
+    contactNumber: senderPhone,
+    sender: 'bot',
+    text: OFFICIAL_WELCOME_CAPTION,
+    mediaUrl: imageUrl,
+    timestamp,
+    whatsappMessageId: result?.messages?.[0]?.id || null,
+  });
+  await persistToChatSessions(senderPhone, {
+    from: 'patient',
+    text: messageText || '[Imagen]',
+    phone: senderPhone,
+    timestamp,
+  });
+  await persistToChatSessions(senderPhone, {
+    from: 'bot',
+    text: OFFICIAL_WELCOME_CAPTION,
+    phone: senderPhone,
+    timestamp,
+  });
 }
 
 async function processBatch(from, buffer) {
@@ -434,38 +493,50 @@ async function processBatch(from, buffer) {
     });
   } catch (error) {
     console.error('[Gemini] Error al generar respuesta:', error);
-    await sendFallbackWhatsAppMessage(from, messageText);
     return;
   }
   if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) {
     console.error('[Gemini] No se obtuvo una respuesta utilizable');
-    await sendFallbackWhatsAppMessage(from, messageText);
     return;
   }
 
   let botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto));
-  const photoRegex = /\[ENVIAR_?FOTO:\s*([a-zA-Z0-9_-]+)\]/gi;
+  const photoRegex = /\[(?:ENVIAR_?FOTO|FOTO):\s*([a-zA-Z0-9_-]+)\]/gi;
   const photoMatches = [...botReplyText.matchAll(photoRegex)];
   const photoCategory = photoMatches[0]?.[1]?.toLowerCase() || null;
   botReplyText = botReplyText.replace(photoRegex, '').trim();
   const textoParaWhatsApp = stripInstructionTags(botReplyText);
-  const imageCategory = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto);
+  const photoIntent = /\b(fotos?|im[aá]genes?|resultados?|antes\s*y\s*despu[eé]s|mostrar|ense[nñ]ar|ubicaci[oó]n|direcci[oó]n|fachada)\b/i.test(messageText);
+  const requestedCategory = photoIntent && /\b(ortodoncia|brackets?|bravkets|frenillos)\b/i.test(messageText)
+    ? 'ortodoncia'
+    : photoIntent && /\b(blanqueamiento)\b/i.test(messageText)
+      ? 'blanqueamiento'
+      : photoIntent && /\b(carillas?|dise[nñ]o)\b/i.test(messageText)
+        ? 'carillas'
+        : photoIntent && /\b(implantes?)\b/i.test(messageText)
+          ? 'implantes'
+          : photoIntent && /\b(ubicaci[oó]n|direcci[oó]n|fachada)\b/i.test(messageText)
+            ? 'fachada'
+            : photoIntent && /\b(promoci[oó]n|promo)\b/i.test(messageText)
+              ? 'promo'
+              : null;
+  const imageCategory = photoCategory || requestedCategory;
   const baseUrl = (process.env.RENDER_EXTERNAL_URL
     || process.env.APP_URL
     || 'https://bot-mensajes-v2.onrender.com').replace(/\/+$/, '');
-  const photoMap = {
-    ortodoncia: `${baseUrl}/media/ortodoncia_antes_despues.jpeg`,
-    blanqueamiento: `${baseUrl}/media/blanqueamiento_1.jpeg`,
-    carillas: `${baseUrl}/media/carillas.jpeg`,
-    implantes: `${baseUrl}/media/implantes.jpeg`,
-    odontopediatria: `${baseUrl}/media/odontopediatria.jpeg`,
-    fachada: `${baseUrl}/media/fachada.jpeg`,
-    ubicacion: `${baseUrl}/media/ubicacion.jpeg`,
-    promo: `${baseUrl}/media/ortodoncia_promo.jpeg`,
+  const categoryMap = {
+    ortodoncia: '/media/ortodoncia_antes_despues.jpeg',
+    brackets: '/media/ortodoncia_antes_despues.jpeg',
+    blanqueamiento: '/media/blanqueamiento_1.jpeg',
+    carillas: '/media/carillas.jpeg',
+    implantes: '/media/implantes.jpeg',
+    fachada: '/media/fachada.jpeg',
+    ubicacion: '/media/ubicacion.jpeg',
+    promo: '/media/ortodoncia_promo.jpeg',
   };
-  const finalMediaUrl = photoCategory
-    ? (photoMap[photoCategory] || photoMap.ortodoncia)
-    : (geminiResult.imagenURL || geminiService.getImagenCategoria(imageCategory) || null);
+  const finalMediaUrl = imageCategory && categoryMap[imageCategory]
+    ? `${baseUrl}${categoryMap[imageCategory]}`
+    : null;
   let leadResult = null;
   if (geminiResult.leadData && !geminiResult.skipLeadPersistence) {
     try {
@@ -599,6 +670,14 @@ export default async function webhookController(req, res, next) {
           if (pending?.timer) clearTimeout(pending.timer);
           messageBuffers.delete(from);
           await hardResetUserSession(from);
+          return;
+        }
+        if (!(await hasPreviousConversation(from))) {
+          try {
+            await sendFirstContactWelcome(from, context, text);
+          } catch (error) {
+            console.error('[WhatsApp] Error al enviar bienvenida inicial:', error);
+          }
           return;
         }
         if (message.type === 'image') {

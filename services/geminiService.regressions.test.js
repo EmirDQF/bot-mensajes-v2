@@ -19,7 +19,10 @@ describe('geminiService regressions', () => {
     );
 
     assert.equal(result.leadData?.ready_to_notify || false, false);
-    assert.equal(/qued[oó] agendada|tu cita/i.test(result.texto), false);
+    assert.equal(/qued[oó] agendada/i.test(result.texto), false);
+    assert.match(result.texto, /Nombre completo:/i);
+    assert.match(result.texto, /Tratamiento de interés:/i);
+    assert.match(result.texto, /Día y turno de preferencia/i);
   });
 
   it('preserves booked session data during casual follow-ups', async () => {
