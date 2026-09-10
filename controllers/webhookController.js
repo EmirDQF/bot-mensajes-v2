@@ -18,16 +18,16 @@ import { obtenerImagen } from '../config/catalogo.js';
 // Helper: upsert a message into chat_sessions.history
 let supabaseClient = null;
 const chatSessionHistoryCache = new Map();
-const processedMessageIds = new Set();
+const processedMessages = new Map();
 const welcomeSentRecipients = new Set();
-const PROCESSED_IDS_TTL_MS = 5 * 60 * 1000;
+const PROCESSED_IDS_TTL_MS = 60 * 1000;
 export const DEFAULT_CLINIC = {
   name: 'LUMINZU Clínica Dental (Sede Huánuco)',
   city: 'Huánuco',
   address: 'Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú',
   schedule: 'Lunes a sábado de 9:00 am a 8:00 pm',
   phone: '51949737257',
-  promos: 'Brackets con cuota inicial S/ 600, facilidades de pago en cuotas y evaluación digital con cámara intraoral sin costo.',
+  promos: 'Brackets con cuota inicial S/ 0, facilidades de pago en cuotas y evaluación digital con cámara intraoral sin costo.',
   treatments: 'Ortodoncia (brackets metálicos y estéticos), Implantes dentales, Endodoncia, Curaciones con resina, Blanqueamiento, Diseño de sonrisa, Odontopediatría y Extracciones.',
 };
 
@@ -102,11 +102,9 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, se
 
     try {
       const { error } = await supabase.from('messages').insert({
-        conversation_id: cleanPhone,
-        sender,
-        text: text || null,
-        media_url: mediaUrl || null,
-        media_type: mediaUrl ? 'image' : 'text',
+        phone: cleanPhone,
+        role: sender === 'bot' ? 'assistant' : 'user',
+        content: text || (mediaUrl ? '[Imagen]' : null),
         created_at: ts
       });
       if (error) console.error('[Supabase] Error al persistir mensaje:', error);
@@ -338,7 +336,19 @@ const messageBuffers = new Map();
 const userProcessingQueues = new Map();
 const intakeQueues = new Map();
 const BUFFER_WAIT_MS = 2500;
-const GEMINI_FALLBACK_MESSAGE = '¡Hola! Con gusto te brindo información. ¿Te gustaría agendar una consulta de evaluación?';
+function buildLocalFallback(messageText) {
+  const text = String(messageText || '').toLowerCase();
+  if (/\b(d[oó]nde|ubicaci[oó]n|direcci[oó]n)\b/.test(text)) {
+    return 'Estamos en el Centro de Huánuco, a media cuadra de la Plaza de Armas. ¿Deseas agendar tu evaluación o venir a conocer la sede? 📍';
+  }
+  if (/\b(ortodoncia|brackets|frenillos)\b/.test(text)) {
+    return 'Contamos con brackets con cuota inicial S/ 0, facilidades de pago y evaluación digital con cámara intraoral. ¿Qué día te acomoda y prefieres turno mañana o tarde? 🦷';
+  }
+  if (/\b(cita|agendar|agenda|reservar)\b/.test(text)) {
+    return 'Atendemos de lunes a sábado de 9:00 am a 8:00 pm. Indícame tu nombre, tratamiento y qué día y hora te quedan cómodos. 📅';
+  }
+  return 'Gracias por escribir a LUMINZU. ¿Qué tratamiento dental deseas consultar y cómo te llamas? 😊';
+}
 
 async function downloadIncomingImage(mediaId) {
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN;
@@ -364,9 +374,9 @@ function enqueueUserWork(from, work) {
   return next;
 }
 
-async function sendFallbackWhatsAppMessage(from) {
+async function sendFallbackWhatsAppMessage(from, messageText) {
   try {
-    await whatsappService.sendWhatsAppMessage(from, GEMINI_FALLBACK_MESSAGE, {});
+    await whatsappService.sendWhatsAppMessage(from, buildLocalFallback(messageText), {});
   } catch (error) {
     console.error('[WhatsApp] Error al enviar fallback de Gemini:', error);
   }
@@ -416,17 +426,18 @@ async function processBatch(from, buffer) {
     });
   } catch (error) {
     console.error('[Gemini] Error al generar respuesta:', error);
-    await sendFallbackWhatsAppMessage(from);
+    await sendFallbackWhatsAppMessage(from, messageText);
     return;
   }
   if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) {
     console.error('[Gemini] No se obtuvo una respuesta utilizable');
-    await sendFallbackWhatsAppMessage(from);
+    await sendFallbackWhatsAppMessage(from, messageText);
     return;
   }
 
   const textoParaWhatsApp = stripInstructionTags(geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto)));
-  const finalMediaUrl = geminiResult.imagenURL || null;
+  const imageCategory = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto);
+  const finalMediaUrl = geminiResult.imagenURL || geminiService.getImagenCategoria(imageCategory) || null;
   let leadResult = null;
   if (geminiResult.leadData && !geminiResult.skipLeadPersistence) {
     try {
@@ -445,19 +456,42 @@ async function processBatch(from, buffer) {
     let sendResult;
     if (finalMediaUrl) {
       const imageKey = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto) || finalMediaUrl;
-      const alreadySent = await hasMediaBeenSent(from, imageKey);
-      const claim = alreadySent ? { claimed: false } : await claimMediaSend({ recipient: from, imageKey });
+      let alreadySent = false;
+      let claim = { claimed: true, id: null };
+      try {
+        alreadySent = await hasMediaBeenSent(from, imageKey);
+        claim = alreadySent ? { claimed: false, id: null } : await claimMediaSend({ recipient: from, imageKey });
+      } catch (error) {
+        console.error('[Media] Error al consultar deduplicación; se enviará la imagen:', error);
+      }
       if (claim.claimed) {
         try {
-          sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {
-            type: 'image', image: { link: finalMediaUrl }, media: { link: finalMediaUrl }, caption: textoParaWhatsApp,
+          await whatsappService.sendWhatsAppMessage(from, '', {
+            type: 'image', image: { link: finalMediaUrl }, media: { link: finalMediaUrl }, caption: '',
           });
-          await completeMediaSend(claim.id, 'sent');
-          await markMediaAsSent(from, imageKey);
         } catch (error) {
-          await completeMediaSend(claim.id, 'failed', error?.message || error);
+          if (claim.id) {
+            try {
+              await completeMediaSend(claim.id, 'failed', error?.message || error);
+            } catch (trackingError) {
+              console.error('[Media] Error al registrar fallo de envío:', trackingError);
+            }
+          }
           throw error;
         }
+        if (claim.id) {
+          try {
+            await completeMediaSend(claim.id, 'sent');
+          } catch (error) {
+            console.error('[Media] Error al registrar envío exitoso:', error);
+          }
+        }
+        try {
+          await markMediaAsSent(from, imageKey);
+        } catch (error) {
+          console.error('[Media] Error al marcar imagen enviada:', error);
+        }
+        sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
       } else {
         sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
       }
@@ -546,10 +580,15 @@ export default async function webhookController(req, res, next) {
     if (!message) return;
     if (payload) notifyDashboardIncoming(payload);
     const msgId = message.id;
-    if (msgId && processedMessageIds.has(msgId)) return;
+    const processedAt = msgId ? processedMessages.get(msgId) : null;
+    if (msgId && processedAt && Date.now() - processedAt < PROCESSED_IDS_TTL_MS) return;
     if (msgId) {
-      processedMessageIds.add(msgId);
-      setTimeout(() => processedMessageIds.delete(msgId), PROCESSED_IDS_TTL_MS).unref?.();
+      processedMessages.set(msgId, Date.now());
+      setTimeout(() => {
+        if (processedMessages.get(msgId) === processedAt || Date.now() - processedMessages.get(msgId) >= PROCESSED_IDS_TTL_MS) {
+          processedMessages.delete(msgId);
+        }
+      }, PROCESSED_IDS_TTL_MS).unref?.();
     }
     if (message.from === 'status@broadcast' || message.type === 'system') return;
     const from = String(message.from || '').replace(/\D/g, '');
@@ -572,7 +611,8 @@ export default async function webhookController(req, res, next) {
           });
           return;
         }
-        await sendCampaignWelcomeMessage(from);
+        const welcomeSent = await sendCampaignWelcomeMessage(from);
+        if (welcomeSent && /^\/?(hola|buenas|buenos días|buenos dias|hello|hi)[!.?\s]*$/i.test(text || '')) return;
         if (message.type === 'image') {
           try {
             const media = await downloadIncomingImage(message.image?.id);

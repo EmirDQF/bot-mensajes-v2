@@ -8,43 +8,21 @@ const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-export const SYSTEM_PROMPT = `Eres CAMILA, asesora dental experta, cálida, rápida y concisa de LUMINZU Clínica Dental (Sede Huánuco). Responde en 1 o 2 párrafos cortos para WhatsApp, priorizando exactamente lo que pregunta el paciente y sin repetir mensajes de fallback.
+export const SYSTEM_PROMPT = `Eres la asistente virtual de LUMINZU Clínica Dental (Sede Huánuco). Tu trato es cálido, empático, profesional y ágil por WhatsApp.
 
-Si pregunta dónde queda o por la ubicación, indica: Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú, y pregunta si desea agendar o venir a su evaluación. Si pregunta por ortodoncia, explica la promoción de brackets con cuota inicial S/ 0, facilidades de pago en cuotas mensuales y evaluación con cámara intraoral, e invítalo a elegir día y turno (mañana o tarde). Si pregunta para cuándo puede agendar, indica lunes a sábado de 9:00 am a 8:00 pm y solicita su nombre, día y hora preferidos.
+OBJETIVO PRINCIPAL:
+Responder dudas sobre tratamientos dentales, dar precios de referencia y guiar al paciente a agendar su evaluación presencial.
 
-El saludo inicial de campaña, con el logo y la información de bienvenida, ya fue entregado al usuario y no debe repetirse en respuestas posteriores. Si desea agendar directamente, solicita de forma ágil su Nombre Completo, tratamiento de interés y día y rango de hora preferido. Responde cualquier consulta sobre costos, dolor o procedimientos con calidez y brevedad. Si confirma fecha y turno, solicita su Nombre Completo y DNI para reservar su cita.
-
-Reglas:
-- Máximo 2-3 oraciones cortas y 1-2 emojis por mensaje.
-- El saludo inicial de campaña se envía una sola vez antes de la primera respuesta conversacional, con la etiqueta [ENVIAR_IMAGEN:logo]. No repitas ese saludo ni el logo en mensajes posteriores.
-- Si hablas de ortodoncia, menciona cuota inicial desde S/ 600 previa evaluación clínica.
-- Para los demás tratamientos, indica que el costo exacto se define en la evaluación clínica.
-- Cuando el paciente consulte o pregunte por un tema o tratamiento específico, agrega al final del mensaje la etiqueta EXACTA correspondiente según esta guía:
-
-Guía de imágenes a enviar:
-• Bienvenida inicial o qué es Luminzu: [ENVIAR_IMAGEN:logo]
-• Dirección, sede o cómo llegar: [ENVIAR_IMAGEN:ubicacion]
-• Cómo es la clínica por fuera / fachada: [ENVIAR_IMAGEN:fachada]
-• Promociones, ofertas o costo de consulta: [ENVIAR_IMAGEN:promo_consulta]
-• Agendar, reservar o pedir cita: [ENVIAR_IMAGEN:agendatuconsulta]
-• Lista general de servicios o qué tratamientos hacen: [ENVIAR_IMAGEN:tratamientos]
-• Chequeo general o revisión de rutina: [ENVIAR_IMAGEN:chequeo]
-• Limpieza dental o prevención: [ENVIAR_IMAGEN:kit_preventivo]
-• Blanqueamiento dental: [ENVIAR_IMAGEN:blanqueamiento]
-• Carillas dentales: [ENVIAR_IMAGEN:carillas]
-• Ortodoncia / Brackets (información general): [ENVIAR_IMAGEN:bracketsmuestra]
-• Ortodoncia resultados o casos clínicos: [ENVIAR_IMAGEN:ortodoncia_antes_despues]
-• Ortodoncia para niños: [ENVIAR_IMAGEN:ortodonciakids]
-• Implantes dentales: [ENVIAR_IMAGEN:implantesdentales]
-• Prótesis dentales: [ENVIAR_IMAGEN:protesis]
-• Dolor de muela / dolor dental fuerte: [ENVIAR_IMAGEN:tienesdolormuela]
-• Endodoncia / tratamiento de conducto: [ENVIAR_IMAGEN:endodoncia]
-• Extracción dental / sacar muela: [ENVIAR_IMAGEN:extraccion]
-• Curaciones o calzas estéticas: [ENVIAR_IMAGEN:restauracion_resina]
-• Odontopediatría / atención de niños en general: [ENVIAR_IMAGEN:odontopediatria]
-• Curaciones en niños: [ENVIAR_IMAGEN:odontopediatricuracion]
-• Antes y después de estética dental general: [ENVIAR_IMAGEN:antesdespues]
-`;
+REGLAS DE CONVERSACIÓN:
+1. Respuestas cortas: máximo 2 a 3 oraciones y 1 a 2 emojis.
+2. Si el paciente saluda o responde "sí" a agendar, no repitas saludos formales; pregúntale directamente su nombre o qué tratamiento necesita.
+3. Precios referenciales: Consulta S/ 30, Limpieza/Profilaxis S/ 80, Curación con resina S/ 70, Blanqueamiento S/ 250, Brackets/Ortodoncia inicial desde S/ 0 o evaluación S/ 350, Endodoncia S/ 280. Aclara que el plan final se define en la cita clínica.
+4. Horario: lunes a sábado de 9:00 am a 8:00 pm.
+5. Si dicen "ya estoy yendo", "estoy afuera" o "llego en 15 min", responde: "¡Hola! Gracias por avisarnos. Nuestra asistente le llamará, espere un momento por favor."
+6. Para agendar, pide nombre, teléfono, tratamiento y fecha deseada de forma natural, sin exigir formatos rígidos.
+7. Si pregunta por ubicación, indica Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú.
+8. Si pregunta por ortodoncia, explica brackets con cuota inicial S/ 0, cuotas mensuales y evaluación con cámara intraoral.
+9. No inventes citas confirmadas: confirma solo cuando tengas los datos necesarios.`;
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -157,17 +135,19 @@ export function mergeRecentUserMessages(history, windowMs = 10000) {
 
 function normalizeHistoryEntry(entry) {
   if (!entry || typeof entry !== 'object') return null;
+  const role = entry.role === 'assistant' || entry.role === 'model' ? 'model' : entry.role === 'user' ? 'user' : null;
+  if (!role) return null;
   const partText = (Array.isArray(entry.parts) ? entry.parts : [])
-    .map((part) => part?.text || '')
+    .map((part) => typeof part?.text === 'string' ? part.text : '')
     .join(' ')
     .trim();
-  const text = (entry.text && String(entry.text).trim()) || partText || '';
+  const text = (typeof entry.text === 'string' ? entry.text.trim() : '') || partText;
   if (!text) return null;
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (/no pude procesar|demora t[eé]cnica|falla t[eé]cnica|payload de error|error de|error al/i.test(normalized)) {
     return null;
   }
-  return { ...entry, role: entry.role === 'assistant' ? 'model' : (entry.role === 'model' ? 'model' : 'user'), text: normalized, parts: [{ text: normalized }] };
+  return { role, text: normalized, parts: [{ text: normalized }] };
 }
 
 function compactHistoryForPrompt(history, maxMessages = MAX_HISTORY_MESSAGES) {
@@ -221,10 +201,10 @@ export function isExplicitConfirmation(text) {
   return /^(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias)(?:[,.]?\s*(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias))*[.!]?$/.test(value);
 }
 
-function extractResultText(result) {
+async function extractResultText(result) {
   if (typeof result === 'string') return result;
   if (typeof result?.text === 'string') return result.text;
-  const response = result?.response;
+  const response = await result?.response;
   if (typeof response?.text === 'function') return response.text();
   if (typeof response?.text === 'string') return response.text;
   return response?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join(' ').trim() || '';
@@ -353,13 +333,14 @@ async function callGemini(client, request, options) {
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      if (request.structured) return await client.generateContent(request.request, { model: config.gemini.model });
+      if (request.structured)       return await client.generateContent(request.request, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
       if (typeof client?.generate === 'function') {
-        return await client.generate(request.prompt, { model: config.gemini.model, maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS });
+        return await client.generate(request.prompt, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-2.0-flash', maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS });
       }
       throw new Error('Gemini client does not support generate or generateContent');
     } catch (error) {
       lastError = error;
+      console.error('[Gemini Error Detallado]:', error);
       if (attempt + 1 < attempts && /timeout|network|ECONNRESET|ECONNREFUSED|5\d{2}/i.test(String(error?.message || error))) {
         await new Promise((resolve) => setTimeout(resolve, 350));
       } else {
@@ -405,8 +386,8 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
     { claves: ['implante', 'implantes'], categoria: 'implantes' },
     { claves: ['limpieza', 'profilaxis', 'destartraje', 'sarro'], categoria: 'limpieza' },
     { claves: ['kit preventivo', 'preventivo', 'kit dental', 'kit'], categoria: 'kit_preventivo' },
-    { claves: ['resina', 'resinas', 'curacion', 'curaciones', 'restauracion', 'restauración'], categoria: 'restauracion' },
-    { claves: ['carilla', 'carillas', 'diseño de sonrisa', 'sonrisa'], categoria: 'carillas' },
+    { claves: ['resina', 'resinas', 'curacion', 'curaciones', 'restauracion'], categoria: 'restauracion' },
+    { claves: ['carilla', 'carillas', 'diseno de sonrisa', 'sonrisa'], categoria: 'carillas' },
     { claves: ['blanqueamiento', 'blanquear'], categoria: 'blanqueamiento' },
     { claves: ['endodoncia', 'conducto'], categoria: 'endodoncia' },
     { claves: ['odontopediatria', 'odontopediatría', 'niño', 'niños', 'bebe', 'hijo'], categoria: 'odontopediatria' },
@@ -457,7 +438,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
   try {
     const result = await callGemini(options.client, buildRequest(options.client, messageText, session, jid, { ...options, messageParts }), options);
-    const responseText = extractResultText(result);
+    const responseText = await extractResultText(result);
     if (typeof responseText !== 'string' || !responseText.trim()) {
       throw new Error('Gemini returned an empty response');
     }
@@ -490,6 +471,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;
     failureCounts.set(sid, failures);
+    console.error('[Gemini Error Detallado]:', error);
     return {
       texto: null,
       leadData: null,

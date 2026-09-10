@@ -8,7 +8,7 @@ const webhookVerifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
 const configuredGeminiModel = process.env.GEMINI_MODEL;
 const geminiModel = configuredGeminiModel && /^gemini-(?:1\.5|2\.0)-flash(?:-lite)?$/i.test(configuredGeminiModel)
   ? configuredGeminiModel
-  : 'gemini-1.5-flash';
+  : 'gemini-2.0-flash';
 
 export default {
   gemini: {
