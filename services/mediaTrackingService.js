@@ -118,7 +118,8 @@ export async function completeMediaSend(id, status = 'sent', errorMessage = null
   const update = { status, updated_at: new Date().toISOString() };
   if (errorMessage) update.error_message = String(errorMessage).slice(0, 500);
   try {
-    await supabase.from('whatsapp_media_sends').update(update).eq('id', id);
+    const { error } = await supabase.from('whatsapp_media_sends').update(update).eq('id', id);
+    if (error) throw error;
   } catch (error) {
     console.warn('[mediaTracking] completion failed:', error?.message || error);
   }

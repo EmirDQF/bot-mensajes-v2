@@ -10,7 +10,7 @@ Variables de entorno (.env)
 Colocar un archivo .env en la raíz con al menos las siguientes variables (NO subir .env a git):
 
 - GEMINI_API_KEY=tu_clave
-- GEMINI_MODEL=gemini-2.0-flash
+- GEMINI_MODEL=gemini-3.5-flash-lite
 - ADMIN_WHATSAPP_NUMBER=+51XXXXXXXXX
 - CLINIC_NAME=Clínica Dental Sonrisa
 - CLINIC_ADDRESS=Av. Principal 123, Los Olivos

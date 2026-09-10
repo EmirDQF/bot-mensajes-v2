@@ -291,10 +291,14 @@ function buildRequest(client, message, session, jid, options) {
   const messageParts = Array.isArray(options.messageParts) && options.messageParts.length
     ? options.messageParts
     : [{ type: 'text', content: String(message || '') }];
+  const currentMessageText = messageParts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.content)
+    .join('\n');
   const prompt = `${systemPrompt}
 
 ${history}
-Cliente: ${messageParts.filter((part) => part.type === 'text').map((part) => part.content).join('\n')}`;
+Cliente: ${currentMessageText}`;
   if (typeof client?.generateContent === 'function') {
     const parts = [];
     let previousInputType = null;
@@ -318,7 +322,7 @@ Cliente: ${messageParts.filter((part) => part.type === 'text').map((part) => par
       request: {
         contents: [
           ...historyEntries.slice(0, -1).map((entry) => ({ role: entry.role === 'assistant' ? 'model' : entry.role, parts: [{ text: entry.text }] })),
-          { role: 'user', parts: [{ text: prompt }, ...parts] },
+          { role: 'user', parts: [{ text: currentMessageText }, ...parts] },
         ],
         systemInstruction: systemPrompt,
         generationConfig: { maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS },
@@ -333,9 +337,9 @@ async function callGemini(client, request, options) {
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      if (request.structured)       return await client.generateContent(request.request, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
+      if (request.structured)       return await client.generateContent(request.request, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' });
       if (typeof client?.generate === 'function') {
-        return await client.generate(request.prompt, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-2.0-flash', maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS });
+        return await client.generate(request.prompt, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS });
       }
       throw new Error('Gemini client does not support generate or generateContent');
     } catch (error) {
