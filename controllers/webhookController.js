@@ -70,7 +70,15 @@ async function hardResetUserSession(phone) {
   }
 }
 
-async function persistToSupabaseConversation({ conversationId, contactNumber, sender, text, mediaUrl, timestamp }) {
+async function persistToSupabaseConversation({
+  conversationId,
+  contactNumber,
+  sender,
+  text,
+  mediaUrl,
+  timestamp,
+  whatsappMessageId = null,
+}) {
   let supabase;
   try {
     supabase = await getSupabaseClient();
@@ -103,8 +111,10 @@ async function persistToSupabaseConversation({ conversationId, contactNumber, se
     try {
       const { error } = await supabase.from('messages').insert({
         phone: cleanPhone,
+        from_phone: cleanPhone,
         role: sender === 'bot' ? 'assistant' : 'user',
         content: text || (mediaUrl ? '[Imagen]' : null),
+        whatsapp_message_id: whatsappMessageId,
         created_at: ts
       });
       if (error) console.error('[Supabase] Error al persistir mensaje:', error);
@@ -413,6 +423,7 @@ async function processBatch(from, buffer) {
   const persistencePromise = persistToSupabaseConversation({
     conversationId: from, contactNumber: from,
     sender: 'user', text: messageText || null, mediaUrl: null, timestamp: new Date().toISOString(),
+    whatsappMessageId: buffer.context?.messageId || null,
   });
   const clinic = await Promise.race([
     clinicPromise,
@@ -435,9 +446,28 @@ async function processBatch(from, buffer) {
     return;
   }
 
-  const textoParaWhatsApp = stripInstructionTags(geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto)));
+  let botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto));
+  const photoMatch = botReplyText.match(/\[ENVIAR_FOTO:\s*([a-zA-Z0-9_-]+)\]/i);
+  const photoCategory = photoMatch?.[1]?.toLowerCase() || null;
+  if (photoMatch) botReplyText = botReplyText.replace(photoMatch[0], '').trim();
+  const textoParaWhatsApp = stripInstructionTags(botReplyText);
   const imageCategory = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto);
-  const finalMediaUrl = geminiResult.imagenURL || geminiService.getImagenCategoria(imageCategory) || null;
+  const baseUrl = (process.env.RENDER_EXTERNAL_URL
+    || process.env.APP_URL
+    || 'https://bot-mensajes-v2.onrender.com').replace(/\/+$/, '');
+  const photoMap = {
+    ortodoncia: `${baseUrl}/media/ortodoncia_antes_despues.jpeg`,
+    blanqueamiento: `${baseUrl}/media/blanqueamiento_1.jpeg`,
+    carillas: `${baseUrl}/media/carillas.jpeg`,
+    implantes: `${baseUrl}/media/implantes.jpeg`,
+    odontopediatria: `${baseUrl}/media/odontopediatria.jpeg`,
+    fachada: `${baseUrl}/media/fachada.jpeg`,
+    ubicacion: `${baseUrl}/media/ubicacion.jpeg`,
+    promo: `${baseUrl}/media/ortodoncia_promo.jpeg`,
+  };
+  const finalMediaUrl = photoCategory
+    ? (photoMap[photoCategory] || photoMap.ortodoncia)
+    : (geminiResult.imagenURL || geminiService.getImagenCategoria(imageCategory) || null);
   let leadResult = null;
   if (geminiResult.leadData && !geminiResult.skipLeadPersistence) {
     try {
@@ -452,10 +482,10 @@ async function processBatch(from, buffer) {
 
   }
 
+  let sendResult;
   try {
-    let sendResult;
     if (finalMediaUrl) {
-      const imageKey = geminiService.determinarCategoriaImagen(messageText, geminiResult.texto) || finalMediaUrl;
+      const imageKey = photoCategory || imageCategory || finalMediaUrl;
       let alreadySent = false;
       let claim = { claimed: true, id: null };
       try {
@@ -464,11 +494,10 @@ async function processBatch(from, buffer) {
       } catch (error) {
         console.error('[Media] Error al consultar deduplicación; se enviará la imagen:', error);
       }
+      sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
       if (claim.claimed) {
         try {
-          await whatsappService.sendWhatsAppMessage(from, '', {
-            type: 'image', image: { link: finalMediaUrl }, media: { link: finalMediaUrl }, caption: '',
-          });
+          await whatsappService.sendImageMessage(from, finalMediaUrl, 'Clínica Dental LUMINZU');
         } catch (error) {
           if (claim.id) {
             try {
@@ -491,12 +520,9 @@ async function processBatch(from, buffer) {
         } catch (error) {
           console.error('[Media] Error al marcar imagen enviada:', error);
         }
-        sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
-      } else {
-        sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
       }
     } else {
-      sendResult = await whatsappService.sendWhatsAppMessage(from, textoParaWhatsApp, {});
+      sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
     }
     forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: textoParaWhatsApp, mediaUrl: finalMediaUrl } });
     await notifyDashboardReply(from, textoParaWhatsApp, finalMediaUrl, sendResult?.messages?.[0]?.id || null);
@@ -509,6 +535,7 @@ async function processBatch(from, buffer) {
   void persistToSupabaseConversation({
     conversationId: from, contactNumber: from, sender: 'bot',
     text: textoParaWhatsApp, mediaUrl: finalMediaUrl, timestamp: new Date().toISOString(),
+    whatsappMessageId: sendResult?.messages?.[0]?.id || null,
   }).catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
   try {
     await persistToChatSessions(from, { from: 'patient', text: messageText, phone: from, timestamp: new Date().toISOString() });

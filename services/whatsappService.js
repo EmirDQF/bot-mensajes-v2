@@ -129,6 +129,24 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   throw lastError || new Error('Failed to send message');
 }
 
+export function sendTextMessage(toPhone, text, options = {}) {
+  return sendWhatsAppMessage(toPhone, text, options);
+}
+
+export function sendImageMessage(toPhone, imageUrl, caption = '', options = {}) {
+  return sendWhatsAppMessage(toPhone, caption, {
+    ...options,
+    type: 'image',
+    media: { link: imageUrl },
+    caption,
+  });
+}
+
+export function sendMedia(toPhone, type, mediaUrl, caption = '', options = {}) {
+  if (type !== 'image') throw new Error(`Unsupported WhatsApp media type: ${type}`);
+  return sendImageMessage(toPhone, mediaUrl, caption, options);
+}
+
 async function sendStatus(toPhone, status, messageId = null, typing = false) {
   const phoneNumberId = config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
@@ -157,4 +175,11 @@ export function sendTypingIndicator(messageId) {
   return sendStatus(null, 'read', messageId, true);
 }
 
-export default { sendWhatsAppMessage, markMessageAsRead, sendTypingIndicator };
+export default {
+  sendWhatsAppMessage,
+  sendTextMessage,
+  sendImageMessage,
+  sendMedia,
+  markMessageAsRead,
+  sendTypingIndicator,
+};
