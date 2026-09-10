@@ -8,28 +8,40 @@ const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-export const SYSTEM_PROMPT = `Eres Camila, la asesora odontológica y coordinadora de citas de Clínica Dental LUMINZU en Huánuco, Perú. Tu comunicación es empática, cálida, profesional y fluida. Respondes en párrafos cortos (máximo 2 a 3 oraciones).
+export const SYSTEM_PROMPT = `Eres Camila, la asesora dental experta y coordinadora de citas de Clínica Dental LUMINZU, ubicada en Alameda de la República N° 286, Huánuco, Perú. Tu tono es profesional, cálido, resolutivo y cercano.
 
-### REGLAS DE ORO:
-1. CERO SALUDOS REPETITIVOS: como el usuario ya recibió la bienvenida, nunca vuelvas a decir "¡Hola!", "Buenos días", "Bienvenido a LUMINZU" ni "¿Cómo te llamas?". Ve directo a responder lo que necesita.
-2. DESCUBRIMIENTO PROGRESIVO: si tiene dudas o describe dolor, haz preguntas breves una a una para entender qué molestia tiene o qué desea mejorar.
-3. AGENDAMIENTO PROFESIONAL Y FLEXIBLE: cuando quiera agendar cita, solicita:
-   "¡Con mucho gusto coordinamos tu cita! Por favor confírmanos:
-   📌 Nombre completo:
-   📌 Tratamiento de interés:
-   📌 Día y turno de preferencia (Mañana o Tarde):"
-   Puede enviar los datos juntos o separados; recopila lo recibido y pide solo lo que falte. Con todos los datos, confirma que la cita quedó pre-registrada y que recepción confirmará la hora exacta.
-4. ENVÍO OBLIGATORIO DE FOTOS: siempre que pida fotos, resultados, antes y después, ubicación o fachada, responde amablemente y termina con una etiqueta:
-   - Brackets/ortodoncia: [ENVIAR_FOTO: ortodoncia]
-   - Blanqueamiento: [ENVIAR_FOTO: blanqueamiento]
-   - Carillas/diseño: [ENVIAR_FOTO: carillas]
-   - Implantes: [ENVIAR_FOTO: implantes]
-   - Fachada/ubicación: [ENVIAR_FOTO: fachada]
-   - Promociones: [ENVIAR_FOTO: promo]
-5. CIERRE CON ESPECIALISTA: si dice "necesito más información", "deseo más información" o plantea dudas clínicas complejas, responde exactamente:
-   "¡Comprendo perfectamente! Para brindarte una atención médica detallada y resolver todas tus consultas, uno de nuestros especialistas se comunicará contigo por llamada en unos minutos al número registrado. 📲👨‍⚕️"
-6. Precios referenciales: consulta S/ 30, limpieza S/ 80, curación con resina S/ 70, blanqueamiento S/ 250, brackets desde S/ 0 y endodoncia S/ 280; el plan final se define en la cita.
-7. Horario: lunes a sábado de 9:00 am a 8:00 pm. Ubicación: Centro de Huánuco, a media cuadra de la Plaza de Armas.`;
+### REGLA 1: CERO SALUDOS REPETIDOS
+Si ya hay mensajes previos, jamás digas "¡Hola!", "Buenos días", "¿En qué puedo ayudarte?" ni vuelvas a presentarte.
+
+### REGLA 2: ENVÍO PROACTIVO DE FOTOS
+Cuando consulte sobre tratamientos o pida fotos, resultados, ubicación o fachada, responde breve y termina con las etiquetas correspondientes:
+- Ortodoncia o brackets: [ENVIAR_FOTO: ortodoncia]
+- Blanqueamiento: [ENVIAR_FOTO: blanqueamiento]
+- Carillas o diseño: [ENVIAR_FOTO: carillas]
+- Implantes o prótesis: [ENVIAR_FOTO: implantes]
+- Ubicación o fachada: [ENVIAR_FOTO: fachada]
+- Niños: [ENVIAR_FOTO: odontopediatria]
+- Dolor o endodoncia: [ENVIAR_FOTO: endodoncia]
+Puedes incluir varias etiquetas o categorías separadas por comas cuando corresponda.
+
+### REGLA 3: AGENDAMIENTO EN DOS FASES
+FASE A: si faltan nombre completo, tratamiento o fecha/turno, solicita:
+"¡Con mucho gusto coordinamos tu cita! Por favor indícanos:
+📌 Nombre y Apellido:
+📌 Tratamiento que deseas realizarte:
+📌 Día y turno de preferencia (Mañana o Tarde):"
+El paciente puede enviar los datos juntos o separados; recopila lo recibido y pide solo lo que falte.
+
+FASE B: si ya dio nombre, tratamiento y día/hora, está prohibido repetir la plantilla. Confirma inmediatamente:
+"¡Excelente, [Nombre]! Tu cita ha quedado registrada con éxito:
+📅 Tratamiento: [Tratamiento]
+🗓 Día y Hora: [Día y hora]
+📍 Sede: Alameda de la República N° 286, Huánuco
+Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨"
+
+### REGLA 4: CIERRE CON ESPECIALISTA
+Si indica "necesito más información", solicita un doctor o tiene dudas clínicas complejas, responde exactamente:
+"¡Comprendo perfectamente! Para brindarte una asesoría clínica detallada y resolver todas tus dudas, un especialista de nuestro equipo se comunicará contigo por llamada en unos minutos. 📲👨‍⚕️"`;
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -175,6 +187,10 @@ function textFromHistory(history) {
 
 export function extractLeadDataFromText(text, senderPhone = null) {
   if (typeof text !== 'string' || !text.trim()) return null;
+  const structuredParts = text.split(/\s*\/\s*/).map((part) => part.trim()).filter(Boolean);
+  const structuredName = structuredParts.length >= 3 && /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+)+$/.test(structuredParts[0])
+    ? structuredParts[0]
+    : null;
   const nameMatch = text.match(/\b(?:me llamo|mi nombre es|soy)\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
   
   let phone = text.replace(/\D/g, '').match(/(?:51)?(9\d{8})/)?.[1] || null;
@@ -188,10 +204,10 @@ export function extractLeadDataFromText(text, senderPhone = null) {
   const motivoMatch = text.match(/\b(?:tratamiento|motivo)\s*(?:es|:)?\s*([^,.\n]+)/i);
 
   return {
-    nombre: nameMatch?.[1]?.trim() || null,
+    nombre: nameMatch?.[1]?.trim() || structuredName,
     telefono: phone || null,
-    motivo: motivoMatch?.[1]?.trim() || null,
-    fechaHora: dateMatch?.[0]?.trim() || null,
+    motivo: motivoMatch?.[1]?.trim() || structuredParts[1] || null,
+    fechaHora: dateMatch?.[0]?.trim() || structuredParts[2] || null,
   };
 }
 
@@ -376,6 +392,7 @@ function collectLead(session, message, senderPhone = null) {
     if (lead.fechaHoraISO) lead.fechaHora = formatLimaFechaHoraText(lead.fechaHoraISO);
   }
   lead.ready_to_notify = Boolean(isValidName(lead.nombre) && /^9\d{8}$/.test(lead.telefono || '') && lead.motivo && lead.fechaHoraISO);
+  lead.ready_for_confirmation = Boolean(isValidName(lead.nombre) && lead.motivo && (lead.fechaHora || lead.fechaHoraISO));
   return Object.values(lead).some(Boolean) ? lead : null;
 }
 
@@ -456,7 +473,20 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     const rawText = responseText.trim();
     const leadData = collectLead(session, messageText, sid);
     let texto = sanitizeModelTextOutput(rawText);
-    if (!leadData?.ready_to_notify && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
+    if (leadData?.ready_for_confirmation && !session.booked) {
+      texto = `¡Excelente, ${leadData.nombre}! Tu cita ha quedado registrada con éxito:
+📅 Tratamiento: ${leadData.motivo}
+🗓 Día y Hora: ${leadData.fechaHora || 'por confirmar con recepción'}
+📍 Sede: Alameda de la República N° 286, Huánuco
+Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨`;
+      session.booked = true;
+      session.leadSnapshot = {
+        ...leadData,
+        fecha_hora_texto: leadData.fechaHora,
+        fecha_hora_iso: leadData.fechaHoraISO || null,
+        confirmedAt: new Date().toISOString(),
+      };
+    } else if (!leadData?.ready_for_confirmation && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
       texto = '¡Con mucho gusto coordinamos tu cita! Por favor confírmanos:\n📌 Nombre completo:\n📌 Tratamiento de interés:\n📌 Día y turno de preferencia (Mañana o Tarde):';
     }
     session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });

@@ -345,7 +345,7 @@ async function persistAgendaPayload(payload, context = {}) {
 const messageBuffers = new Map();
 const userProcessingQueues = new Map();
 const intakeQueues = new Map();
-const BUFFER_WAIT_MS = 2500;
+const BUFFER_WAIT_MS = 2000;
 async function downloadIncomingImage(mediaId) {
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN;
   const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
@@ -501,9 +501,13 @@ async function processBatch(from, buffer) {
   }
 
   let botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto));
-  const photoRegex = /\[(?:ENVIAR_?FOTO|FOTO):\s*([a-zA-Z0-9_-]+)\]/gi;
+  const photoRegex = /\[(?:ENVIAR_?FOTO|FOTO):\s*([a-zA-Z0-9_,\s\-áéíóúÁÉÍÓÚ]+)\]/gi;
   const photoMatches = [...botReplyText.matchAll(photoRegex)];
-  const photoCategory = photoMatches[0]?.[1]?.toLowerCase() || null;
+  const requestedCategories = photoMatches.flatMap((match) => match[1]
+    .split(',')
+    .map((category) => category.trim().toLowerCase().replace(/\s+/g, '_'))
+    .map((category) => category === 'ortodonciapromo' ? 'ortodoncia_promo' : category)
+    .filter(Boolean));
   botReplyText = botReplyText.replace(photoRegex, '').trim();
   const textoParaWhatsApp = stripInstructionTags(botReplyText);
   const photoIntent = /\b(fotos?|im[aá]genes?|resultados?|antes\s*y\s*despu[eé]s|mostrar|ense[nñ]ar|ubicaci[oó]n|direcci[oó]n|fachada)\b/i.test(messageText);
@@ -520,23 +524,29 @@ async function processBatch(from, buffer) {
             : photoIntent && /\b(promoci[oó]n|promo)\b/i.test(messageText)
               ? 'promo'
               : null;
-  const imageCategory = photoCategory || requestedCategory;
+  if (requestedCategory && !requestedCategories.includes(requestedCategory)) requestedCategories.push(requestedCategory);
   const baseUrl = (process.env.RENDER_EXTERNAL_URL
     || process.env.APP_URL
     || 'https://bot-mensajes-v2.onrender.com').replace(/\/+$/, '');
-  const categoryMap = {
-    ortodoncia: '/media/ortodoncia_antes_despues.jpeg',
-    brackets: '/media/ortodoncia_antes_despues.jpeg',
-    blanqueamiento: '/media/blanqueamiento_1.jpeg',
-    carillas: '/media/carillas.jpeg',
-    implantes: '/media/implantes.jpeg',
-    fachada: '/media/fachada.jpeg',
-    ubicacion: '/media/ubicacion.jpeg',
-    promo: '/media/ortodoncia_promo.jpeg',
+  const mediaCatalog = {
+    ortodoncia: ['/media/ortodoncia_antes_despues.jpeg', '/media/ortodoncia_promo.jpeg'],
+    brackets: ['/media/ortodoncia_antes_despues.jpeg', '/media/ortodoncia_promo.jpeg'],
+    ortodoncia_antes_despues: ['/media/ortodoncia_antes_despues.jpeg'],
+    ortodoncia_promo: ['/media/ortodoncia_promo.jpeg'],
+    blanqueamiento: ['/media/blanqueamiento_1.jpeg', '/media/blanqueamiento_2.jpeg'],
+    carillas: ['/media/carillas.jpeg', '/media/antesdespues.jpeg'],
+    diseno: ['/media/carillas.jpeg', '/media/antesdespues.jpeg'],
+    implantes: ['/media/implantes.jpeg', '/media/implantesdentales.jpeg'],
+    protesis: ['/media/protesis.jpeg', '/media/implantes.jpeg'],
+    fachada: ['/media/fachada.jpeg', '/media/ubicacion.jpeg'],
+    ubicacion: ['/media/ubicacion.jpeg', '/media/fachada.jpeg'],
+    ninos: ['/media/odontopediatria.jpeg', '/media/odontopediatriacuracion.jpeg'],
+    odontopediatria: ['/media/odontopediatria.jpeg', '/media/odontopediatriacuracion.jpeg'],
+    endodoncia: ['/media/endodoncia.jpeg', '/media/tienesdolormuela.jpeg'],
   };
-  const finalMediaUrl = imageCategory && categoryMap[imageCategory]
-    ? `${baseUrl}${categoryMap[imageCategory]}`
-    : null;
+  const urlsToSend = [...new Set(requestedCategories.flatMap((category) => mediaCatalog[category] || []))]
+    .map((path) => `${baseUrl}${path}`);
+  const finalMediaUrl = urlsToSend[0] || null;
   let leadResult = null;
   if (geminiResult.leadData && !geminiResult.skipLeadPersistence) {
     try {
@@ -554,26 +564,26 @@ async function processBatch(from, buffer) {
   let sendResult;
   try {
     if (finalMediaUrl) {
-      const imageKey = photoCategory || imageCategory || finalMediaUrl;
-      let alreadySent = false;
-      let claim = { claimed: true, id: null };
-      try {
-        alreadySent = await hasMediaBeenSent(from, imageKey);
-        claim = alreadySent ? { claimed: false, id: null } : await claimMediaSend({ recipient: from, imageKey });
-      } catch (error) {
-        console.error('[Media] Error al consultar deduplicación; se enviará la imagen:', error);
+      if (textoParaWhatsApp) {
+        sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
       }
-      sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
-      if (claim.claimed) {
+      for (const imageUrl of urlsToSend) {
+        const imageKey = imageUrl;
+        let alreadySent = false;
+        let claim = { claimed: true, id: null };
         try {
-          await whatsappService.sendImageMessage(from, finalMediaUrl, 'Clínica Dental LUMINZU');
+          alreadySent = await hasMediaBeenSent(from, imageKey);
+          claim = alreadySent ? { claimed: false, id: null } : await claimMediaSend({ recipient: from, imageKey });
+        } catch (error) {
+          console.error('[Media] Error al consultar deduplicación; se enviará la imagen:', error);
+        }
+        if (!claim.claimed) continue;
+        try {
+          await whatsappService.sendImageMessage(from, imageUrl, 'Clínica Dental LUMINZU 🦷');
         } catch (error) {
           if (claim.id) {
-            try {
-              await completeMediaSend(claim.id, 'failed', error?.message || error);
-            } catch (trackingError) {
-              console.error('[Media] Error al registrar fallo de envío:', trackingError);
-            }
+            try { await completeMediaSend(claim.id, 'failed', error?.message || error); }
+            catch (trackingError) { console.error('[Media] Error al registrar fallo de envío:', trackingError); }
           }
           throw error;
         }
@@ -589,9 +599,12 @@ async function processBatch(from, buffer) {
         } catch (error) {
           console.error('[Media] Error al marcar imagen enviada:', error);
         }
+        await new Promise((resolve) => setTimeout(resolve, 300));
       }
     } else {
-      sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
+      if (textoParaWhatsApp) {
+        sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
+      }
     }
     forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: textoParaWhatsApp, mediaUrl: finalMediaUrl } });
     await notifyDashboardReply(from, textoParaWhatsApp, finalMediaUrl, sendResult?.messages?.[0]?.id || null);
