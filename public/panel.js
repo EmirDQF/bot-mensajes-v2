@@ -133,7 +133,7 @@ function renderConversationList() {
       <article class="conversation-item ${activeClass}" data-conversation-id="${conversation.id}" tabindex="0">
         <div class="avatar">${conversation.avatar}</div>
         <div class="conversation-item__main">
-          <h3>${escapeHtml(conversation.name)}</h3>
+          <h3>${escapeHtml(conversation.name)}${conversation.waitingHuman ? ' <span class="badge badge--human">Espera humano</span>' : ''}</h3>
           <div class="conversation-item__meta">
             <p class="conversation-item__snippet">${escapeHtml(snippet)}</p>
           </div>
@@ -183,6 +183,7 @@ function selectConversation(conversationId) {
   selectedConversationId = conversationId;
   renderConversationList();
   renderThread();
+  syncInterveneButton();
 }
 
 function addIncomingMessage() {
@@ -311,11 +312,13 @@ async function fetchConversationsFromApi() {
         formattedPhone: c.phone || phoneId,
         avatar: (c.name || c.phone || '').charAt(0).toUpperCase() || 'C',
         status: c.status || null,
+        waitingHuman: Boolean(c.waitingHuman),
         lastSeen: c.timestamp ? (Number(String(c.timestamp).length > 10 ? c.timestamp : c.timestamp * 1000) ) : Date.now(),
         messages: []
       });
     }
     renderConversationList();
+    syncInterveneButton();
     if (!selectedConversationId && conversationData.length) {
       selectedConversationId = conversationData[0].id;
       await fetchMessagesFromApi(selectedConversationId);
@@ -357,14 +360,41 @@ function startPolling() {
   }, 2500);
 }
 
-interveneButtonEl.addEventListener('click', () => {
-  const isIntervened = interveneButtonEl.classList.toggle('is-active');
-  interveneButtonEl.textContent = isIntervened ? 'Bot pausado' : 'Intervenir';
-  interveneButtonEl.style.background = isIntervened ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 'linear-gradient(135deg, #10b981 0%, #0f766e 100%)';
+// "Intervenir" pausa de verdad el bot en la conversación (POST /api/panel/toggle-bot/:phone).
+function syncInterveneButton() {
+  const conversation = conversationData.find((c) => c.id === selectedConversationId);
+  const paused = Boolean(conversation?.waitingHuman);
+  interveneButtonEl.classList.toggle('is-active', paused);
+  interveneButtonEl.textContent = paused ? 'Reactivar bot' : 'Intervenir';
+  interveneButtonEl.style.background = paused ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 'linear-gradient(135deg, #10b981 0%, #0f766e 100%)';
   const statusText = document.querySelector('.bot-status');
-  statusText.innerHTML = isIntervened
-    ? '<span class="bot-status__dot" style="background:#f59e0b; box-shadow: 0 0 10px rgba(245, 158, 11, 0.75);"></span> Intervención manual'
+  statusText.innerHTML = paused
+    ? '<span class="bot-status__dot" style="background:#f59e0b; box-shadow: 0 0 10px rgba(245, 158, 11, 0.75);"></span> Bot en pausa: responde tú'
     : '<span class="bot-status__dot"></span> Bot activo';
+}
+
+interveneButtonEl.addEventListener('click', async () => {
+  const conversation = conversationData.find((c) => c.id === selectedConversationId);
+  const h = authHeader();
+  if (!conversation || !h) return;
+  interveneButtonEl.disabled = true;
+  try {
+    const res = await fetch(`/api/panel/toggle-bot/${encodeURIComponent(conversation.id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: h },
+      body: JSON.stringify({ paused: !conversation.waitingHuman }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { botEnabled } = await res.json();
+    conversation.waitingHuman = !botEnabled;
+    renderConversationList();
+    syncInterveneButton();
+  } catch (error) {
+    console.error('No se pudo cambiar el estado del bot', error);
+    alert('No se pudo cambiar el estado del bot. Intenta de nuevo.');
+  } finally {
+    interveneButtonEl.disabled = false;
+  }
 });
 
 lightboxEl.addEventListener('click', (event) => {
@@ -414,3 +444,124 @@ if (sendBtnEl && messageInputEl) {
 selectConversation(selectedConversationId);
 renderConversationList();
 startPolling();
+
+// ---------- Vistas: Conversaciones / Agenda / Métricas ----------
+
+const STATUS_LABELS = {
+  pendiente: 'Pendiente',
+  confirmada: 'Confirmada',
+  reprogramada: 'Reprogramada',
+  cancelada: 'Cancelada',
+  asistio: 'Asistió',
+  no_asistio: 'No asistió',
+};
+const STATUS_ACTIONS = [
+  { status: 'confirmada', label: 'Confirmar' },
+  { status: 'asistio', label: 'Asistió' },
+  { status: 'no_asistio', label: 'No asistió' },
+  { status: 'cancelada', label: 'Cancelar' },
+];
+let agendaDay = 'today';
+let metricsDays = 30;
+
+async function panelFetch(url, options = {}) {
+  const h = authHeader();
+  if (!h) { openLoginModal(); throw new Error('Sin sesión'); }
+  const res = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', Authorization: h, ...(options.headers || {}) } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+
+function showView(view) {
+  document.querySelectorAll('.view-tab').forEach((tab) => {
+    const active = tab.dataset.view === view;
+    tab.classList.toggle('is-active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
+  document.getElementById('chatView').hidden = view !== 'chat';
+  document.getElementById('agendaView').hidden = view !== 'agenda';
+  document.getElementById('metricsView').hidden = view !== 'metrics';
+  if (view === 'agenda') loadAgenda();
+  if (view === 'metrics') loadMetrics();
+}
+
+async function loadAgenda() {
+  const listEl = document.getElementById('agendaList');
+  const labelEl = document.getElementById('agendaLabel');
+  listEl.innerHTML = '<p class="muted">Cargando agenda…</p>';
+  try {
+    const agenda = await panelFetch(`/api/panel/agenda?day=${agendaDay}`);
+    labelEl.textContent = agenda.label;
+    if (!agenda.appointments.length) {
+      listEl.innerHTML = '<p class="muted">No hay citas para este día.</p>';
+      return;
+    }
+    listEl.innerHTML = agenda.appointments.map((a) => `
+      <article class="agenda-card status--${escapeHtml(a.status)}">
+        <div class="agenda-card__time">${escapeHtml(a.timeLabel)}</div>
+        <div class="agenda-card__main">
+          <h3>${escapeHtml(a.patientName)} <span class="badge badge--${escapeHtml(a.status)}">${escapeHtml(STATUS_LABELS[a.status] || a.status)}</span></h3>
+          <p>${escapeHtml(a.treatment)} · <a href="https://wa.me/${escapeHtml(a.phone)}" target="_blank" rel="noopener">+${escapeHtml(a.phone)}</a></p>
+          <p class="muted">${a.ad ? `📣 ${escapeHtml(a.ad)}` : ''}${a.reminderSent ? ' · 🔔 recordatorio enviado' : ''}</p>
+        </div>
+        <div class="agenda-card__actions">
+          ${STATUS_ACTIONS.map((action) => `<button type="button" class="status-btn status-btn--${action.status}" data-id="${escapeHtml(a.id)}" data-status="${action.status}" ${a.status === action.status ? 'disabled' : ''}>${action.label}</button>`).join('')}
+        </div>
+      </article>`).join('');
+  } catch (error) {
+    listEl.innerHTML = `<p class="muted">⚠️ ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function loadMetrics() {
+  const tilesEl = document.getElementById('metricsTiles');
+  const byAdEl = document.getElementById('metricsByAd');
+  tilesEl.innerHTML = '<p class="muted">Calculando…</p>';
+  byAdEl.innerHTML = '';
+  try {
+    const m = await panelFetch(`/api/panel/metrics?days=${metricsDays}`);
+    const tiles = [
+      ['Leads', m.leads, 'personas que escribieron'],
+      ['Citas creadas', m.appointments, 'por el asistente'],
+      ['Tasa de agendamiento', `${m.bookingRate}%`, 'leads que agendaron'],
+      ['No-shows', m.noShows, `${m.noShowRate}% de las citas cerradas`],
+    ];
+    tilesEl.innerHTML = tiles.map(([label, value, hint]) => `
+      <div class="metric-tile"><span class="metric-tile__label">${label}</span><strong class="metric-tile__value">${escapeHtml(String(value))}</strong><span class="metric-tile__hint">${hint}</span></div>`).join('');
+    const max = Math.max(1, ...m.byAd.map((row) => row.count));
+    byAdEl.innerHTML = m.byAd.length
+      ? m.byAd.map((row) => `
+        <div class="ad-row"><span class="ad-row__name">${escapeHtml(row.ad)}</span>
+          <span class="ad-row__bar"><span style="width:${Math.round((row.count / max) * 100)}%"></span></span>
+          <strong>${row.count}</strong></div>`).join('')
+      : '<p class="muted">Aún no hay citas en este periodo.</p>';
+  } catch (error) {
+    tilesEl.innerHTML = `<p class="muted">⚠️ ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+document.querySelectorAll('.view-tab').forEach((tab) => tab.addEventListener('click', () => showView(tab.dataset.view)));
+document.querySelectorAll('.day-btn').forEach((btn) => btn.addEventListener('click', () => {
+  agendaDay = btn.dataset.day;
+  document.querySelectorAll('.day-btn').forEach((b) => b.classList.toggle('is-active', b === btn));
+  loadAgenda();
+}));
+document.getElementById('metricsDays').addEventListener('change', (event) => {
+  metricsDays = Number(event.target.value) || 30;
+  loadMetrics();
+});
+document.getElementById('agendaList').addEventListener('click', async (event) => {
+  const btn = event.target.closest('.status-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await panelFetch(`/api/panel/appointments/${encodeURIComponent(btn.dataset.id)}/status`, {
+      method: 'POST', body: JSON.stringify({ status: btn.dataset.status }),
+    });
+    await loadAgenda();
+  } catch (error) {
+    btn.disabled = false;
+    alert(`No se pudo actualizar la cita: ${error.message}`);
+  }
+});

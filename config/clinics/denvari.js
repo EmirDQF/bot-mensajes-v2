@@ -10,6 +10,8 @@ export default {
   city: 'Lima',
   address: 'Calle Las Orquídeas 450, San Isidro, Lima (dirección de demostración)',
   mapsUrl: 'https://maps.google.com/?q=Calle+Las+Orqu%C3%ADdeas+450+San+Isidro+Lima',
+  // Opcional: enlace de reseñas de Google. Si existe, al marcar "asistió" en el panel se pide una reseña.
+  reviewUrl: null,
   timezone: 'America/Lima',
 
   // Rangos [inicio, fin] en formato HH:MM por día. Día sin rangos = cerrado.

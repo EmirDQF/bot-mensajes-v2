@@ -6,6 +6,7 @@ import { sendPanelMessage } from './panelMessaging.js';
 import { mediaPath } from '../config/clinic.config.js';
 import { extractPhotoTags } from '../services/mediaTags.js';
 import handoffService from '../services/handoffService.js';
+import panelData from '../services/panelDataService.js';
 
 // Flexible timestamp formatter: accepts seconds, milliseconds, or ISO strings
 function formatTime(value) {
@@ -104,7 +105,7 @@ export async function getConversations(req, res) {
 
           out.push({ phone, name, lastMessage: lastMessageText, timestamp: lastTs, timeLabel: lastTs ? formatTime(lastTs) : null, status: null });
         }
-        return res.json(out);
+        return res.json(await prioritizeWaitingHuman(client, out));
       }
 
       // Try a dedicated inbox_entries table
@@ -118,7 +119,7 @@ export async function getConversations(req, res) {
           timeLabel: c.timeLabel,
           status: c.status,
         }));
-        return res.json(out);
+        return res.json(await prioritizeWaitingHuman(client, out));
       }
 
       // Fallback: try a generic messages table and aggregate by phone
@@ -133,7 +134,7 @@ export async function getConversations(req, res) {
           }
         }
         const out = Array.from(byPhone.values()).map(mapRowToConversation);
-        return res.json(out);
+        return res.json(await prioritizeWaitingHuman(client, out));
       }
     } catch (e) {
       console.warn('panelController.getConversations: supabase query failed:', e && e.message ? e.message : e);
@@ -297,4 +298,61 @@ export async function toggleBot(req, res) {
 // POST /api/panel/send-message
 export async function sendMessage(req, res) {
   return sendPanelMessage(req, res);
+}
+
+// Marca las conversaciones con el bot en pausa (conversations.status = 'human') y las pone primero.
+export async function prioritizeWaitingHuman(client, list) {
+  let waiting = new Set();
+  try {
+    const { data, error } = await client.from('conversations').select('conversation_id').eq('status', 'human');
+    if (error) throw error;
+    waiting = new Set((data || []).map((row) => String(row.conversation_id || '').replace(/\D/g, '')));
+  } catch (e) {
+    console.warn('panelController: no se pudo leer el estado de pase a humano:', e && e.message ? e.message : e);
+  }
+  return list
+    .map((c) => ({ ...c, waitingHuman: waiting.has(String(c.phone || '').replace(/\D/g, '')) }))
+    .sort((a, b) => Number(b.waitingHuman) - Number(a.waitingHuman));
+}
+
+const sendPanelError = (res, e, fallback) => {
+  console.error(`[Panel] ${fallback}:`, e && e.message ? e.message : e);
+  if (e?.status === 400) return res.status(400).json({ error: e.message });
+  const message = String(e?.message || '');
+  const missingTable = message.match(/table '?public\.(\w+)'?|relation "?(?:public\.)?(\w+)"? does not exist/i);
+  if (missingTable) {
+    const table = missingTable[1] || missingTable[2];
+    const migration = table === 'follow_ups' ? '20260926_create_follow_ups.sql' : '20260925_create_appointments.sql';
+    return res.status(503).json({ error: `${fallback}: falta la tabla "${table}". Ejecuta migrations/${migration} en Supabase.` });
+  }
+  if (/Supabase no configurado/i.test(message)) return res.status(503).json({ error: `${fallback}: ${message}` });
+  return res.status(500).json({ error: fallback });
+};
+
+// GET /api/panel/agenda?day=today|tomorrow|YYYY-MM-DD
+export async function getAgenda(req, res) {
+  try {
+    return res.json(await panelData.getAgenda(String(req.query.day || 'today')));
+  } catch (e) {
+    return sendPanelError(res, e, 'No se pudo cargar la agenda');
+  }
+}
+
+// POST /api/panel/appointments/:id/status  { status: 'confirmada'|'asistio'|'no_asistio'|'cancelada' }
+export async function setAppointmentStatus(req, res) {
+  try {
+    const updated = await panelData.setAppointmentStatus(String(req.params.id), String(req.body?.status || ''));
+    return res.json({ id: updated?.id || req.params.id, status: updated?.status || req.body?.status });
+  } catch (e) {
+    return sendPanelError(res, e, 'No se pudo actualizar la cita');
+  }
+}
+
+// GET /api/panel/metrics?days=30
+export async function getMetrics(req, res) {
+  try {
+    return res.json(await panelData.getMetrics(req.query.days));
+  } catch (e) {
+    return sendPanelError(res, e, 'No se pudieron calcular las métricas');
+  }
 }
