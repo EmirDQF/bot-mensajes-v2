@@ -168,6 +168,8 @@ describe('appointmentService.updateStatus / reschedule / findUpcomingByPhone', (
     const moved = await service.reschedule(a.id, { appointmentDate: '2026-10-01', appointmentTime: '15:00' });
     assert.equal(moved.status, 'reprogramada');
     assert.equal(moved.appointment_time, '15:00');
+    assert.equal(moved.reminder_24h_sent_at, null); // la nueva fecha vuelve a recibir recordatorios
+    assert.equal(moved.reminder_2h_sent_at, null);
     await assert.rejects(service.reschedule(a.id, { appointmentDate: '2026-10-01', appointmentTime: '11:00' }), SlotTakenError);
   });
 });

@@ -4,6 +4,7 @@ import activeClinic, { getOwnerPhone, getReceptionPhone } from '../config/clinic
 import TEMPLATES from '../config/whatsappTemplates.js';
 import appointmentService, { addDays, formatDateEs, formatTimeEs, localParts } from './appointmentService.js';
 import jobsService from './jobsService.js';
+import { fetchAllRows } from './supabasePaging.js';
 
 // Datos del panel de recepción: agenda del día, cambio de estado y métricas.
 
@@ -86,10 +87,11 @@ export function createPanelData({
     const client = await db();
     const internal = new Set([getReceptionPhone(), getOwnerPhone()].filter(Boolean));
 
-    const inbound = await query(client.from('messages').select('phone').eq('role', 'user').gte('created_at', since));
+    const inbound = await fetchAllRows(() => client.from('messages').select('phone')
+      .eq('role', 'user').gte('created_at', since).order('created_at', { ascending: true }));
     const leads = new Set(inbound.map((m) => digits(m.phone)).filter((p) => p && !internal.has(p)));
-    const appts = await query(client.from('appointments').select('sender_phone, status, ad_referral')
-      .eq('clinic_id', clinic.id).gte('created_at', since));
+    const appts = await fetchAllRows(() => client.from('appointments').select('sender_phone, status, ad_referral')
+      .eq('clinic_id', clinic.id).gte('created_at', since).order('created_at', { ascending: true }));
 
     const bookedPhones = new Set(appts.map((a) => digits(a.sender_phone)));
     const attended = appts.filter((a) => a.status === 'asistio').length;

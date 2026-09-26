@@ -12,6 +12,8 @@ const { handleAppointmentCommands, sanitizeReferral } = await import('../control
 const gemini = await import('./geminiService.js');
 const { default: clinic } = await import('../config/clinic.config.js');
 const { fakeDb } = await import('./testing/fakeSupabase.js');
+const { fetchAllRows } = await import('./supabasePaging.js');
+const { DATA_DELETION } = await import('../controllers/webhookController.js');
 
 const fakeWhatsapp = () => ({
   sent: [],
@@ -215,5 +217,21 @@ describe('WhatsApp templates, referral and reminder replies', () => {
     assert.ok(offer.includes('Elige el nuevo horario'));
     const noReminder = fakeAppointments(upcoming());
     assert.equal(await handleAppointmentCommands('51977777775', '1', { appointments: noReminder, gemini }), null);
+  });
+});
+
+describe('fixes de la revisión de código', () => {
+  it('pages through Supabase results beyond one page', async () => {
+    const db = fakeDb({ messages: Array.from({ length: 5 }, (_, i) => ({ phone: String(i), role: 'user', created_at: String(i) })) });
+    const rows = await fetchAllRows(() => db.from('messages').select('phone').eq('role', 'user').order('created_at'), 2);
+    assert.deepEqual(rows.map((r) => r.phone), ['0', '1', '2', '3', '4']);
+  });
+
+  it('recognises the data deletion request promised in the privacy notice', () => {
+    assert.ok(clinic.privacyNotice.includes('borrar mis datos'));
+    for (const text of ['borrar mis datos', 'Borrar mis datos por favor', 'eliminar mis datos personales', 'borra todos mis datos']) {
+      assert.equal(DATA_DELETION.test(text), true, text);
+    }
+    assert.equal(DATA_DELETION.test('¿me pueden borrar la cita?'), false);
   });
 });

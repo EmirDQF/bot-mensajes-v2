@@ -7,6 +7,7 @@ import appointmentService, {
   ACTIVE_STATUSES, addDays, formatDateEs, formatTimeEs, localParts, toInstant, toMinutes,
 } from './appointmentService.js';
 import handoffService from './handoffService.js';
+import { fetchAllRows } from './supabasePaging.js';
 
 // Tareas programadas. Las dispara un cron externo (Render Cron Job) vía POST /jobs/* con CRON_SECRET;
 // no se usa setInterval porque Render duerme el servicio.
@@ -134,8 +135,8 @@ export function createJobs({
     const client = await db();
     const internal = internalPhones();
 
-    const inbound = (await query(client.from('messages').select('phone, created_at')
-      .eq('role', 'user').gte('created_at', from).lt('created_at', to)))
+    const inbound = (await fetchAllRows(() => client.from('messages').select('phone, created_at')
+      .eq('role', 'user').gte('created_at', from).lt('created_at', to).order('created_at', { ascending: true })))
       .filter((m) => m.phone && !internal.has(digits(m.phone)));
     const contacted = new Set(inbound.map((m) => digits(m.phone)));
     const afterHours = new Set(inbound.filter((m) => !isWithinWorkingHours(clinic, new Date(m.created_at))).map((m) => digits(m.phone)));
@@ -199,7 +200,8 @@ export function createJobs({
     const client = await db();
     const internal = internalPhones();
     const since = new Date(current - 24 * HOUR_MS).toISOString();
-    const inbound = await query(client.from('messages').select('phone, created_at').eq('role', 'user').gte('created_at', since));
+    const inbound = await fetchAllRows(() => client.from('messages').select('phone, created_at')
+      .eq('role', 'user').gte('created_at', since).order('created_at', { ascending: true }));
 
     const lastByPhone = new Map();
     for (const m of inbound) {

@@ -365,6 +365,9 @@ export function formatSlotList(slots) {
 const BOOKING_INTENT = /\b(citas?|agendar|agendo|agenda|reservar|reserva|separar|turnos?|horarios?|disponibilidad|atenderme|evaluaci[oó]n)\b/i;
 const CANCEL_INTENT = /^\s*cancelar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\bcancel\w*\b[^.?!]*\bcita\b|\bcita\b[^.?!]*\bcancel\w*\b|\bya no (?:voy a )?(?:ir|asistir|podr[eé] ir)\b/i;
 const RESCHEDULE_INTENT = /^\s*reprogramar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\b(?:cambiar|reprogramar|mover|postergar|cambio de)\b[^.?!]*\b(?:cita|hora|horario|d[ií]a)\b/i;
+export const DATA_DELETION = /^\s*(?:por\s+favor\s+)?(?:borra|borrar|elimina|eliminar)\s+(?:todos\s+)?(?:mis|los)\s+datos(?:\s+personales)?\s*(?:por\s+favor)?\s*[.!]*\s*$/i;
+const DATA_DELETION_REPLY = 'Listo ✅ Eliminamos tu conversación y tus datos de contacto de nuestro asistente. '
+  + 'Si tienes una cita registrada, la clínica la conserva solo para atenderte; puedes cancelarla escribiendo "cancelar mi cita".';
 const REMINDER_CONFIRM = /^\s*(?:1|1️⃣|confirmo|confirmar|confirmado|s[ií],?\s*confirmo)\s*[.!]*\s*$/i;
 const REMINDER_RESCHEDULE = /^\s*(?:2|2️⃣|reprogramar)\s*[.!]*\s*$/i;
 const RESCHEDULE_TTL_MS = 30 * 60 * 1000;
@@ -803,11 +806,20 @@ export default async function webhookController(req, res, next) {
     };
     const intake = intakeQueues.get(from) || Promise.resolve();
     const next = intake.then(async () => {
-        if (message.type === 'text' && /^\/?(reset|reiniciar|borrar|clear)$/i.test(text || '')) {
+        const wantsDataDeletion = DATA_DELETION.test(text || '');
+        if (message.type === 'text' && (/^\/?(reset|reiniciar|borrar|clear)$/i.test(text || '') || wantsDataDeletion)) {
           const pending = messageBuffers.get(from);
           if (pending?.timer) clearTimeout(pending.timer);
           messageBuffers.delete(from);
           await hardResetUserSession(from);
+          // Derecho de supresión (Ley 29733) anunciado en el aviso de privacidad de la bienvenida.
+          if (wantsDataDeletion) {
+            try {
+              await whatsappService.sendTextMessage(from, DATA_DELETION_REPLY);
+            } catch (error) {
+              console.error('[WhatsApp] No se pudo confirmar la eliminación de datos:', error);
+            }
+          }
           return;
         }
         if (!(await hasPreviousConversation(from))) {

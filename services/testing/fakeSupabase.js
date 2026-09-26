@@ -28,6 +28,7 @@ export function fakeDb(tables = {}, { uniqueOn = {} } = {}) {
         if (state.op === 'update') { const match = rows(); match.forEach((r) => Object.assign(r, state.payload)); return { data: match, error: null }; }
         let list = rows();
         if (state.sort) { const [c, asc] = state.sort; list = [...list].sort((x, y) => (x[c] > y[c] ? 1 : -1) * (asc ? 1 : -1)); }
+        if (state.range) list = list.slice(state.range[0], state.range[1] + 1);
         return { data: list, error: null };
       };
       const b = {
@@ -42,6 +43,7 @@ export function fakeDb(tables = {}, { uniqueOn = {} } = {}) {
         lt(c, v) { state.filters.push((r) => r[c] < v); return b; },
         order(c, { ascending = true } = {}) { state.sort = [c, ascending]; return b; },
         limit() { return b; },
+        range(start, end) { state.range = [start, end]; return b; },
         async maybeSingle() {
           const out = run();
           let list = out.data || [];

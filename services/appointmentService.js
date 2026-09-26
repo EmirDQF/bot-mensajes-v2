@@ -205,7 +205,10 @@ export function createAppointmentService({
     const existing = await listActiveOn(appointmentDate, { excludeId: id });
     if (hasConflict(existing, time, durationMin || clinic.slotMinutes)) throw new SlotTakenError();
     try {
-      return await updateStatus(id, 'reprogramada', { appointment_date: appointmentDate, appointment_time: time });
+      // Nueva fecha → los recordatorios de la fecha anterior ya no cuentan.
+      return await updateStatus(id, 'reprogramada', {
+        appointment_date: appointmentDate, appointment_time: time, reminder_24h_sent_at: null, reminder_2h_sent_at: null,
+      });
     } catch (error) {
       if (error?.code === '23505') throw new SlotTakenError();
       throw error;
