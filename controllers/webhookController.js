@@ -6,7 +6,8 @@ import whatsappService, { markMessageAsRead, sendTypingIndicator } from '../serv
 import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
-import activeClinic, { mediaUrl } from '../config/clinic.config.js';
+import activeClinic, { findTreatment, mediaUrl } from '../config/clinic.config.js';
+import appointmentService, { SlotTakenError, slotLabel } from '../services/appointmentService.js';
 import { extractPhotoTags, inferPhotoKeyFromMessage } from '../services/mediaTags.js';
 import {
   claimMediaSend,
@@ -296,53 +297,99 @@ function stripInstructionTags(text) {
     .trim();
 }
 
+// Guarda la solicitud de cita de la Fase B en `appointments` y avisa a recepción. Nunca lanza:
+// el paciente siempre recibe su respuesta y los fallos quedan en el log con [Appointments].
+// Devuelve { status: 'saved', appointment } | { status: 'slot_taken', alternatives } | { status: 'error' }.
 async function persistAgendaPayload(payload, context = {}) {
-  if (!payload || typeof payload !== 'object') return null;
-
-  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
-  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-  if (!rawUrl || !key) return null;
-
-  const record = {
-    nombre: payload.nombre || null,
-    telefono: payload.telefono || context.phone || null,
-    motivo: payload.motivo || null,
-    fecha: payload.fecha || null,
-    hora: payload.hora || null,
-    clinic_id: context.clinicId || null,
-    created_at: new Date().toISOString(),
-    source: context.source || 'whatsapp',
-  };
-
+  if (!payload || typeof payload !== 'object') return { status: 'error' };
   try {
-    const client = createClient(rawUrl, key);
-    const attempts = [
-      () => client.from('appointments').insert([record]).select(),
-      () => client.from('calendar_events').insert([record]).select(),
-      () => client.from('leads').insert([{ telefono: record.telefono, nombre: record.nombre, distrito: null, fecha_hora_texto: record.fecha ? `${record.fecha} ${record.hora || ''}`.trim() : null, fecha_hora_iso: null, created_at: record.created_at, clinic_id: record.clinic_id }]).select(),
-    ];
-
-    for (const attempt of attempts) {
+    const appointment = await appointmentService.saveAppointment({
+      senderPhone: context.phone,
+      patientName: payload.nombre || null,
+      treatment: payload.tratamiento || payload.motivo || null,
+      appointmentDate: payload.fecha,
+      appointmentTime: payload.hora,
+      source: context.source || 'whatsapp',
+      adReferral: context.adReferral || null,
+    });
+    await appointmentService.notifyReception(appointment);
+    return { status: 'saved', appointment };
+  } catch (error) {
+    if (error instanceof SlotTakenError) {
+      let alternatives = [];
       try {
-        const { error } = await attempt();
-        if (!error) return record;
-        const msg = String(error.message || '').toLowerCase();
-        if (!msg.includes('does not exist') && !msg.includes('relation') && !msg.includes('not found')) {
-          throw error;
-        }
-      } catch (e) {
-        const msg = String(e && e.message ? e.message : e).toLowerCase();
-        if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('not found')) {
-          continue;
-        }
-        throw e;
+        alternatives = await appointmentService.findNextSlots(payload.tratamiento || null, { fromDate: payload.fecha });
+      } catch (slotError) {
+        console.error('[Appointments] No se pudieron calcular horarios alternativos:', slotError?.message || slotError);
+      }
+      return { status: 'slot_taken', alternatives };
+    }
+    console.error('[Appointments] No se pudo guardar la cita:', error?.message || error);
+    return { status: 'error' };
+  }
+}
+
+const NUMBER_EMOJI = ['1️⃣', '2️⃣', '3️⃣'];
+export function formatSlotList(slots) {
+  if (!slots?.length) return '';
+  const lines = slots.map((slot, i) => `${NUMBER_EMOJI[i] || `${i + 1})`} ${slot.label}`);
+  return `\n\n📅 Horarios disponibles:\n${lines.join('\n')}\n\nResponde 1, 2 o 3 👆`;
+}
+
+const BOOKING_INTENT = /\b(citas?|agendar|agendo|agenda|reservar|reserva|separar|turnos?|horarios?|disponibilidad|atenderme|evaluaci[oó]n)\b/i;
+const CANCEL_INTENT = /^\s*cancelar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\bcancel\w*\b[^.?!]*\bcita\b|\bcita\b[^.?!]*\bcancel\w*\b|\bya no (?:voy a )?(?:ir|asistir|podr[eé] ir)\b/i;
+const RESCHEDULE_INTENT = /^\s*reprogramar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\b(?:cambiar|reprogramar|mover|postergar|cambio de)\b[^.?!]*\b(?:cita|hora|horario|d[ií]a)\b/i;
+const RESCHEDULE_TTL_MS = 30 * 60 * 1000;
+const pendingReschedules = new Map();
+
+// "cancelar" / "cambiar mi cita": encuentra la próxima cita, ofrece horarios y actualiza el estado.
+// Devuelve el texto a responder, o null para que la conversación siga con Gemini.
+export async function handleAppointmentCommands(from, messageText, { appointments = appointmentService, gemini = geminiService } = {}) {
+  const pending = pendingReschedules.get(from);
+  if (pending && Date.now() - pending.at > RESCHEDULE_TTL_MS) pendingReschedules.delete(from);
+  try {
+    const active = pendingReschedules.get(from);
+    const chosen = active && gemini.pickOfferedSlot(messageText, active.slots);
+    if (chosen) {
+      pendingReschedules.delete(from);
+      try {
+        const updated = await appointments.reschedule(active.appointment.id, {
+          appointmentDate: chosen.date, appointmentTime: chosen.time, durationMin: active.appointment.duration_min,
+        });
+        await appointments.notifyReception(updated, { event: 'reprogramada' });
+        return `¡Listo! Tu solicitud de cambio quedó registrada para el ${chosen.label} en ${activeClinic.address}. Recepción te la confirmará.`;
+      } catch (error) {
+        if (!(error instanceof SlotTakenError)) throw error;
+        const slots = await appointments.findNextSlots(active.appointment.treatment);
+        pendingReschedules.set(from, { appointment: active.appointment, slots, at: Date.now() });
+        return `¡Uy! Ese horario se acaba de ocupar 😅.${formatSlotList(slots)}`;
       }
     }
-  } catch (e) {
-    console.warn('webhookController: AGENDAR_CITA storage failed but user message will continue:', e && e.message ? e.message : e);
-  }
 
-  return null;
+    const wantsCancel = CANCEL_INTENT.test(messageText);
+    const wantsReschedule = !wantsCancel && RESCHEDULE_INTENT.test(messageText);
+    if (!wantsCancel && !wantsReschedule) return null;
+    const appointment = await appointments.findUpcomingByPhone(from);
+    if (!appointment) return null;
+    const current = slotLabel({ date: appointment.appointment_date, time: appointment.appointment_time });
+
+    if (wantsCancel) {
+      await appointments.updateStatus(appointment.id, 'cancelada');
+      await appointments.notifyReception(appointment, { event: 'cancelada' });
+      return `Listo, cancelamos tu cita del ${current}. Cuando quieras volver a agendar, escríbeme "quiero una cita" 😊`;
+    }
+
+    const slots = await appointments.findNextSlots(appointment.treatment);
+    if (!slots.length) {
+      await appointments.notifyReception(appointment, { event: 'reprogramada' });
+      return `Tu cita actual es el ${current}. No encuentro horarios libres en los próximos días; recepción te escribirá para coordinar.`;
+    }
+    pendingReschedules.set(from, { appointment, slots, at: Date.now() });
+    return `Claro 😊 Tu cita actual es el ${current}. Elige el nuevo horario:${formatSlotList(slots)}`;
+  } catch (error) {
+    console.error('[Appointments] Error al cancelar o reprogramar:', error?.message || error);
+    return null;
+  }
 }
 
 const messageBuffers = new Map();
@@ -444,6 +491,25 @@ async function sendFirstContactWelcome(senderPhone, context, messageText) {
   });
 }
 
+// Registra una respuesta ya enviada: dashboards opcionales, tabla conversations/messages y chat_sessions.
+async function recordBotReply(from, messageText, text, mediaUrlSent, sendResult) {
+  const timestamp = new Date().toISOString();
+  const wamid = sendResult?.messages?.[0]?.id || null;
+  forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text, mediaUrl: mediaUrlSent } });
+  await notifyDashboardReply(from, text, mediaUrlSent, wamid);
+  await notifyMonitorPanel({ conversation_id: from, sender: 'bot', type: mediaUrlSent ? 'image' : 'text', content: text, media_url: mediaUrlSent, timestamp });
+  void persistToSupabaseConversation({
+    conversationId: from, contactNumber: from, sender: 'bot',
+    text, mediaUrl: mediaUrlSent, timestamp, whatsappMessageId: wamid,
+  }).catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
+  try {
+    await persistToChatSessions(from, { from: 'patient', text: messageText, phone: from, timestamp });
+    await persistToChatSessions(from, { from: 'bot', text, phone: from, timestamp });
+  } catch (error) {
+    console.error('[Supabase] Error al persistir conversación:', error);
+  }
+}
+
 async function processBatch(from, buffer) {
   const messageText = buffer.parts.filter((part) => part.type === 'text').map((part) => part.content).join('\n');
   const jid = `${from}@s.whatsapp.net`;
@@ -482,10 +548,35 @@ async function processBatch(from, buffer) {
     new Promise((resolve) => setTimeout(() => resolve(DEFAULT_CLINIC), 750)),
   ]);
   void persistencePromise.catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
+
+  // Cancelar / reprogramar una cita existente se resuelve sin Gemini.
+  const commandReply = await handleAppointmentCommands(from, messageText);
+  if (commandReply) {
+    try {
+      const sendResult = await whatsappService.sendTextMessage(from, commandReply);
+      await recordBotReply(from, messageText, commandReply, null, sendResult);
+    } catch (error) {
+      console.error('webhookController: failed sending message to user', error);
+    }
+    return;
+  }
+
+  // Si pide cita, se le ofrecen 3 horarios libres concretos en vez de preguntarle "¿qué día?".
+  let offeredSlots = null;
+  const alreadyChoosing = geminiService.pickOfferedSlot(messageText, geminiService.getOfferedSlots(jid));
+  if (BOOKING_INTENT.test(messageText) && !alreadyChoosing && !geminiService.isSessionBooked(jid)) {
+    try {
+      offeredSlots = await appointmentService.findNextSlots(findTreatment(messageText)?.key || null);
+    } catch (error) {
+      console.error('[Appointments] No se pudieron calcular horarios libres:', error?.message || error);
+    }
+  }
+
   let geminiResult;
   try {
     geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
       client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts, clinic,
+      availableSlots: offeredSlots,
     });
   } catch (error) {
     console.error('[Gemini] Error al generar respuesta:', error);
@@ -499,7 +590,7 @@ async function processBatch(from, buffer) {
   // Las etiquetas de foto se leen del texto crudo: sanitizeModelTextOutput borra los "_" y [ENVIAR_IMAGEN].
   const { keys: requestedMediaKeys } = extractPhotoTags(geminiResult.rawTexto || geminiResult.texto);
   const botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(extractPhotoTags(geminiResult.texto).cleaned));
-  const textoParaWhatsApp = stripInstructionTags(botReplyText);
+  let textoParaWhatsApp = stripInstructionTags(botReplyText);
   const inferredKey = inferPhotoKeyFromMessage(messageText);
   if (inferredKey && !requestedMediaKeys.includes(inferredKey)) requestedMediaKeys.push(inferredKey);
   const urlsToSend = requestedMediaKeys.map((key) => mediaUrl(key)).filter(Boolean);
@@ -516,6 +607,21 @@ async function processBatch(from, buffer) {
       console.error('[Supabase] Error al persistir conversación:', error);
     }
 
+  }
+
+  // Fase B: nombre + tratamiento + horario → se guarda la cita y se avisa a recepción.
+  let appointmentOutcome = null;
+  if (geminiResult.appointmentRequest) {
+    appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, { phone: from });
+    if (appointmentOutcome.status === 'slot_taken') {
+      geminiService.releaseBooking(jid);
+      geminiService.setOfferedSlots(jid, appointmentOutcome.alternatives);
+      textoParaWhatsApp = appointmentOutcome.alternatives.length
+        ? `¡Uy! Ese horario se acaba de ocupar 😅. Te propongo estos:${formatSlotList(appointmentOutcome.alternatives)}`
+        : '¡Uy! Ese horario se acaba de ocupar 😅. Recepción te escribirá para coordinar otro.';
+    }
+  } else if (offeredSlots?.length) {
+    textoParaWhatsApp = `${textoParaWhatsApp}${formatSlotList(offeredSlots)}`.trim();
   }
 
   let sendResult;
@@ -563,26 +669,14 @@ async function processBatch(from, buffer) {
         sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
       }
     }
-    forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text: textoParaWhatsApp, mediaUrl: finalMediaUrl } });
-    await notifyDashboardReply(from, textoParaWhatsApp, finalMediaUrl, sendResult?.messages?.[0]?.id || null);
   } catch (error) {
     console.error('webhookController: failed sending message to user', error);
     return;
   }
 
-  await notifyMonitorPanel({ conversation_id: from, sender: 'bot', type: finalMediaUrl ? 'image' : 'text', content: textoParaWhatsApp, media_url: finalMediaUrl, timestamp: new Date().toISOString() });
-  void persistToSupabaseConversation({
-    conversationId: from, contactNumber: from, sender: 'bot',
-    text: textoParaWhatsApp, mediaUrl: finalMediaUrl, timestamp: new Date().toISOString(),
-    whatsappMessageId: sendResult?.messages?.[0]?.id || null,
-  }).catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
-  try {
-    await persistToChatSessions(from, { from: 'patient', text: messageText, phone: from, timestamp: new Date().toISOString() });
-    await persistToChatSessions(from, { from: 'bot', text: textoParaWhatsApp, phone: from, timestamp: new Date().toISOString() });
-  } catch (error) {
-    console.error('[Supabase] Error al persistir conversación:', error);
-  }
-  if (leadResult?.readyToNotify && leadResult.lead) {
+  await recordBotReply(from, messageText, textoParaWhatsApp, finalMediaUrl, sendResult);
+  // Si ya se avisó a recepción por la cita, no se duplica la alerta de lead.
+  if (leadResult?.readyToNotify && leadResult.lead && appointmentOutcome?.status !== 'saved') {
     try { await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic }); }
     catch (error) { console.error('webhookController: error in admin notify flow', error); }
   }

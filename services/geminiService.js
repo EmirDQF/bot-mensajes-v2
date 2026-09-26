@@ -1,6 +1,7 @@
 import config from '../config/env.js';
 import { CATALOGO, obtenerImagen } from '../config/catalogo.js';
-import clinic from '../config/clinic.config.js';
+import clinic, { findTreatment } from '../config/clinic.config.js';
+import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -136,6 +137,33 @@ export function resumeSessionById(jid) {
 
 export function isSessionPaused(jid) {
   return Boolean(chatSessions.get(sessionId(jid))?.paused);
+}
+
+// Horarios concretos ofrecidos al paciente (appointmentService.findNextSlots); se eligen con "1", "2" o "3".
+export function setOfferedSlots(jid, slots) {
+  const session = getOrCreateSession(jid);
+  session.offeredSlots = Array.isArray(slots) && slots.length ? slots : null;
+  return session.offeredSlots;
+}
+
+export function getOfferedSlots(jid) {
+  return chatSessions.get(sessionId(jid))?.offeredSlots || null;
+}
+
+// Deshace la Fase B cuando la cita no pudo guardarse (p. ej. el horario se ocupó).
+export function releaseBooking(jid) {
+  const session = chatSessions.get(sessionId(jid));
+  if (!session) return false;
+  session.booked = false;
+  session.chosenSlot = null;
+  if (session.leadSnapshot) {
+    session.leadSnapshot = { ...session.leadSnapshot, fecha_hora_texto: null, fecha_hora_iso: null, confirmedAt: null };
+  }
+  return true;
+}
+
+export function isSessionBooked(jid) {
+  return Boolean(chatSessions.get(sessionId(jid))?.booked);
 }
 
 export function resetSession(jid) {
@@ -275,15 +303,18 @@ function limaNow() {
   }).format(new Date());
 }
 
-export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
-  const profile = clinic || config.clinicProfile || {};
+export function buildSystemPromptWithContext(jid, session = null, clinicOverride = null) {
+  const profile = clinicOverride || config.clinicProfile || {};
   const address = profile.address || clinic.address;
   const hours = profile.schedule || profile.hours || clinic.workingHoursText;
   const snapshot = session?.leadSnapshot;
   const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
+  const slots = !session?.booked && session?.offeredSlots?.length
+    ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Invítalo a responder 1, 2 o 3 y pide solo el nombre o tratamiento que falten.`
+    : '';
   const clinicName = profile.name || clinic.name;
-  return `${SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}`;
+  return `${SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}`;
 }
 
 export function parseTextToLimaDate(text) {
@@ -393,21 +424,54 @@ async function callGemini(client, request, options) {
   throw lastError;
 }
 
+// "2" o "2, me llamo Ana" (número al inicio) · "…, la 2" / "opción 3" (en cualquier parte).
+// Excluye fechas y horas: "el 2 de octubre", "a las 2 pm", "la 1:30".
+const NOT_DATE_OR_TIME = String.raw`(?!\d)(?!\s*(?:de\b|:|a\.?\s*m|p\.?\s*m|am\b|pm\b|hrs?\b|horas?\b))`;
+const SLOT_CHOICE_START = new RegExp(String.raw`^\s*(?:opci[oó]n\s*)?([1-3])${NOT_DATE_OR_TIME}(?:\s*[).,!-]|\s|$)`, 'i');
+const SLOT_CHOICE_INLINE = new RegExp(String.raw`\b(?:la|el|opci[oó]n|n[uú]mero|horario)\s+(?:n[uú]mero\s+)?([1-3])${NOT_DATE_OR_TIME}`, 'i');
+const SLOT_CHOICE_ORDINAL = /\b(primer[ao]?|segund[ao]|tercer[ao]?)\b/i;
+const ORDINALS = { primer: 1, primera: 1, primero: 1, segunda: 2, segundo: 2, tercer: 3, tercera: 3, tercero: 3 };
+
+// Devuelve el horario ofrecido que eligió el paciente ("1", "la 2", "opción 3", "la primera"), o null.
+export function pickOfferedSlot(message, offeredSlots) {
+  if (!Array.isArray(offeredSlots) || !offeredSlots.length) return null;
+  const text = String(message || '').trim();
+  const numeric = text.match(SLOT_CHOICE_START) || text.match(SLOT_CHOICE_INLINE);
+  if (numeric) return offeredSlots[Number(numeric[1]) - 1] || null;
+  const ordinal = text.match(SLOT_CHOICE_ORDINAL);
+  if (ordinal) return offeredSlots[(ORDINALS[ordinal[1].toLowerCase()] || 0) - 1] || null;
+  return null;
+}
+
 function collectLead(session, message, senderPhone = null) {
   const current = extractLeadDataFromText(textFromHistory(session.history), senderPhone);
   const incoming = extractLeadDataFromText(message, senderPhone);
+  const chosen = pickOfferedSlot(message, session.offeredSlots);
+  if (chosen) session.chosenSlot = chosen;
+  const treatment = findTreatment(message) || findTreatment(textFromHistory(session.history));
   const lead = {
     nombre: incoming?.nombre || current?.nombre || session.leadSnapshot?.nombre || null,
     telefono: incoming?.telefono || current?.telefono || session.leadSnapshot?.telefono || null,
-    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || null,
+    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || treatment?.name || null,
     fechaHora: incoming?.fechaHora || current?.fechaHora || session.leadSnapshot?.fecha_hora_texto || null,
   };
-  if (lead.fechaHora) {
+  if (session.chosenSlot) {
+    // Un horario elegido de la lista ofrecida manda sobre fechas escritas a mano.
+    const { date, time, label } = session.chosenSlot;
+    lead.slot = { date, time };
+    lead.fechaHoraISO = toInstant(date, time, clinic.timezone).toISOString().replace('.000Z', '+00:00');
+    lead.fechaHora = label;
+  } else if (lead.fechaHora) {
     lead.fechaHoraISO = parseTextToLimaISO(lead.fechaHora);
-    if (lead.fechaHoraISO) lead.fechaHora = formatLimaFechaHoraText(lead.fechaHoraISO);
+    if (lead.fechaHoraISO) {
+      lead.fechaHora = formatLimaFechaHoraText(lead.fechaHoraISO);
+      const local = localParts(clinic.timezone, new Date(lead.fechaHoraISO));
+      lead.slot = { date: local.date, time: toHHMM(local.minutes) };
+    }
   }
   lead.ready_to_notify = Boolean(isValidName(lead.nombre) && /^9\d{8}$/.test(lead.telefono || '') && lead.motivo && lead.fechaHoraISO);
-  lead.ready_for_confirmation = Boolean(isValidName(lead.nombre) && lead.motivo && (lead.fechaHora || lead.fechaHoraISO));
+  // Fase B exige día Y hora concretos: con "mañana en la tarde" se ofrecen horarios en vez de confirmar.
+  lead.ready_for_confirmation = Boolean(isValidName(lead.nombre) && lead.motivo && lead.slot);
   return Object.values(lead).some(Boolean) ? lead : null;
 }
 
@@ -473,6 +537,9 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     return { texto: null, leadData: null, skipResponse: true };
   }
   session.lastUserMessageAt = now;
+  if (Array.isArray(options.availableSlots) && options.availableSlots.length && !session.booked) {
+    session.offeredSlots = options.availableSlots;
+  }
   const messageParts = Array.isArray(options.messageParts) && options.messageParts.length
     ? options.messageParts
     : [{ type: 'text', content: String(mensaje || '') }];
@@ -488,9 +555,19 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     const rawText = responseText.trim();
     const leadData = collectLead(session, messageText, sid);
     let texto = sanitizeModelTextOutput(rawText);
+    let appointmentRequest = null;
     if (leadData?.ready_for_confirmation && !session.booked) {
-      texto = `¡Listo, ${leadData.nombre}! Tu solicitud de cita para ${leadData.motivo} el ${leadData.fechaHora || 'día que indicaste'} quedó registrada en ${clinic.address}. Recepción te la confirmará. 🦷✨`;
+      const treatmentName = findTreatment(leadData.motivo)?.name || leadData.motivo;
+      texto = `¡Listo, ${leadData.nombre}! Tu solicitud de cita para ${treatmentName} el ${formatDateEs(leadData.slot.date)} a las ${formatTimeEs(leadData.slot.time)} quedó registrada en ${clinic.address}. Recepción te la confirmará.`;
+      // El controlador guarda la cita (appointmentService) y avisa a recepción.
+      appointmentRequest = {
+        nombre: leadData.nombre,
+        tratamiento: treatmentName,
+        fecha: leadData.slot.date,
+        hora: leadData.slot.time,
+      };
       session.booked = true;
+      session.offeredSlots = null;
       session.leadSnapshot = {
         ...leadData,
         fecha_hora_texto: leadData.fechaHora,
@@ -520,7 +597,9 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     }
 
     // rawTexto conserva las etiquetas [ENVIAR_FOTO: x] que sanitizeModelTextOutput elimina o deforma.
-    return { texto, rawTexto: rawText, leadData, imagenURL, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
+    return {
+      texto, rawTexto: rawText, leadData, imagenURL, appointmentRequest, skipLeadPersistence: Boolean(options.skipLeadPersistence),
+    };
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;
     failureCounts.set(sid, failures);
@@ -557,4 +636,9 @@ export default {
   isValidName,
   determinarCategoriaImagen,
   getImagenCategoria,
+  setOfferedSlots,
+  getOfferedSlots,
+  releaseBooking,
+  isSessionBooked,
+  pickOfferedSlot,
 };
