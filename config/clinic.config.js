@@ -86,16 +86,22 @@ export function getPublicBaseUrl() {
   return raw.replace(/\/+$/, '');
 }
 
-export function mediaUrl(key) {
+// Ruta relativa (/media/<id>/<archivo>) para el panel; mediaUrl() la vuelve absoluta para WhatsApp.
+export function mediaPath(key) {
   const file = clinic.media?.[key];
-  if (!file) return null;
-  return `${getPublicBaseUrl()}/media/${clinic.id}/${file}`;
+  return file ? `/media/${clinic.id}/${file}` : null;
+}
+
+export function mediaUrl(key) {
+  const path = mediaPath(key);
+  return path ? `${getPublicBaseUrl()}${path}` : null;
 }
 
 // ---------- Tratamientos y sinónimos ----------
 
 export function normalizeText(text) {
-  return String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function editDistanceAtMostOne(a, b) {

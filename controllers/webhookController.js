@@ -290,7 +290,7 @@ function extractPlainText(input) {
 
 function stripInstructionTags(text) {
   return String(text || '')
-    .replace(/\[ENVIAR[_ ]?IMAGEN:[^\]]+\]/gi, '')
+    .replace(/\[\s*(?:ENVIAR[_ ]?(?:FOTO|IMAGEN)|FOTO|IMAGEN)\s*:[^\]]+\]/gi, '')
     .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();

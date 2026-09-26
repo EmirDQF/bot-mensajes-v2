@@ -3,6 +3,8 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import config from '../config/env.js';
 import { sendPanelMessage } from './panelMessaging.js';
+import { mediaPath } from '../config/clinic.config.js';
+import { extractPhotoTags } from '../services/mediaTags.js';
 
 // Flexible timestamp formatter: accepts seconds, milliseconds, or ISO strings
 function formatTime(value) {
@@ -199,18 +201,17 @@ export async function getMessages(req, res) {
 
         const out = messages.map((m)=>{
           const text = m.text || m.body || m.message || null;
-          const imgFromTag = text && (text.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i) || [])[1];
-          const rawImgName = imgFromTag || m.image || m.media_url || m.attachment || null;
-          let img = null;
-          if (rawImgName) {
-            // Extract only filename portion
-            const fname = String(rawImgName).split(/[\\/]/).pop();
-            img = fname.startsWith('/media/') ? fname : `/media/${fname}`;
+          const { keys: tagKeys, cleaned } = extractPhotoTags(text || '');
+          const rawImg = m.image || m.media_url || m.attachment || null;
+          let img = tagKeys.length ? mediaPath(tagKeys[0]) : null;
+          if (!img && rawImg) {
+            const value = String(rawImg);
+            img = /^https?:\/\//i.test(value) || value.startsWith('/media/') ? value : `/media/${value.split(/[\\/]/).pop()}`;
           }
 
           return {
             from: m.from || m.sender || (m.direction === 'outbound' ? 'bot' : 'patient'),
-            text: text && String(text).replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '').trim() || null,
+            text: cleaned || null,
             image: img,
             timestamp: m.created_at || m.timestamp || m.ts || null,
             timeLabel: formatTime(m.created_at || m.timestamp || m.ts || null),

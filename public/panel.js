@@ -64,24 +64,28 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-function extractImageFromText(text = '') {
-  const match = text.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i);
-  if (!match) return null;
-  return match[1].trim();
+// Mismas etiquetas que acepta el bot: [ENVIAR_FOTO: x] y [ENVIAR_IMAGEN: x] (con o sin "_").
+const PHOTO_TAG = /\[\s*(?:ENVIAR[_ ]?(?:FOTO|IMAGEN)|FOTO|IMAGEN)\s*:\s*[^\]]+\]/gi;
+
+function toImageSrc(value) {
+  const src = String(value || '');
+  if (!src) return null;
+  return /^https?:\/\//i.test(src) || src.startsWith('/') ? src : `/media/${src}`;
 }
 
 function buildMessageMarkup(message) {
   const isBot = message.sender === 'bot';
   const rowClass = isBot ? 'message-row--bot' : 'message-row--patient';
-  const imageName = message.image || extractImageFromText(message.text || '');
-  const cleanedText = imageName ? (message.text || '').replace(new RegExp(`\\[ENVIAR_IMAGEN:\\s*${imageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'i'), '').trim() : (message.text || '');
+  // El servidor ya resuelve las etiquetas a message.image; aquí solo se limpian del texto.
+  const imageSrc = toImageSrc(message.image);
+  const cleanedText = (message.text || '').replace(PHOTO_TAG, '').trim();
 
   const textMarkup = cleanedText
     ? `<p class="message-text">${escapeHtml(cleanedText).replace(/\n/g, '<br>')}</p>`
     : '';
 
-  const imageMarkup = imageName
-    ? `<img class="message-image" src="/media/${imageName}" alt="Imagen del chat" data-image="/media/${imageName}" />`
+  const imageMarkup = imageSrc
+    ? `<img class="message-image" src="${escapeHtml(imageSrc)}" alt="Imagen del chat" data-image="${escapeHtml(imageSrc)}" />`
     : '';
 
   return `

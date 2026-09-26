@@ -1,5 +1,5 @@
 import config from '../config/env.js';
-import { CATALOGO } from '../config/catalogo.js';
+import { CATALOGO, obtenerImagen } from '../config/catalogo.js';
 import clinic from '../config/clinic.config.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
@@ -455,7 +455,7 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
 
 export function getImagenCategoria(categoria) {
   if (!categoria) return null;
-  const valor = CATALOGO[categoria] || CATALOGO.default || null;
+  const valor = obtenerImagen(categoria) || CATALOGO.default || null;
   // Si la categoría tiene varias fotos (ej. casos antes/después), elige una al azar
   // en vez de mandar siempre la primera — así no se repite la misma imagen cada vez.
   if (Array.isArray(valor)) {
