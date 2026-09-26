@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import errorHandler from './middleware/errorHandler.js';
 import { initializeGeminiClient } from './src/geminiClient.js';
+import clinic, { missingPhoneVars, publicClinicInfo } from './config/clinic.config.js';
 
 const app = express();
 
@@ -113,6 +114,11 @@ function requirePanelAuth(req, res, next) {
 app.use('/media', express.static(path.join(process.cwd(), 'media')));
 app.use(express.static(publicDir));
 
+// Marca pública de la clínica activa para el panel (sin teléfonos).
+app.get('/api/clinic', (req, res) => {
+  res.json(publicClinicInfo());
+});
+
 app.get('/panel', requirePanelAuth, (req, res) => {
   res.sendFile(path.join(publicDir, 'panel.html'));
 });
@@ -140,8 +146,13 @@ const port = process.env.PORT || 3000;
 // Initialize once at startup so webhook batches reuse the same Gemini client.
 initializeGeminiClient();
 
+console.log(`[Clinic] Clínica activa: ${clinic.name} (ACTIVE_CLINIC=${clinic.id})`);
+for (const name of missingPhoneVars()) {
+  console.warn(`[Clinic] Advertencia: ${name} no está definida. El bot sigue funcionando, pero no se enviarán las alertas que dependen de ese número.`);
+}
+
 // Validaciones ligeras de variables de entorno para evitar que PM2 entre en crash loop silencioso
-const requiredLike = ['GEMINI_MODEL', 'ADMIN_WHATSAPP_NUMBER', 'WHATSAPP_WEBHOOK_VERIFY_TOKEN'];
+const requiredLike = ['GEMINI_MODEL', 'WHATSAPP_WEBHOOK_VERIFY_TOKEN'];
 for (const v of requiredLike) {
   if (!process.env[v]) {
     console.warn(`Advertencia: la variable de entorno ${v} no está definida. El proceso seguirá, pero algunas funciones pueden no estar disponibles.`);

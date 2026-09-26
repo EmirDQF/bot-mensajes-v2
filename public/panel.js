@@ -1,56 +1,22 @@
-const conversationData = [
-  {
-    id: 'emir-ia',
-    name: 'Emir | Automatizaciones IA | Bots',
-    phone: '+51 949 973 257',
-    formattedPhone: '+51 949 973 257',
-    avatar: 'E',
-    status: 'Bot activo',
-    lastSeen: Date.now() - 1000 * 60 * 3,
-    messages: [
-      {
-        sender: 'patient',
-        text: '¿Dónde están ubicados exactamente y cómo hago para llegar?',
-        timestamp: Date.now() - 1000 * 60 * 50,
-      },
-      {
-        sender: 'bot',
-        text: 'Nos encontramos en la Av. Alameda de la República N° 261, aquí en Huánuco. Te comparto el croquis para que llegues sin problemas. ✨',
-        timestamp: Date.now() - 1000 * 60 * 46,
-      },
-      {
-        sender: 'patient',
-        text: 'QUE TIPOS DE SERVICIOS OFRECEN',
-        timestamp: Date.now() - 1000 * 60 * 42,
-      },
-      {
-        sender: 'bot',
-        text: '¡Hola! 🤍 En LUMINZU realizamos:\n• Ortodoncia (brackets tradicionales y para niños)\n• Limpieza dental y kit preventivo\n• Carillas dentales y diseño de sonrisa\n• Implantes dentales\n• Prótesis dental\n• Endodoncia\n• Odontopediatría\n\n¿Cuál de ellos te interesa para darte más detalles o mostrarte fotos? ✨',
-        timestamp: Date.now() - 1000 * 60 * 30,
-      },
-      {
-        sender: 'patient',
-        text: '¿Me puedes mostrar una foto de su consultorio o cómo es la fachada?',
-        timestamp: Date.now() - 1000 * 60 * 17,
-      },
-      {
-        sender: 'bot',
-        text: '¡Claro que sí! Aquí te comparto la fachada de la clínica para que la reconozcas al llegar mañana. ✨',
-        timestamp: Date.now() - 1000 * 60 * 8,
-      },
-      {
-        sender: 'bot',
-        image: 'fachada.jpeg',
-        timestamp: Date.now() - 1000 * 60 * 7,
-      },
-      {
-        sender: 'patient',
-        text: 'Perfecto, gracias.',
-        timestamp: Date.now() - 1000 * 60 * 2,
-      },
-    ],
-  },
-];
+// Conversaciones reales: se cargan desde /api/panel/conversations tras iniciar sesión.
+const conversationData = [];
+
+// Marca de la clínica activa (config/clinics/<id>.js) servida por /api/clinic.
+async function loadClinicBranding() {
+  try {
+    const res = await fetch('/api/clinic');
+    if (!res.ok) return;
+    const info = await res.json();
+    const logo = document.getElementById('brandLogo');
+    const name = document.getElementById('brandName');
+    if (logo && info.logoUrl) { logo.src = info.logoUrl; logo.alt = info.name; }
+    if (name) name.textContent = info.name;
+    document.title = `Panel · ${info.name}`;
+  } catch (error) {
+    console.warn('No se pudo cargar la marca de la clínica', error);
+  }
+}
+loadClinicBranding();
 
 let selectedConversationId = conversationData[0]?.id ?? null;
 let pollTimer = null;

@@ -3,7 +3,7 @@ import whatsappService from './whatsappService.js';
 import { markAsNotified } from './leadService.js';
 
 function getAdminPhoneDigits() {
-  const raw = process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
+  const raw = process.env.RECEPTION_ALERT_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
   if (!raw || typeof raw !== 'string') return null;
   const digits = raw.replace(/\D/g, '');
   return digits || null;
@@ -40,7 +40,7 @@ export async function notifyAdminNewLead(lead, options = {}) {
 
   // Prefer clinic's admin number when provided in options
   const adminFromOptions = options.clinic && options.clinic.admin_whatsapp_number ? String(options.clinic.admin_whatsapp_number) : null;
-  const raw = adminFromOptions || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
+  const raw = adminFromOptions || process.env.RECEPTION_ALERT_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
   let adminDigits = raw ? String(raw).replace(/\D/g, '') : null;
 
   // Normalize to Peru country code: if 9 digits assume local and prefix 51
@@ -155,7 +155,7 @@ export async function notifyAdminUpdatedLead(lead, previousFechaIso = null, opti
   if (!nombre || /^camila\b/i.test(nombre)) return false;
 
   const adminFromOptions = options.clinic && options.clinic.admin_whatsapp_number ? String(options.clinic.admin_whatsapp_number) : null;
-  const raw = adminFromOptions || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
+  const raw = adminFromOptions || process.env.RECEPTION_ALERT_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || config.admin?.phone;
   const adminDigits = raw ? raw.replace(/\D/g, '') : null;
   if (!adminDigits) return false;
 

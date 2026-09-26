@@ -11,11 +11,14 @@ before(async () => {
 });
 
 describe('geminiService refinements', () => {
-  it('builds a LUMINZU prompt without legacy placeholders', () => {
+  it('builds the active clinic prompt (Denvari by default) without legacy placeholders', async () => {
+    const { default: clinic } = await import('../config/clinic.config.js');
     const prompt = service.buildSystemPromptWithContext('51900000000@s.whatsapp.net');
     assert.equal(prompt.includes('[NOMBRE_CLINICA]'), false);
-    assert.equal(prompt.includes('LUMINZU Clínica Dental'), true);
-    assert.equal(prompt.includes('Huánuco'), true);
+    assert.equal(prompt.includes(clinic.name), true);
+    assert.equal(prompt.includes(clinic.address), true);
+    assert.equal(prompt.includes(`Eres ${clinic.botName}`), true);
+    assert.equal(clinic.name, 'Clínica Dental Denvari');
   });
 
   it('includes a patient name already present in the session', () => {

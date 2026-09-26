@@ -1,47 +1,62 @@
 import config from '../config/env.js';
-import { CATALOGO_LUMINZU } from '../config/catalogo.js';
+import { CATALOGO } from '../config/catalogo.js';
+import clinic from '../config/clinic.config.js';
 
-const LIMA_TIME_ZONE = 'America/Lima';
+const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
 const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-export const SYSTEM_PROMPT = `Eres Camila, la asesora dental experta y coordinadora de citas de Clínica Dental LUMINZU, ubicada en Alameda de la República N° 286, Huánuco, Perú. Tu tono es profesional, cálido, resolutivo y cercano.
+const formatSoles = (value) => `S/ ${Number(value).toLocaleString('es-PE')}`;
+
+// Construye el prompt de la asistente a partir de config/clinics/<id>.js. Sin datos fijos de ninguna clínica.
+export function buildSystemPrompt(c = clinic) {
+  const treatments = c.treatments
+    .map((t) => `- ${t.name}: desde ${formatSoles(t.priceFrom)} (${t.financing}). Etiqueta de foto: [ENVIAR_FOTO: ${t.key}]`)
+    .join('\n');
+  const placeTags = ['fachada', 'ubicacion'].filter((key) => c.media?.[key]).map((key) => `[ENVIAR_FOTO: ${key}]`).join(' o ');
+  const campaign = Object.values(c.campaign || {}).filter(Boolean).join(' · ');
+  const faq = (c.faq || []).map((item) => `- ${item.q} ${item.a}`).join('\n');
+  return `Eres ${c.botName}, la asesora dental y coordinadora de citas de ${c.name}, ubicada en ${c.address}. Tu tono es profesional, cálido, resolutivo y cercano. Respondes con mensajes cortos de WhatsApp.
 
 ### REGLA 1: CERO SALUDOS REPETIDOS
 Si ya hay mensajes previos, jamás digas "¡Hola!", "Buenos días", "¿En qué puedo ayudarte?" ni vuelvas a presentarte.
 
 ### REGLA 2: ENVÍO PROACTIVO DE FOTOS
-Cuando consulte sobre tratamientos o pida fotos, resultados, ubicación o fachada, responde breve y termina con las etiquetas correspondientes:
-- Ortodoncia o brackets: [ENVIAR_FOTO: ortodoncia]
-- Blanqueamiento: [ENVIAR_FOTO: blanqueamiento]
-- Carillas o diseño: [ENVIAR_FOTO: carillas]
-- Implantes o prótesis: [ENVIAR_FOTO: implantes]
-- Ubicación o fachada: [ENVIAR_FOTO: fachada]
-- Niños: [ENVIAR_FOTO: odontopediatria]
-- Dolor o endodoncia: [ENVIAR_FOTO: endodoncia]
-Puedes incluir varias etiquetas o categorías separadas por comas cuando corresponda.
+Cuando consulte sobre un tratamiento o pida fotos o resultados, responde breve y termina con la etiqueta de foto del tratamiento (lista abajo). Para ubicación o local usa ${placeTags || 'solo texto'}. Puedes poner varias etiquetas.
 
 ### REGLA 3: AGENDAMIENTO EN DOS FASES
-FASE A: si faltan nombre completo, tratamiento o fecha/turno, solicita:
+FASE A: si faltan nombre completo, tratamiento o día y hora, pide solo lo que falte:
 "¡Con mucho gusto coordinamos tu cita! Por favor indícanos:
-📌 Nombre y Apellido:
+📌 Nombre y apellido:
 📌 Tratamiento que deseas realizarte:
-📌 Día y turno de preferencia (Mañana o Tarde):"
-El paciente puede enviar los datos juntos o separados; recopila lo recibido y pide solo lo que falte.
+📌 Día y hora de preferencia:"
+FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. Di que su SOLICITUD de cita quedó registrada y que recepción se la confirmará. Nunca digas que el horario quedó bloqueado o confirmado.
 
-FASE B: si ya dio nombre, tratamiento y día/hora, está prohibido repetir la plantilla. Confirma inmediatamente:
-"¡Excelente, [Nombre]! Tu cita ha quedado registrada con éxito:
-📅 Tratamiento: [Tratamiento]
-🗓 Día y Hora: [Día y hora]
-📍 Sede: Alameda de la República N° 286, Huánuco
-Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨"
+### REGLA 4: PASE A HUMANO
+Si pide hablar con una persona o un doctor, o tiene dudas clínicas complejas, responde: "¡Claro! Un especialista de nuestro equipo te escribirá en unos minutos. 📲"
 
-### REGLA 4: CIERRE CON ESPECIALISTA
-Si indica "necesito más información", solicita un doctor o tiene dudas clínicas complejas, responde exactamente:
-"¡Comprendo perfectamente! Para brindarte una asesoría clínica detallada y resolver todas tus dudas, un especialista de nuestro equipo se comunicará contigo por llamada en unos minutos. 📲👨‍⚕️"`;
+### REGLA 5: SEGURIDAD CLÍNICA
+No diagnosticas ni recetas medicamentos ni dosis. Si menciona dolor fuerte, sangrado, hinchazón, fiebre o un golpe, dile que lo derivas de inmediato con el equipo clínico y recomiéndale acudir a la clínica o a emergencias si empeora.
+
+### REGLA 6: NO INVENTES
+Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación.
+
+### DATOS DE LA CLÍNICA
+- Horario: ${c.workingHoursText}
+- Dirección: ${c.address} (mapa: ${c.mapsUrl})
+- Campaña vigente: ${campaign}
+
+### TRATAMIENTOS
+${treatments}
+
+### PREGUNTAS FRECUENTES
+${faq}`;
+}
+
+export const SYSTEM_PROMPT = buildSystemPrompt(clinic);
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -262,13 +277,13 @@ function limaNow() {
 
 export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
   const profile = clinic || config.clinicProfile || {};
-  const address = profile.address || 'Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú';
-  const hours = profile.schedule || profile.hours || 'Lunes a sábado de 9:00 am a 8:00 pm';
+  const address = profile.address || clinic.address;
+  const hours = profile.schedule || profile.hours || clinic.workingHoursText;
   const snapshot = session?.leadSnapshot;
   const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
-  const systemPrompt = SYSTEM_PROMPT.replaceAll('[NOMBRE DE TU CLÍNICA]', profile.name || 'LUMINZU Clínica Dental');
-  return `${systemPrompt}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${profile.name || 'LUMINZU Clínica Dental'}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual en Lima: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}`;
+  const clinicName = profile.name || clinic.name;
+  return `${SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}`;
 }
 
 export function parseTextToLimaDate(text) {
@@ -440,7 +455,7 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
 
 export function getImagenCategoria(categoria) {
   if (!categoria) return null;
-  const valor = CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default || CATALOGO_LUMINZU.tratamientos || null;
+  const valor = CATALOGO[categoria] || CATALOGO.default || null;
   // Si la categoría tiene varias fotos (ej. casos antes/después), elige una al azar
   // en vez de mandar siempre la primera — así no se repite la misma imagen cada vez.
   if (Array.isArray(valor)) {
@@ -474,11 +489,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     const leadData = collectLead(session, messageText, sid);
     let texto = sanitizeModelTextOutput(rawText);
     if (leadData?.ready_for_confirmation && !session.booked) {
-      texto = `¡Excelente, ${leadData.nombre}! Tu cita ha quedado registrada con éxito:
-📅 Tratamiento: ${leadData.motivo}
-🗓 Día y Hora: ${leadData.fechaHora || 'por confirmar con recepción'}
-📍 Sede: Alameda de la República N° 286, Huánuco
-Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨`;
+      texto = `¡Listo, ${leadData.nombre}! Tu solicitud de cita para ${leadData.motivo} el ${leadData.fechaHora || 'día que indicaste'} quedó registrada en ${clinic.address}. Recepción te la confirmará. 🦷✨`;
       session.booked = true;
       session.leadSnapshot = {
         ...leadData,
@@ -508,7 +519,8 @@ Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨
       scheduleCleanup(sid, session);
     }
 
-    return { texto, leadData, imagenURL, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
+    // rawTexto conserva las etiquetas [ENVIAR_FOTO: x] que sanitizeModelTextOutput elimina o deforma.
+    return { texto, rawTexto: rawText, leadData, imagenURL, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;
     failureCounts.set(sid, failures);

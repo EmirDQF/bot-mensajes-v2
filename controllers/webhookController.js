@@ -6,6 +6,8 @@ import whatsappService, { markMessageAsRead, sendTypingIndicator } from '../serv
 import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
+import activeClinic, { mediaUrl } from '../config/clinic.config.js';
+import { extractPhotoTags, inferPhotoKeyFromMessage } from '../services/mediaTags.js';
 import {
   claimMediaSend,
   completeMediaSend,
@@ -19,14 +21,13 @@ const chatSessionHistoryCache = new Map();
 const processedMessages = new Map();
 const welcomeSentRecipients = new Set();
 const PROCESSED_IDS_TTL_MS = 60 * 1000;
+// Perfil de la clínica activa (config/clinics/<ACTIVE_CLINIC>.js). Una fila de la tabla
+// `clinics` de Supabase con el mismo waba_phone_number_id puede sobrescribir estos campos.
 export const DEFAULT_CLINIC = {
-  name: 'LUMINZU Clínica Dental (Sede Huánuco)',
-  city: 'Huánuco',
-  address: 'Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú',
-  schedule: 'Lunes a sábado de 9:00 am a 8:00 pm',
-  phone: '51949737257',
-  promos: 'Brackets con cuota inicial S/ 0, facilidades de pago en cuotas y evaluación digital con cámara intraoral sin costo.',
-  treatments: 'Ortodoncia (brackets metálicos y estéticos), Implantes dentales, Endodoncia, Curaciones con resina, Blanqueamiento, Diseño de sonrisa, Odontopediatría y Extracciones.',
+  name: activeClinic.name,
+  city: activeClinic.city,
+  address: activeClinic.address,
+  schedule: activeClinic.workingHoursText,
 };
 
 async function getSupabaseClient() {
@@ -165,7 +166,7 @@ async function persistToChatSessions(sessionIdentifier, entry) {
 }
 
 async function notifyMonitorPanel({ conversation_id, contact_name, sender, type, content, media_url, timestamp }) {
-  const panelBaseUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  const panelBaseUrl = (process.env.PANEL_BACKEND_URL || '').replace(/\/+$/, '');
   const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
   const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
   if (!panelBaseUrl || !username || !password) return;
@@ -201,7 +202,8 @@ async function notifyMonitorPanel({ conversation_id, contact_name, sender, type,
 }
 
 async function notifyDashboardReply(phone, text, mediaUrl = null, wamid = null) {
-  const dashboardUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  const dashboardUrl = (process.env.PANEL_BACKEND_URL || '').replace(/\/+$/, '');
+  if (!dashboardUrl) return;
   try {
     const response = await fetch(`${dashboardUrl}/api/bot-reply`, {
       method: 'POST',
@@ -225,7 +227,8 @@ async function notifyDashboardReply(phone, text, mediaUrl = null, wamid = null) 
 }
 
 function notifyDashboardIncoming(payload) {
-  const dashboardUrl = (process.env.PANEL_BACKEND_URL || 'https://whatsapp-dashboard-z9jm.onrender.com').replace(/\/+$/, '');
+  const dashboardUrl = (process.env.PANEL_BACKEND_URL || '').replace(/\/+$/, '');
+  if (!dashboardUrl) return;
   fetch(`${dashboardUrl}/webhook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -370,13 +373,8 @@ function enqueueUserWork(from, work) {
   return next;
 }
 
-const OFFICIAL_WELCOME_CAPTION = `¡Hola! 👋 Bienvenido/a a LUMINZU Clínica Dental (Sede Huánuco) 🦷✨
-
-Te atendemos de lunes a sábado de 9:00 am a 8:00 pm. Llegas en el momento ideal para aprovechar nuestros beneficios por campaña (facilidades de pago en cuotas, brackets con cuota inicial S/ 0 y evaluación digital con cámara intraoral).
-
-Para ayudarte rápido y de forma personalizada, cuéntanos:
-👉 ¿Qué tratamiento o molestia dental deseas solucionar primero?
-👉 ¿O prefieres que veamos de una vez día y hora para tu cita? 📅`;
+// Bienvenida + aviso de privacidad (Ley 29733) en el primer contacto.
+const OFFICIAL_WELCOME_CAPTION = `${activeClinic.welcomeCaption}\n\n${activeClinic.privacyNotice}`;
 
 async function hasPreviousConversation(senderPhone) {
   const sessionId = String(senderPhone || '').replace(/\D/g, '');
@@ -411,9 +409,7 @@ async function hasPreviousConversation(senderPhone) {
 }
 
 async function sendFirstContactWelcome(senderPhone, context, messageText) {
-  const baseUrl = (process.env.RENDER_EXTERNAL_URL || process.env.APP_URL
-    || 'https://bot-mensajes-v2.onrender.com').replace(/\/+$/, '');
-  const imageUrl = `${baseUrl}/media/logo.jpeg`;
+  const imageUrl = mediaUrl('logo');
   const result = await whatsappService.sendImageMessage(senderPhone, imageUrl, OFFICIAL_WELCOME_CAPTION);
   welcomeSentRecipients.add(String(senderPhone).replace(/\D/g, ''));
   const timestamp = new Date().toISOString();
@@ -500,52 +496,13 @@ async function processBatch(from, buffer) {
     return;
   }
 
-  let botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(geminiResult.texto));
-  const photoRegex = /\[(?:ENVIAR_?FOTO|FOTO):\s*([a-zA-Z0-9_,\s\-áéíóúÁÉÍÓÚ]+)\]/gi;
-  const photoMatches = [...botReplyText.matchAll(photoRegex)];
-  const requestedCategories = photoMatches.flatMap((match) => match[1]
-    .split(',')
-    .map((category) => category.trim().toLowerCase().replace(/\s+/g, '_'))
-    .map((category) => category === 'ortodonciapromo' ? 'ortodoncia_promo' : category)
-    .filter(Boolean));
-  botReplyText = botReplyText.replace(photoRegex, '').trim();
+  // Las etiquetas de foto se leen del texto crudo: sanitizeModelTextOutput borra los "_" y [ENVIAR_IMAGEN].
+  const { keys: requestedMediaKeys } = extractPhotoTags(geminiResult.rawTexto || geminiResult.texto);
+  const botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(extractPhotoTags(geminiResult.texto).cleaned));
   const textoParaWhatsApp = stripInstructionTags(botReplyText);
-  const photoIntent = /\b(fotos?|im[aá]genes?|resultados?|antes\s*y\s*despu[eé]s|mostrar|ense[nñ]ar|ubicaci[oó]n|direcci[oó]n|fachada)\b/i.test(messageText);
-  const requestedCategory = photoIntent && /\b(ortodoncia|brackets?|bravkets|frenillos)\b/i.test(messageText)
-    ? 'ortodoncia'
-    : photoIntent && /\b(blanqueamiento)\b/i.test(messageText)
-      ? 'blanqueamiento'
-      : photoIntent && /\b(carillas?|dise[nñ]o)\b/i.test(messageText)
-        ? 'carillas'
-        : photoIntent && /\b(implantes?)\b/i.test(messageText)
-          ? 'implantes'
-          : photoIntent && /\b(ubicaci[oó]n|direcci[oó]n|fachada)\b/i.test(messageText)
-            ? 'fachada'
-            : photoIntent && /\b(promoci[oó]n|promo)\b/i.test(messageText)
-              ? 'promo'
-              : null;
-  if (requestedCategory && !requestedCategories.includes(requestedCategory)) requestedCategories.push(requestedCategory);
-  const baseUrl = (process.env.RENDER_EXTERNAL_URL
-    || process.env.APP_URL
-    || 'https://bot-mensajes-v2.onrender.com').replace(/\/+$/, '');
-  const mediaCatalog = {
-    ortodoncia: ['/media/ortodoncia_antes_despues.jpeg', '/media/ortodoncia_promo.jpeg'],
-    brackets: ['/media/ortodoncia_antes_despues.jpeg', '/media/ortodoncia_promo.jpeg'],
-    ortodoncia_antes_despues: ['/media/ortodoncia_antes_despues.jpeg'],
-    ortodoncia_promo: ['/media/ortodoncia_promo.jpeg'],
-    blanqueamiento: ['/media/blanqueamiento_1.jpeg', '/media/blanqueamiento_2.jpeg'],
-    carillas: ['/media/carillas.jpeg', '/media/antesdespues.jpeg'],
-    diseno: ['/media/carillas.jpeg', '/media/antesdespues.jpeg'],
-    implantes: ['/media/implantes.jpeg', '/media/implantesdentales.jpeg'],
-    protesis: ['/media/protesis.jpeg', '/media/implantes.jpeg'],
-    fachada: ['/media/fachada.jpeg', '/media/ubicacion.jpeg'],
-    ubicacion: ['/media/ubicacion.jpeg', '/media/fachada.jpeg'],
-    ninos: ['/media/odontopediatria.jpeg', '/media/odontopediatriacuracion.jpeg'],
-    odontopediatria: ['/media/odontopediatria.jpeg', '/media/odontopediatriacuracion.jpeg'],
-    endodoncia: ['/media/endodoncia.jpeg', '/media/tienesdolormuela.jpeg'],
-  };
-  const urlsToSend = [...new Set(requestedCategories.flatMap((category) => mediaCatalog[category] || []))]
-    .map((path) => `${baseUrl}${path}`);
+  const inferredKey = inferPhotoKeyFromMessage(messageText);
+  if (inferredKey && !requestedMediaKeys.includes(inferredKey)) requestedMediaKeys.push(inferredKey);
+  const urlsToSend = requestedMediaKeys.map((key) => mediaUrl(key)).filter(Boolean);
   const finalMediaUrl = urlsToSend[0] || null;
   let leadResult = null;
   if (geminiResult.leadData && !geminiResult.skipLeadPersistence) {
@@ -579,7 +536,7 @@ async function processBatch(from, buffer) {
         }
         if (!claim.claimed) continue;
         try {
-          await whatsappService.sendImageMessage(from, imageUrl, 'Clínica Dental LUMINZU 🦷');
+          await whatsappService.sendImageMessage(from, imageUrl, `${activeClinic.name} 🦷`);
         } catch (error) {
           if (claim.id) {
             try { await completeMediaSend(claim.id, 'failed', error?.message || error); }
