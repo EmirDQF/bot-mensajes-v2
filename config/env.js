@@ -32,7 +32,9 @@ export default {
     webhookVerifyToken,
   },
   supabase: {
-    url: process.env.SUPABASE_URL || null,
+    // supabase-js agrega /rest/v1 por su cuenta: si la URL ya lo trae, todas las consultas fallan
+    // con "Invalid path specified in request URL". Se normaliza a https://<proyecto>.supabase.co
+    url: (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '').replace(/\/rest\/v1$/i, '') || null,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY
       || process.env.SUPABASE_SERVICE_ROLE
       || null,

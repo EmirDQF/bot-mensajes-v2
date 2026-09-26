@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import './src/envLoader.js';
 import webhookRouter from './routes/webhook.js';
 import panelRouter from './routes/panel.js';
+import jobsRouter from './routes/jobs.js';
+import config from './config/env.js';
 import fs from 'fs/promises';
 import path from 'path';
 import errorHandler from './middleware/errorHandler.js';
@@ -16,8 +18,8 @@ app.use(cors({ origin: true, credentials: true }));
 app.options(/.*/, cors({ origin: true, credentials: true }));
 
 const supabase =
-  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  config.supabase.url && config.supabase.serviceRoleKey
+    ? createClient(config.supabase.url, config.supabase.serviceRoleKey)
     : null;
 
 async function getSupabaseConversations() {
@@ -191,6 +193,9 @@ process.on('unhandledRejection', (reason) => {
 
 // Mount panel API routes
 app.use('/api/panel', panelRouter);
+
+// Tareas programadas (recordatorios, resumen diario, seguimiento) para un cron externo con CRON_SECRET
+app.use('/jobs', jobsRouter);
 
 // Configure Cloud API webhook routes (if WHATSAPP_TOKEN/etc are set)
 app.use('/', webhookRouter);

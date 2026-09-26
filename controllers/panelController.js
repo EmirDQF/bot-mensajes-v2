@@ -5,6 +5,7 @@ import config from '../config/env.js';
 import { sendPanelMessage } from './panelMessaging.js';
 import { mediaPath } from '../config/clinic.config.js';
 import { extractPhotoTags } from '../services/mediaTags.js';
+import handoffService from '../services/handoffService.js';
 
 // Flexible timestamp formatter: accepts seconds, milliseconds, or ISO strings
 function formatTime(value) {
@@ -276,22 +277,20 @@ export async function getMessages(req, res) {
 }
 
 // POST /api/panel/toggle-bot/:phone
+// POST /api/panel/toggle-bot/:phone — pausa o reactiva el bot en una conversación (pase a humano).
+// El estado vive en conversations.status ('human' = pausado) vía handoffService, el mismo que usa el webhook.
+// Body opcional { paused: true|false } para fijarlo en vez de alternarlo.
 export async function toggleBot(req, res) {
-  const { phone } = req.params;
-  const dataDir = path.join(process.cwd(), 'data');
-  await fs.mkdir(dataDir, { recursive: true });
-  const statePath = path.join(dataDir, 'bot_state.json');
-  const state = (await readJsonIfExists(statePath)) || {};
-
-  const current = !!state[phone];
-  state[phone] = !current;
-
+  const phone = String(req.params.phone || '').replace(/\D/g, '');
+  if (!phone) return res.status(400).json({ error: 'Teléfono inválido' });
   try {
-    await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf8');
-    res.json({ phone, botEnabled: state[phone] });
+    const paused = typeof req.body?.paused === 'boolean'
+      ? await handoffService.setPaused(phone, req.body.paused)
+      : await handoffService.toggle(phone);
+    return res.json({ phone, botEnabled: !paused });
   } catch (e) {
-    console.error('Failed to write bot state', e && e.message ? e.message : e);
-    res.status(500).json({ error: 'No se pudo cambiar el estado' });
+    console.error('Failed to toggle bot state', e && e.message ? e.message : e);
+    return res.status(500).json({ error: 'No se pudo cambiar el estado' });
   }
 }
 

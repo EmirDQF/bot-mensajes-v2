@@ -460,13 +460,23 @@ export async function saveLead({ telefono, nombre, distrito, fechaHoraISO, fecha
 }
 
 export async function saveLeadSnapshot(telefono, snapshot) {
-  const client = getSupabaseClient();
   if (!telefono) throw new Error('telefono is required to save snapshot');
+  return upsertLeadFields(telefono, { lead_snapshot: snapshot || null }, 'saveLeadSnapshot');
+}
+
+// Origen del anuncio de Meta (click-to-WhatsApp) del primer mensaje del lead.
+export async function saveLeadAdReferral(telefono, adReferral) {
+  if (!telefono) throw new Error('telefono is required to save ad referral');
+  return upsertLeadFields(telefono, { ad_referral: adReferral || null }, 'saveLeadAdReferral');
+}
+
+async function upsertLeadFields(telefono, fields, caller) {
+  const client = getSupabaseClient();
   const normalized = normalizePhone(telefono);
   const now = new Date().toISOString();
   const payload = {
     telefono: normalized,
-    lead_snapshot: snapshot || null,
+    ...fields,
     updated_at: now
   };
 
@@ -497,7 +507,7 @@ export async function saveLeadSnapshot(telefono, snapshot) {
     if (insertErr) throw insertErr;
     return Array.isArray(inserted) && inserted.length ? inserted[0] : inserted;
   } catch (e) {
-    console.error('leadService.saveLeadSnapshot error', e && e.message ? e.message : e);
+    console.error(`leadService.${caller} error`, e && e.message ? e.message : e);
     throw e;
   }
 }
@@ -565,5 +575,7 @@ export default {
   validateLead,
   initSupabaseClient,
   getClinicByWabaPhoneId,
+  saveLeadSnapshot,
+  saveLeadAdReferral,
   _internals: { normalizePhone },
 };

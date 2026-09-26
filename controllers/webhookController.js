@@ -8,6 +8,32 @@ import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
 import activeClinic, { findTreatment, mediaUrl } from '../config/clinic.config.js';
 import appointmentService, { SlotTakenError, slotLabel } from '../services/appointmentService.js';
+import handoffService, { detectHandoff, patientHandoffReply } from '../services/handoffService.js';
+
+// Origen del anuncio de Meta (click-to-WhatsApp). Solo llega en el primer mensaje: se guarda en memoria
+// y en leads.ad_referral para asociarlo después a la cita.
+const REFERRAL_FIELDS = ['source_type', 'source_id', 'source_url', 'headline', 'body', 'media_type', 'ctwa_clid'];
+const adReferrals = new Map();
+
+export function sanitizeReferral(referral) {
+  if (!referral || typeof referral !== 'object') return null;
+  const clean = {};
+  for (const field of REFERRAL_FIELDS) {
+    if (typeof referral[field] === 'string' && referral[field].trim()) clean[field] = referral[field].trim().slice(0, 300);
+  }
+  if (!Object.keys(clean).length) return null;
+  clean.received_at = new Date().toISOString();
+  return clean;
+}
+
+async function getAdReferral(phone) {
+  if (adReferrals.has(phone)) return adReferrals.get(phone);
+  try {
+    return (await leadService.getByPhone(phone))?.ad_referral || null;
+  } catch (error) {
+    return null;
+  }
+}
 import { extractPhotoTags, inferPhotoKeyFromMessage } from '../services/mediaTags.js';
 import {
   claimMediaSend,
@@ -103,7 +129,7 @@ async function persistToSupabaseConversation({
         last_message_at: ts,
         created_at: ts,
         updated_at: ts,
-        status: 'active',
+        // status no se envía: 'human' (bot en pausa) lo gestiona handoffService y no debe pisarse.
       }, { onConflict: 'conversation_id' });
       if (error) console.error('[Supabase] Error al persistir conversación:', error);
     } catch (error) {
@@ -339,6 +365,8 @@ export function formatSlotList(slots) {
 const BOOKING_INTENT = /\b(citas?|agendar|agendo|agenda|reservar|reserva|separar|turnos?|horarios?|disponibilidad|atenderme|evaluaci[oó]n)\b/i;
 const CANCEL_INTENT = /^\s*cancelar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\bcancel\w*\b[^.?!]*\bcita\b|\bcita\b[^.?!]*\bcancel\w*\b|\bya no (?:voy a )?(?:ir|asistir|podr[eé] ir)\b/i;
 const RESCHEDULE_INTENT = /^\s*reprogramar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\b(?:cambiar|reprogramar|mover|postergar|cambio de)\b[^.?!]*\b(?:cita|hora|horario|d[ií]a)\b/i;
+const REMINDER_CONFIRM = /^\s*(?:1|1️⃣|confirmo|confirmar|confirmado|s[ií],?\s*confirmo)\s*[.!]*\s*$/i;
+const REMINDER_RESCHEDULE = /^\s*(?:2|2️⃣|reprogramar)\s*[.!]*\s*$/i;
 const RESCHEDULE_TTL_MS = 30 * 60 * 1000;
 const pendingReschedules = new Map();
 
@@ -366,12 +394,28 @@ export async function handleAppointmentCommands(from, messageText, { appointment
       }
     }
 
+    // Respuesta a un recordatorio: "1" confirma, "2" reprograma (solo si no está eligiendo horarios nuevos).
+    const reminderAnswer = gemini.getOfferedSlots(from) ? null
+      : REMINDER_CONFIRM.test(messageText) ? 'confirm'
+        : REMINDER_RESCHEDULE.test(messageText) ? 'reschedule' : null;
     const wantsCancel = CANCEL_INTENT.test(messageText);
-    const wantsReschedule = !wantsCancel && RESCHEDULE_INTENT.test(messageText);
-    if (!wantsCancel && !wantsReschedule) return null;
+    let wantsReschedule = !wantsCancel && RESCHEDULE_INTENT.test(messageText);
+    if (!wantsCancel && !wantsReschedule && !reminderAnswer) return null;
     const appointment = await appointments.findUpcomingByPhone(from);
     if (!appointment) return null;
     const current = slotLabel({ date: appointment.appointment_date, time: appointment.appointment_time });
+
+    if (reminderAnswer && !wantsCancel && !wantsReschedule) {
+      if (!appointment.reminder_24h_sent_at && !appointment.reminder_2h_sent_at) return null;
+      if (reminderAnswer === 'confirm') {
+        if (appointment.status !== 'confirmada') {
+          const confirmed = await appointments.updateStatus(appointment.id, 'confirmada');
+          await appointments.notifyReception(confirmed, { event: 'confirmada' });
+        }
+        return `¡Gracias! Tu cita del ${current} quedó confirmada ✅. Te esperamos en ${activeClinic.address}.`;
+      }
+      wantsReschedule = true;
+    }
 
     if (wantsCancel) {
       await appointments.updateStatus(appointment.id, 'cancelada');
@@ -549,7 +593,24 @@ async function processBatch(from, buffer) {
   ]);
   void persistencePromise.catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
 
-  // Cancelar / reprogramar una cita existente se resuelve sin Gemini.
+  // Pase a humano activo: el mensaje ya quedó guardado, pero el bot no responde.
+  if (await handoffService.isPaused(from)) return;
+
+  // Urgencia clínica o pedido de hablar con una persona: se pausa el bot y se avisa a recepción.
+  const handoffReason = detectHandoff(messageText);
+  if (handoffReason) {
+    const reply = patientHandoffReply(handoffReason);
+    try {
+      const sendResult = await whatsappService.sendTextMessage(from, reply);
+      await recordBotReply(from, messageText, reply, null, sendResult);
+    } catch (error) {
+      console.error('webhookController: failed sending message to user', error);
+    }
+    await handoffService.handoff({ phone: from, reason: handoffReason, message: messageText, contactName: buffer.context?.contactName });
+    return;
+  }
+
+  // Cancelar / reprogramar / responder un recordatorio se resuelve sin Gemini.
   const commandReply = await handleAppointmentCommands(from, messageText);
   if (commandReply) {
     try {
@@ -612,7 +673,9 @@ async function processBatch(from, buffer) {
   // Fase B: nombre + tratamiento + horario → se guarda la cita y se avisa a recepción.
   let appointmentOutcome = null;
   if (geminiResult.appointmentRequest) {
-    appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, { phone: from });
+    appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, {
+      phone: from, adReferral: await getAdReferral(from),
+    });
     if (appointmentOutcome.status === 'slot_taken') {
       geminiService.releaseBooking(jid);
       geminiService.setOfferedSlots(jid, appointmentOutcome.alternatives);
@@ -721,7 +784,18 @@ export default async function webhookController(req, res, next) {
     if (message.from === 'status@broadcast' || message.type === 'system') return;
     const from = String(message.from || '').replace(/\D/g, '');
     if (!from) return;
-    const text = message.type === 'text' ? message.text?.body?.trim() : message.image?.caption?.trim();
+    // Texto, respuesta a botón de plantilla ("Confirmo" / "Reprogramar") o pie de foto.
+    const text = message.type === 'text' ? message.text?.body?.trim()
+      : message.type === 'button' ? message.button?.text?.trim()
+        : message.type === 'interactive'
+          ? (message.interactive?.button_reply?.title || message.interactive?.list_reply?.title)?.trim()
+          : message.image?.caption?.trim();
+    const referral = sanitizeReferral(message.referral);
+    if (referral) {
+      adReferrals.set(from, referral);
+      void leadService.saveLeadAdReferral(from, referral)
+        .catch((error) => console.error('[Leads] No se pudo guardar el anuncio de origen:', error?.message || error));
+    }
     const context = {
       contactName: value?.contacts?.[0]?.profile?.name || from,
       phoneNumberId: value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || null,
@@ -742,7 +816,8 @@ export default async function webhookController(req, res, next) {
           } catch (error) {
             console.error('[WhatsApp] Error al enviar bienvenida inicial:', error);
           }
-          return;
+          // Una urgencia en el primer mensaje no se queda solo con la bienvenida: se procesa igual.
+          if (!detectHandoff(text)) return;
         }
         if (message.type === 'image') {
           try {

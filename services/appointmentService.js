@@ -237,6 +237,7 @@ export function createAppointmentService({
       nueva: '🦷 Nueva solicitud de cita',
       reprogramada: '🔁 Cita reprogramada por el paciente',
       cancelada: '❌ Cita cancelada por el paciente',
+      confirmada: '✅ El paciente confirmó su asistencia',
     };
     const phone = String(appointment.sender_phone || '').replace(/\D/g, '');
     const lines = [
