@@ -430,7 +430,7 @@ const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
 // Consultas de precio o de un tratamiento: de noche se aprovechan para ofrecer horarios "en caliente".
 const PRICE_INTENT = /\b(?:precio|precios|cu[aá]nto|cuesta|costo|cuotas?|inicial|promo(?:ci[oó]n)?|campa[nñ]a|descuento)\b/i;
 // Solo un saludo: basta la bienvenida. Cualquier otra cosa en el primer mensaje se responde de inmediato.
-const GREETING_ONLY = /^[\s¡!¿?.,]*(?:hola+|holi|ola|buenas|buen[oa]s?\s+(?:noches|tardes|d[ií]as)|buen\s+d[ií]a|hi|hello|info|informaci[oó]n)[\s!?.,😊👋🙂]*$/iu;
+export const GREETING_ONLY = /^[\s¡!¿?.,]*(?:(?:hola+|holi|ola|buenas|buen[oa]s?\s+(?:noches|tardes|d[ií]as)|buen\s+d[ií]a|hi|hello|info|informaci[oó]n)[\s!?.,😊👋🙂]*)+$/iu;
 const UNSUPPORTED_REPLIES = {
   audio: 'Disculpa 🙏 todavía no puedo escuchar audios. ¿Me lo escribes en un mensaje? Así te ayudo al toque con precios, fotos u horarios.',
   video: 'Gracias por el video 🙏 por ahora no puedo verlo. ¿Me cuentas por escrito qué necesitas?',
@@ -700,7 +700,11 @@ async function processBatch(from, buffer) {
       const sendResult = await whatsappService.sendTextMessage(from, reply);
       await recordBotReply(from, messageText, reply, null, sendResult);
       if (firstContactUrgent) {
-        void conversationMetrics.recordFirstContact({ phone: from, firstMessageAt: buffer.context.sentAt, respondedAt: clockNow() });
+        // La fila de conversations la crea la persistencia del mensaje entrante: se espera antes de medir.
+        const respondedAt = clockNow();
+        void persistencePromise.catch(() => {}).then(() => conversationMetrics.recordFirstContact({
+          phone: from, firstMessageAt: buffer.context.sentAt, respondedAt,
+        }));
       }
     } catch (error) {
       console.error('webhookController: failed sending message to user', error);

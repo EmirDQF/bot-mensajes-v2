@@ -10,7 +10,7 @@ const {
 const { createConversationMetrics } = await import('./conversationMetrics.js');
 const { createHandoffService } = await import('./handoffService.js');
 const {
-  takeAfterHoursNotice, buildWelcomeCaption, AFTER_HOURS_NOTICE, aiFallbackReply,
+  takeAfterHoursNotice, buildWelcomeCaption, AFTER_HOURS_NOTICE, aiFallbackReply, GREETING_ONLY,
 } = await import('../controllers/webhookController.js');
 const { default: clinic } = await import('../config/clinic.config.js');
 const { fakeDb } = await import('./testing/fakeSupabase.js');
@@ -67,6 +67,11 @@ describe('modo nocturno: horario de la clínica', () => {
     const slots = [{ date: '2026-10-02', time: '09:00', label: 'viernes, 2 de octubre a las 9:00 a. m.' }];
     assert.match(aiFallbackReply(slots), /Horarios disponibles:[\s\S]*9:00 a\. m\./);
     assert.match(aiFallbackReply(null), /avisé al equipo de la clínica/);
+  });
+
+  it('treats only greetings as greetings; a question gets an immediate answer', () => {
+    for (const text of ['hola', 'Hola, buenas noches', 'buenas tardes!', 'Holaa 👋', 'info']) assert.ok(GREETING_ONLY.test(text), text);
+    for (const text of ['Hola, ¿cuánto cuestan los brackets?', 'buenas noches, vi su anuncio', 'quiero una cita']) assert.ok(!GREETING_ONLY.test(text), text);
   });
 
   it('offers tomorrow-morning slots at 10:30 p. m.', async () => {
