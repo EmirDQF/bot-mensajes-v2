@@ -1,47 +1,29 @@
-BotMensajes
-=============
+# Asistente de WhatsApp 24/7 para clínicas dentales (white-label)
 
-Descripción
------------
-Bot de mensajería para agendamiento que integra la API oficial de WhatsApp Cloud con Gemini (Google Generative AI) para extracción de datos mediante Function Calling. Diseñado para alto volumen y respuestas cortas.
+Atiende el WhatsApp de una clínica dental a cualquier hora: responde precios y dudas, envía fotos, ofrece 3 horarios
+libres reales y deja la **solicitud de cita** lista para que recepción la confirme. De noche avisa con naturalidad que
+la clínica está cerrada, deriva urgencias a recepción, envía recordatorios y le manda al dueño un resumen diario y un
+reporte semanal con la línea de la garantía.
 
-Variables de entorno (.env)
----------------------------
-Colocar un archivo .env en la raíz con al menos las siguientes variables (NO subir .env a git):
+Clínica demo: **Clínica Dental Denvari** (100 % ficticia), asistente **Camila**.
 
-- GEMINI_API_KEY=tu_clave
-- GEMINI_MODEL=gemini-3.5-flash-lite
-- ADMIN_WHATSAPP_NUMBER=+51XXXXXXXXX
-- CLINIC_NAME=Clínica Dental Sonrisa
-- CLINIC_ADDRESS=Av. Principal 123, Los Olivos
-- CLINIC_HOURS=Lunes a Sábado de 9:00 AM a 8:00 PM
-- CLINIC_CONTACT_PHONE=+51 999 999 999
-- CLINIC_DOCTOR_NAME=Dr(a). Ana García
-- PORT=3000
+## Empezar
 
-Este proyecto utiliza un loader propio (src/envLoader.js) que lee .env y asigna variables a process.env solo si no existen ya (respeta variables definidas por PM2/host).
+```bash
+npm install
+cp .env.example .env        # completa los valores (nunca subas .env)
+npm run preflight           # dice qué falta y cómo arreglarlo, sin mostrar claves
+npm start                   # http://localhost:3000/health · panel en /panel
+npm run test:unit
+```
 
-Cómo correr el bot
-------------------
-1. Instalar dependencias: npm install
-2. Asegurarse de tener .env en la raíz con GEMINI_API_KEY
-3. Iniciar: npm start
+## Documentación
 
-Tests y verificaciones
-----------------------
-- Smoke test que valida Function Calling y guardado de leads: npm run test:smoke (ejecuta scripts/smoke-test.js)
-- Tests unitarios de servicios: npm run test:unit
-
-Política de fallback heurístico
-------------------------------
-- Function Calling (Gemini) es el flujo principal. El sistema solo recurre al parser heurístico local como red de seguridad en caso de errores de red/servidor (timeouts, 5xx, ECONN*). No se usa fallback en errores de permisos (403), modelo inexistente (404) o fallos de autorización.
-- Cuando el fallback heurístico se activa en producción se registra una advertencia visible: console.warn('⚠️ Fallback heurístico activado ...').
-
-Seguridad
---------
-- .env está incluido en .gitignore y nunca debe subirse.
-
-Notas finales
-------------
-- Commit inicial creado localmente. No se ha hecho push a ningún remoto.
-- Si se rota la GEMINI_API_KEY, vuelva a actualizar .env y vuelva a ejecutar: npm run test:smoke
+| Para | Archivo |
+|---|---|
+| Programar (stack, mapa del código, reglas) | `CLAUDE.md` |
+| Poner en producción (Render, Supabase, Meta, cron-job.org) | `docs/deploy.md` |
+| Instalar una clínica nueva y medir la garantía | `docs/onboarding-cliente.md` |
+| Plantillas de WhatsApp para aprobar en Meta | `docs/whatsapp-templates.md` |
+| QA conversacional (`npm run simulate`) | `docs/qa-report.md` |
+| Demo de 60 s y kit de venta | `docs/demo-script.md`, `docs/ventas/` |
