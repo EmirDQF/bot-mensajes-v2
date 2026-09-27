@@ -48,8 +48,6 @@ services:
         sync: false
       - key: PANEL_PASSWORD
         sync: false
-      - key: PANEL_BACKEND_URL
-        sync: false
       - key: APPOINTMENT_MIN_LEAD_MINUTES
         sync: false
       - key: CRON_SECRET

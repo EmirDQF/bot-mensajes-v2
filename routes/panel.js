@@ -8,8 +8,8 @@ const router = express.Router();
 router.use(express.json());
 
 function requirePanelAuth(req, res, next) {
-  const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
-  const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
+  const username = process.env.PANEL_USER;
+  const password = process.env.PANEL_PASSWORD;
 
   const authHeader = req.headers.authorization || '';
   const [scheme, encoded] = authHeader.split(' ');

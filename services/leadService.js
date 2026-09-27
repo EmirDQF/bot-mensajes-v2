@@ -1,25 +1,16 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase } from './supabaseClient.js';
 
-// Supabase-backed lead service. For tests, call initSupabaseClient(mockClient) to inject a mock.
+// Leads en Supabase. Los tests inyectan un cliente falso con initSupabaseClient(mock).
 let supabase = null;
 export function initSupabaseClient(client) {
   supabase = client;
 }
 
-function normalizeSupabaseUrl(url) {
-  if (!url || typeof url !== 'string') return url;
-  return url.replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
-}
-
 function getSupabaseClient() {
   if (supabase) return supabase;
-  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
-  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-  const url = normalizeSupabaseUrl(rawUrl);
-  if (!url || !key) throw new Error('Supabase not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required)');
-  supabase = createClient(url, key);
-  return supabase;
+  const client = getSupabase();
+  if (!client) throw new Error('Supabase not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required)');
+  return client;
 }
 
 // Normalize phone to plain Peruvian digits (9 digits) or E.164-like +51... depending on input
@@ -539,6 +530,13 @@ export async function tryClaimNotification(leadId) {
   }
 }
 
+// Deshace el reclamo de tryClaimNotification cuando el aviso no pudo enviarse.
+export async function releaseNotificationClaim(leadId) {
+  const client = getSupabaseClient();
+  const { error } = await client.from('leads').update({ notified_at: null, updated_at: new Date().toISOString() }).eq('id', leadId);
+  if (error) throw error;
+}
+
 export async function markAsNotified(leadId) {
   const client = getSupabaseClient();
   try {
@@ -551,36 +549,12 @@ export async function markAsNotified(leadId) {
   }
 }
 
-export async function getClinicByWabaPhoneId(phoneNumberId) {
-  if (!phoneNumberId) return null;
-  const client = getSupabaseClient();
-  try {
-    if (typeof client.from === 'function') {
-      // prefer maybeSingle when available
-      if (typeof client.from('clinics').maybeSingle === 'function') {
-        const { data, error } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).maybeSingle();
-        if (error) throw error;
-        return data || null;
-      }
-      // fallback to select with limit
-      const { data, error } = await client.from('clinics').select('*').eq('waba_phone_number_id', phoneNumberId).limit(1);
-      if (error) throw error;
-      return Array.isArray(data) && data.length ? data[0] : null;
-    }
-    return null;
-  } catch (e) {
-    console.error('leadService.getClinicByWabaPhoneId error', e && e.message ? e.message : e);
-    throw e;
-  }
-}
-
 export default {
   saveLead,
   getByPhone,
   listLeads,
   validateLead,
   initSupabaseClient,
-  getClinicByWabaPhoneId,
   saveLeadSnapshot,
   saveLeadAdReferral,
   saveLeadAfterHours,

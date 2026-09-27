@@ -3,9 +3,8 @@ import geminiService from '../services/geminiService.js';
 import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService, { markMessageAsRead, sendTypingIndicator } from '../services/whatsappService.js';
-import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '../services/supabaseClient.js';
 import activeClinic, { findTreatment, getReceptionPhone, mediaUrl } from '../config/clinic.config.js';
 import appointmentService, {
   OutsideHoursError, SlotTakenError, isWithinWorkingHours, localParts, parseRequestedDay, slotLabel,
@@ -47,26 +46,10 @@ import {
   markMediaAsSent,
 } from '../services/mediaTrackingService.js';
 
-// Helper: upsert a message into chat_sessions.history
-let supabaseClient = null;
 const chatSessionHistoryCache = new Map();
 const welcomeSentRecipients = new Set();
-// Perfil de la clínica activa (config/clinics/<ACTIVE_CLINIC>.js). Una fila de la tabla
-// `clinics` de Supabase con el mismo waba_phone_number_id puede sobrescribir estos campos.
-export const DEFAULT_CLINIC = {
-  name: activeClinic.name,
-  city: activeClinic.city,
-  address: activeClinic.address,
-  schedule: activeClinic.workingHoursText,
-};
-
 async function getSupabaseClient() {
-  if (supabaseClient) return supabaseClient;
-  const rawUrl = config.supabase?.url || process.env.SUPABASE_URL;
-  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-  if (!rawUrl || !key) return null;
-  supabaseClient = createClient(rawUrl, key);
-  return supabaseClient;
+  return getSupabase();
 }
 
 // Filtros del derecho de supresión (Ley 29733): todo lo que el bot guarda de un paciente, por teléfono.
@@ -213,79 +196,6 @@ async function persistToChatSessions(sessionIdentifier, entry) {
     console.error('[Supabase] Error al persistir conversación:', e);
     return null;
   }
-}
-
-async function notifyMonitorPanel({ conversation_id, contact_name, sender, type, content, media_url, timestamp }) {
-  const panelBaseUrl = (process.env.PANEL_BACKEND_URL || '').replace(/\/+$/, '');
-  const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
-  const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
-  if (!panelBaseUrl || !username || !password) return;
-
-  try {
-    const authHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-    const body = {
-      conversation_id: String(conversation_id || '').trim(),
-      contact_name: contact_name || null,
-      sender,
-      type: type || 'text',
-      content: content || null,
-      media_url: media_url || null,
-      timestamp: timestamp || new Date().toISOString(),
-    };
-
-    const res = await fetch(`${panelBaseUrl}/api/hook`, {
-      method: 'POST',
-      headers: {
-        Authorization: authHeader,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res || !res.ok) {
-      const text = res && typeof res.text === 'function' ? await res.text() : '';
-      console.warn('Panel hook failed:', res && res.status ? res.status : 'unknown', text || '');
-    }
-  } catch (e) {
-    console.warn('notifyMonitorPanel failed (non-blocking):', e && e.message ? e.message : e);
-  }
-}
-
-async function notifyDashboardReply(phone, text, mediaUrl = null, wamid = null) {
-  const dashboardUrl = (process.env.PANEL_BACKEND_URL || '').replace(/\/+$/, '');
-  if (!dashboardUrl) return;
-  try {
-    const response = await fetch(`${dashboardUrl}/api/bot-reply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone: String(phone).replace(/\D/g, ''),
-        text: text || '',
-        type: mediaUrl ? 'image' : 'text',
-        mediaUrl: mediaUrl || null,
-        wamid: wamid || `bot_${Date.now()}`,
-      }),
-    });
-
-    if (!response.ok) {
-      const responseText = typeof response.text === 'function' ? await response.text() : '';
-      console.warn('Dashboard bot reply sync failed:', response.status, responseText);
-    }
-  } catch (err) {
-    console.error('Error sincronizando respuesta con el dashboard:', err?.message || err);
-  }
-}
-
-function notifyDashboardIncoming(payload) {
-  const dashboardUrl = (process.env.PANEL_BACKEND_URL || '').replace(/\/+$/, '');
-  if (!dashboardUrl) return;
-  fetch(`${dashboardUrl}/webhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).catch((err) => {
-    console.warn('Error sincronizando mensaje entrante con el dashboard:', err?.message || err);
-  });
 }
 
 function extractPlainText(input) {
@@ -530,8 +440,8 @@ const userProcessingQueues = new Map();
 const intakeQueues = new Map();
 const BUFFER_WAIT_MS = 2000;
 async function downloadIncomingImage(mediaId) {
-  const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN;
-  const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
+  const token = config.whatsapp.token;
+  const version = config.whatsapp.apiVersion;
   if (!token || !mediaId) throw new Error('Missing WhatsApp token or media id');
   const metadata = await fetch(`https://graph.facebook.com/${version}/${mediaId}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -628,13 +538,10 @@ async function sendFirstContactWelcome(senderPhone, context, messageText, { pers
   });
 }
 
-// Registra una respuesta ya enviada: dashboards opcionales, tabla conversations/messages y chat_sessions.
+// Registra una respuesta ya enviada: tabla conversations/messages y chat_sessions.
 async function recordBotReply(from, messageText, text, mediaUrlSent, sendResult) {
   const timestamp = new Date().toISOString();
   const wamid = sendResult?.messages?.[0]?.id || null;
-  forwardToDashboard({ direction: 'outgoing', outgoing: { to: from, text, mediaUrl: mediaUrlSent } });
-  await notifyDashboardReply(from, text, mediaUrlSent, wamid);
-  await notifyMonitorPanel({ conversation_id: from, sender: 'bot', type: mediaUrlSent ? 'image' : 'text', content: text, media_url: mediaUrlSent, timestamp });
   void persistToSupabaseConversation({
     conversationId: from, contactNumber: from, sender: 'bot',
     text, mediaUrl: mediaUrlSent, timestamp, whatsappMessageId: wamid,
@@ -661,29 +568,11 @@ async function processBatch(from, buffer) {
       }
     });
   }
-  const clinicPromise = (async () => {
-    if (!buffer.context?.phoneNumberId) return DEFAULT_CLINIC;
-    try {
-      const client = await getSupabaseClient();
-      if (!client) return DEFAULT_CLINIC;
-      const { data, error } = await client.from('clinics').select('*')
-        .eq('waba_phone_number_id', buffer.context.phoneNumberId).maybeSingle();
-      if (error) throw error;
-      return data ? { ...DEFAULT_CLINIC, ...data } : DEFAULT_CLINIC;
-    } catch (error) {
-      console.error('[Supabase] Error al consultar clínica:', error);
-      return DEFAULT_CLINIC;
-    }
-  })();
   const persistencePromise = persistToSupabaseConversation({
     conversationId: from, contactNumber: from,
     sender: 'user', text: messageText || null, mediaUrl: null, timestamp: new Date().toISOString(),
     whatsappMessageId: buffer.context?.messageId || null,
   });
-  const clinic = await Promise.race([
-    clinicPromise,
-    new Promise((resolve) => setTimeout(() => resolve(DEFAULT_CLINIC), 750)),
-  ]);
   void persistencePromise.catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
 
   // Pase a humano activo: el mensaje ya quedó guardado, pero el bot no responde.
@@ -745,7 +634,7 @@ async function processBatch(from, buffer) {
   let geminiResult;
   try {
     geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
-      client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts, clinic,
+      client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts,
       availableSlots: offeredSlots, afterHours, welcomed: Boolean(buffer.context?.welcomed),
     });
   } catch (error) {
@@ -780,7 +669,7 @@ async function processBatch(from, buffer) {
       leadResult = await leadService.saveLead({
         telefono: from, nombre: geminiResult.leadData.nombre, distrito: geminiResult.leadData.distrito,
         fechaHoraISO: geminiResult.leadData.fechaHoraISO, fechaHoraTexto: geminiResult.leadData.fechaHora,
-        confirmed: geminiService.isExplicitConfirmation(messageText), clinicId: clinic?.id || null, clinic,
+        confirmed: geminiService.isExplicitConfirmation(messageText), clinicId: activeClinic.id, clinic: activeClinic,
       });
     } catch (error) {
       console.error('[Supabase] Error al persistir conversación:', error);
@@ -865,7 +754,7 @@ async function processBatch(from, buffer) {
   await recordBotReply(from, messageText, textoParaWhatsApp, finalMediaUrl, sendResult);
   // Si ya se avisó a recepción por la cita, no se duplica la alerta de lead.
   if (leadResult?.readyToNotify && leadResult.lead && appointmentOutcome?.status !== 'saved') {
-    try { await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService, clinic }); }
+    try { await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService }); }
     catch (error) { console.error('webhookController: error in admin notify flow', error); }
   }
 }
@@ -906,7 +795,6 @@ export default async function webhookController(req, res, next) {
     if (Array.isArray(value?.statuses) && value.statuses.length > 0) return;
     const message = value?.messages?.[0];
     if (!message) return;
-    if (payload) notifyDashboardIncoming(payload);
     // Meta reintenta si el 200 llega tarde (Render despertando): cada message.id se procesa una sola vez.
     if (await messageDedup.seen(message.id)) return;
     if (message.from === 'status@broadcast' || message.type === 'system') return;
@@ -998,6 +886,5 @@ export default async function webhookController(req, res, next) {
     intakeQueues.set(from, tracked);
   } catch (error) {
     console.error('webhookController: background processing error', error);
-    console.error('webhookController: request payload processing failed', error);
   }
 }

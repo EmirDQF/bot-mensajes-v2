@@ -1,5 +1,4 @@
 import config from '../config/env.js';
-import { CATALOGO, obtenerImagen } from '../config/catalogo.js';
 import clinic, { findTreatment } from '../config/clinic.config.js';
 import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
 import { now as clockNow } from './clock.js';
@@ -10,7 +9,6 @@ const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
-const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
 const formatSoles = (value) => `S/ ${Number(value).toLocaleString('es-PE')}`;
 
 // Construye el prompt de la asistente a partir de config/clinics/<id>.js. Sin datos fijos de ninguna clínica.
@@ -111,7 +109,6 @@ export function getOrCreateSession(jid) {
       lastUserMessageAt: 0,
       booked: false,
       leadSnapshot: null,
-      paused: false,
       restorePromise: null,
     };
     session.restorePromise = restoreSession(sid, session).catch(() => null);
@@ -127,24 +124,6 @@ export async function ensureSessionLoaded(session) {
     session.restorePromise = null;
   }
   return session;
-}
-
-export function pauseSessionById(jid) {
-  const sid = sessionId(jid);
-  const session = getOrCreateSession(sid);
-  session.paused = true;
-  return true;
-}
-
-export function resumeSessionById(jid) {
-  const session = chatSessions.get(sessionId(jid));
-  if (!session) return false;
-  session.paused = false;
-  return true;
-}
-
-export function isSessionPaused(jid) {
-  return Boolean(chatSessions.get(sessionId(jid))?.paused);
 }
 
 // Horarios concretos ofrecidos al paciente (appointmentService.findNextSlots); se eligen con "1", "2" o "3".
@@ -312,9 +291,9 @@ function limaNow() {
 }
 
 export function buildSystemPromptWithContext(jid, session = null, clinicOverride = null) {
-  const profile = clinicOverride || config.clinicProfile || {};
+  const profile = clinicOverride || clinic;
   const address = profile.address || clinic.address;
-  const hours = profile.schedule || profile.hours || clinic.workingHoursText;
+  const hours = profile.workingHoursText || clinic.workingHoursText;
   const snapshot = session?.leadSnapshot;
   const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
@@ -492,59 +471,6 @@ function collectLead(session, message, senderPhone = null) {
   return Object.values(lead).some(Boolean) ? lead : null;
 }
 
-export function determinarCategoriaImagen(mensaje, respuestaIA) {
-  const texto = String(mensaje || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  if (!texto.trim()) return null;
-
-  const exclusiones = [
-    /\b(?:atienden|abierto|abierta|siguen|hora|horario|horarios)\b/,
-    /\b(?:cuota|cuotas|mensualidad|mensualidades|financiamiento|forma de pago|formas de pago)\b/,
-    /\b(?:sacar cita|agendar|quiero cita|turno|reservar|reserva)\b/,
-    /^(?:hola|buenas(?: tardes| dias| noches)?|gracias|ok|dale)[!.?\s]*$/,
-  ];
-  if (exclusiones.some((pattern) => pattern.test(texto))) return null;
-
-  const mapeoTratamientos = [
-    { claves: ['bracket', 'brackets', 'ortodoncia', 'frenillos', 'frenos', 'invisalign'], categoria: 'ortodoncia' },
-    { claves: ['antes y despues', 'resultados ortodoncia', 'caso ortodoncia'], categoria: 'ortodoncia_1' },
-    { claves: ['implante', 'implantes'], categoria: 'implantes' },
-    { claves: ['limpieza', 'profilaxis', 'destartraje', 'sarro'], categoria: 'limpieza' },
-    { claves: ['kit preventivo', 'preventivo', 'kit dental', 'kit'], categoria: 'kit_preventivo' },
-    { claves: ['resina', 'resinas', 'curacion', 'curaciones', 'restauracion'], categoria: 'restauracion' },
-    { claves: ['carilla', 'carillas', 'diseno de sonrisa', 'sonrisa'], categoria: 'carillas' },
-    { claves: ['blanqueamiento', 'blanquear'], categoria: 'blanqueamiento' },
-    { claves: ['endodoncia', 'conducto'], categoria: 'endodoncia' },
-    { claves: ['odontopediatria', 'odontopediatría', 'niño', 'niños', 'bebe', 'hijo'], categoria: 'odontopediatria' },
-    { claves: ['protesis', 'prótesis', 'placa'], categoria: 'protesis' },
-    { claves: ['extraccion', 'extracción', 'muela del juicio', 'sacar muela'], categoria: 'extraccion' },
-    { claves: ['periodoncia', 'encia', 'encía', 'encias'], categoria: 'periodoncia' },
-    { claves: ['corona', 'coronas', 'funda'], categoria: 'corona' },
-    { claves: ['gingivectomia', 'gingivectomía'], categoria: 'gingivectomia' },
-    { claves: ['cuanto cuesta la evaluacion', 'costo de consulta', 'que incluye el chequeo', 'diagnostico', 'consulta inicial'], categoria: 'evaluacion' },
-    { claves: ['ubicacion', 'ubicados', 'ubicadas', 'sede', 'direccion', 'mapa', 'donde queda', 'donde quedan'], categoria: 'ubicacion' },
-    { claves: ['fachada', 'clinica', 'consultorio', 'instalaciones'], categoria: 'fachada' },
-  ];
-
-  for (const item of mapeoTratamientos) {
-    if (item.claves.some((clave) => texto.includes(clave))) {
-      return item.categoria;
-    }
-  }
-
-  return null;
-}
-
-export function getImagenCategoria(categoria) {
-  if (!categoria) return null;
-  const valor = obtenerImagen(categoria) || CATALOGO.default || null;
-  // Si la categoría tiene varias fotos (ej. casos antes/después), elige una al azar
-  // en vez de mandar siempre la primera — así no se repite la misma imagen cada vez.
-  if (Array.isArray(valor)) {
-    return valor[Math.floor(Math.random() * valor.length)];
-  }
-  return valor;
-}
-
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const session = getOrCreateSession(jid);
   await ensureSessionLoaded(session);
@@ -600,8 +526,6 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
     failureCounts.delete(sid);
 
-    const categoria = determinarCategoriaImagen(messageText, rawText);
-    const imagenURL = getImagenCategoria(categoria);
 
     if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
       session.booked = true;
@@ -617,7 +541,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
     // rawTexto conserva las etiquetas [ENVIAR_FOTO: x] que sanitizeModelTextOutput elimina o deforma.
     return {
-      texto, rawTexto: rawText, leadData, imagenURL, appointmentRequest, skipLeadPersistence: Boolean(options.skipLeadPersistence),
+      texto, rawTexto: rawText, leadData, appointmentRequest, skipLeadPersistence: Boolean(options.skipLeadPersistence),
     };
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;
@@ -626,35 +550,19 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     return {
       texto: null,
       leadData: null,
-      imagenURL: null,
       skipResponse: true,
     };
   }
 }
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [sid, session] of chatSessions) {
-    if (now - session.lastUserMessageAt > (session.booked ? BOOKED_TTL_MS : SESSION_TTL_MS)) {
-      chatSessions.delete(sid);
-      failureCounts.delete(sid);
-    }
-  }
-}, CLEANUP_MS).unref?.();
-
 export default {
   obtenerRespuestaIA,
   sanitizeModelTextOutput,
   isExplicitConfirmation,
-  pauseSessionById,
-  resumeSessionById,
-  isSessionPaused,
   resetSession,
   getOrCreateSession,
   extractLeadDataFromText,
   isValidName,
-  determinarCategoriaImagen,
-  getImagenCategoria,
   setOfferedSlots,
   getOfferedSlots,
   releaseBooking,

@@ -35,7 +35,6 @@ solo copiar y pegar valores. Tiempo total: 60–90 minutos la primera vez.
    | `PANEL_USER`, `PANEL_PASSWORD` | Usuario y contraseña (12+ caracteres) del panel de recepción |
    | `CRON_SECRET` | Una clave larga al azar. Genérala con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `PUBLIC_BASE_URL` | Déjala vacía: Render usa su propia dirección (`RENDER_EXTERNAL_URL`) |
-   | `PANEL_BACKEND_URL` | **Vacía** (así ningún mensaje sale a un sistema externo) |
    | El resto (`APPOINTMENT_MIN_LEAD_MINUTES`, `FOLLOW_UP_AFTER_HOURS`, `WA_TEMPLATE_*`) | Los valores de `.env.example` |
 
 4. **Apply**. Cuando termine, copia la dirección del servicio (ej. `https://asistente-dental.onrender.com`).
@@ -51,7 +50,7 @@ solo copiar y pegar valores. Tiempo total: 60–90 minutos la primera vez.
 2. Menú izquierdo → **SQL Editor** → **New query**. Abre cada archivo de la carpeta `migrations/` **en este orden**,
    copia todo su contenido, pégalo y presiona **Run** (debe decir "Success"):
    1. `20260801_base_leads_messages.sql`
-   2. `20260803_add_chatwoot_fields_to_clinics.sql`
+   2. `20260803_add_chatwoot_fields_to_clinics.sql` (histórica: el producto ya no usa Chatwoot; puedes omitirla)
    3. `20260806_add_lead_snapshot.sql`
    4. `20260823_create_chat_sessions.sql`
    5. `20260904_add_whatsapp_media_tracking.sql`

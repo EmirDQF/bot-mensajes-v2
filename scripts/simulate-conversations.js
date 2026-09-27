@@ -19,7 +19,6 @@ Object.assign(process.env, {
   WHATSAPP_TOKEN: 'simulado',
   WHATSAPP_PHONE_NUMBER_ID: 'simulado',
   WHATSAPP_APP_SECRET: '',
-  PANEL_BACKEND_URL: '',
   CLINIC_PHONE: '',
   // Números ficticios de simulación (no existen): solo sirven para ver a quién iría cada alerta.
   RECEPTION_ALERT_PHONE: '000000001',

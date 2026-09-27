@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic, { getReceptionPhone } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
 import { isWithinWorkingHours } from './appointmentService.js';
@@ -26,14 +25,6 @@ export function patientHandoffReply(reason) {
       + `acude a la clínica (${activeClinic.address}) o a emergencias.`;
   }
   return '¡Claro! Ya avisé a nuestro equipo; una persona te escribirá en unos minutos por este mismo chat. 📲';
-}
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (defaultClient) return defaultClient;
-  if (!config.supabase?.url || !config.supabase?.serviceRoleKey) return null;
-  defaultClient = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-  return defaultClient;
 }
 
 const CACHE_MS = 60 * 1000;

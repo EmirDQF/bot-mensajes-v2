@@ -1,19 +1,10 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase as getDefaultClient } from './supabaseClient.js';
 
 // Meta reintenta el webhook si no recibe el 200 a tiempo (por ejemplo, mientras Render despierta).
 // Cada message.id se procesa una sola vez: memoria (24 h) + tabla webhook_events, que sobrevive a
 // reinicios. Sin la tabla (migrations/20260928_create_webhook_events.sql) queda solo la memoria.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (defaultClient) return defaultClient;
-  if (!config.supabase?.url || !config.supabase?.serviceRoleKey) return null;
-  defaultClient = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-  return defaultClient;
-}
 
 export function createMessageDedup({ getClient = getDefaultClient, ttlMs = DAY_MS, maxEntries = 10000, now = () => Date.now() } = {}) {
   const seenAt = new Map();

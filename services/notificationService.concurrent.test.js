@@ -3,7 +3,7 @@ import assert from 'assert';
 
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost';
 process.env.SUPABASE_KEY = process.env.SUPABASE_KEY || 'anon';
-process.env.ADMIN_WHATSAPP_NUMBER = process.env.ADMIN_WHATSAPP_NUMBER || '51987654321';
+process.env.RECEPTION_ALERT_PHONE = process.env.RECEPTION_ALERT_PHONE || '51987654321';
 
 let notificationService;
 let leadService;

@@ -1,5 +1,4 @@
 import config from '../config/env.js';
-import { sendPanelMessage } from './panelMessaging.js';
 
 export async function sendMessage(req, res) {
   const { phone, text, imageUrl } = req.body || {};

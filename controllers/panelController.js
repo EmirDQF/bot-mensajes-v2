@@ -2,7 +2,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import config from '../config/env.js';
-import { sendPanelMessage } from './panelMessaging.js';
 import { mediaPath } from '../config/clinic.config.js';
 import { extractPhotoTags } from '../services/mediaTags.js';
 import handoffService from '../services/handoffService.js';
@@ -294,11 +293,6 @@ export async function toggleBot(req, res) {
     console.error('Failed to toggle bot state', e && e.message ? e.message : e);
     return res.status(500).json({ error: 'No se pudo cambiar el estado' });
   }
-}
-
-// POST /api/panel/send-message
-export async function sendMessage(req, res) {
-  return sendPanelMessage(req, res);
 }
 
 // Marca las conversaciones con el bot en pausa (conversations.status = 'human') y las pone primero.

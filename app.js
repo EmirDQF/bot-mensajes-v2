@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import webhookRouter from './routes/webhook.js';
@@ -20,8 +19,8 @@ function getDefaultSupabase() {
 }
 
 function requirePanelAuth(req, res, next) {
-  const username = process.env.PANEL_USER || process.env.PANEL_USERNAME;
-  const password = process.env.PANEL_PASSWORD || process.env.PANEL_PASS;
+  const username = process.env.PANEL_USER;
+  const password = process.env.PANEL_PASSWORD;
   const [scheme, encoded] = (req.headers.authorization || '').split(' ');
 
   if (!username || !password) {
@@ -67,9 +66,6 @@ export function createApp({ getSupabase = getDefaultSupabase } = {}) {
       return res.status(503).json({ status: 'error', supabase: error?.message || 'sin respuesta' });
     }
   });
-
-  app.use(cors({ origin: true, credentials: true }));
-  app.options(/.*/, cors({ origin: true, credentials: true }));
 
   const publicDir = path.join(process.cwd(), 'public');
   app.use('/media', express.static(path.join(process.cwd(), 'media')));

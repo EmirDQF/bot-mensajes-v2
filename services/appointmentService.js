@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic, { findTreatment, getReceptionPhone } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
 import { now as clockNow } from './clock.js';
@@ -110,16 +109,6 @@ export function parseRequestedDay(text, today) {
 }
 
 // ---------- Servicio ----------
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (defaultClient) return defaultClient;
-  const url = config.supabase?.url;
-  const key = config.supabase?.serviceRoleKey;
-  if (!url || !key) return null;
-  defaultClient = createClient(url, key);
-  return defaultClient;
-}
 
 export function createAppointmentService({
   getClient = getDefaultClient,

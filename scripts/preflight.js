@@ -111,6 +111,10 @@ export function readMigrations(dir = path.join(ROOT, 'migrations')) {
     .map((name) => ({ name, sql: fs.readFileSync(path.join(dir, name), 'utf8') }));
 }
 
+// Tablas que el producto ya no usa (se conservan en Supabase, sin borrar datos): clinics guardaba la
+// integración con Chatwoot, reemplazada por la bandeja propia del panel.
+export const LEGACY_TABLES = new Set(['clinics']);
+
 const TABLE_MISSING = new Set(['42P01', 'PGRST205', 'PGRST106']);
 const COLUMN_MISSING = new Set(['42703', 'PGRST204']);
 
@@ -119,6 +123,7 @@ export async function checkSupabase(client, schema) {
   if (!client) return [fail('No hay conexión a Supabase', 'Define SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.')];
   for (const [name, info] of Object.entries(schema)) {
     if (!info.required && !info.created) continue; // ALTER TABLE IF EXISTS sobre una tabla opcional
+    if (LEGACY_TABLES.has(name)) continue;
     const columns = [...info.columns.keys()];
     const { error } = await client.from(name).select(columns.join(',') || '*').limit(1);
     if (!error) {

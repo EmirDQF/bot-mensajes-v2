@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic from '../config/clinic.config.js';
 import { isMissingColumn, isWithinWorkingHours } from './appointmentService.js';
 import leadService from './leadService.js';
@@ -8,14 +7,6 @@ import { now as clockNow } from './clock.js';
 // Métricas del primer contacto: ¿llegó con la clínica cerrada? ¿cuánto tardó la primera respuesta?
 // Se guardan en conversations (first_message_at, first_response_ms, after_hours) y leads.after_hours.
 // Nunca lanzan: una métrica que falla no puede frenar la conversación.
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (defaultClient) return defaultClient;
-  if (!config.supabase?.url || !config.supabase?.serviceRoleKey) return null;
-  defaultClient = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-  return defaultClient;
-}
 
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 let warnedMissingColumns = false;

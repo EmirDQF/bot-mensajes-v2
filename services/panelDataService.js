@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic, { getOwnerPhone, getReceptionPhone } from '../config/clinic.config.js';
 import TEMPLATES from '../config/whatsappTemplates.js';
 import appointmentService, { addDays, formatDateEs, formatTimeEs, localParts } from './appointmentService.js';
@@ -11,14 +10,6 @@ import { now as clockNow } from './clock.js';
 
 export const PANEL_STATUSES = ['confirmada', 'asistio', 'no_asistio', 'cancelada'];
 const NO_AD_LABEL = 'Orgánico / sin anuncio';
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (defaultClient) return defaultClient;
-  if (!config.supabase?.url || !config.supabase?.serviceRoleKey) return null;
-  defaultClient = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-  return defaultClient;
-}
 
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 const adName = (referral) => referral?.headline || referral?.source_id || NO_AD_LABEL;

@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic, { findTreatment, getOwnerPhone, getReceptionPhone } from '../config/clinic.config.js';
 import TEMPLATES from '../config/whatsappTemplates.js';
 import { addDays, formatDateEs, isWithinWorkingHours, localParts, toInstant } from './appointmentService.js';
@@ -16,14 +15,6 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const NO_AD_LABEL = 'Orgánico / sin anuncio';
 const CONFIRMED = ['confirmada', 'asistio'];
 export const GUARANTEE_TARGET = Math.max(1, Number(process.env.GUARANTEE_MIN_CONFIRMED || 2));
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (defaultClient) return defaultClient;
-  if (!config.supabase?.url || !config.supabase?.serviceRoleKey) return null;
-  defaultClient = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-  return defaultClient;
-}
 
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 const adName = (referral) => referral?.headline || referral?.source_id || NO_AD_LABEL;

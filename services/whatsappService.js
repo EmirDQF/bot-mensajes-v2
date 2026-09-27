@@ -163,11 +163,6 @@ export function sendTemplateMessage(toPhone, name, bodyParams = [], { language =
   return sendWhatsAppMessage(toPhone, `[plantilla ${name}]`, { ...options, template: { name, language, bodyParams: params } });
 }
 
-export function sendMedia(toPhone, type, mediaUrl, caption = '', options = {}) {
-  if (type !== 'image') throw new Error(`Unsupported WhatsApp media type: ${type}`);
-  return sendImageMessage(toPhone, mediaUrl, caption, options);
-}
-
 async function sendStatus(toPhone, status, messageId = null, typing = false) {
   const phoneNumberId = config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
@@ -201,7 +196,6 @@ export default {
   sendTextMessage,
   sendImageMessage,
   sendTemplateMessage,
-  sendMedia,
   markMessageAsRead,
   sendTypingIndicator,
 };

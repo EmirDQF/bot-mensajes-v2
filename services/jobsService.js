@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic, { getOwnerPhone, getReceptionPhone } from '../config/clinic.config.js';
 import TEMPLATES from '../config/whatsappTemplates.js';
 import whatsappService from './whatsappService.js';
@@ -12,19 +11,11 @@ import messageDedup from './messageDedup.js';
 import { fetchAllRows } from './supabasePaging.js';
 
 // Tareas programadas. Las dispara un cron externo (Render Cron Job) vía POST /jobs/* con CRON_SECRET;
-// no se usa setInterval porque Render duerme el servicio.
+// no hay temporizadores internos porque Render duerme el servicio.
 
 const HOUR_MS = 60 * 60 * 1000;
 const WINDOW_MS = 23.5 * HOUR_MS; // margen de seguridad sobre la ventana de 24 h de WhatsApp
 const FOLLOW_UP_AFTER_HOURS = Number(process.env.FOLLOW_UP_AFTER_HOURS || 20);
-
-let defaultClient = null;
-function getDefaultClient() {
-  if (defaultClient) return defaultClient;
-  if (!config.supabase?.url || !config.supabase?.serviceRoleKey) return null;
-  defaultClient = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-  return defaultClient;
-}
 
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';

@@ -1,25 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/env.js';
+import { getSupabase } from './supabaseClient.js';
 
-let clientOverride = null;
 const PENDING_TTL_MS = Number(process.env.MEDIA_SEND_PENDING_TTL_MS || 10 * 60 * 1000);
 
-export function initMediaTrackingClient(client) {
-  clientOverride = client;
-}
-
 function getClient() {
-  if (clientOverride) return clientOverride;
-  const url = config.supabase?.url || process.env.SUPABASE_URL;
-  const key = config.supabase?.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-  if (!url || !key) return null;
-  try {
-    clientOverride = createClient(url, key);
-  } catch (error) {
-    console.error('[mediaTracking] Supabase client initialization failed:', error);
-    return null;
-  }
-  return clientOverride;
+  return getSupabase();
 }
 
 export async function hasMediaBeenSent(recipient, imageKey, campaignKey = 'catalog') {
@@ -125,24 +109,9 @@ export async function completeMediaSend(id, status = 'sent', errorMessage = null
   }
 }
 
-export async function sendCampaignWelcome({ recipient, send, imageKey = 'logo', campaignKey = 'catalog' } = {}) {
-  const claim = await claimMediaSend({ recipient, imageKey, campaignKey });
-  if (!claim.claimed) return { sent: false, alreadySent: Boolean(claim.alreadySent) };
-  try {
-    const result = await send();
-    await completeMediaSend(claim.id, 'sent');
-    return { sent: true, result };
-  } catch (error) {
-    await completeMediaSend(claim.id, 'failed', error?.message || error);
-    throw error;
-  }
-}
-
 export default {
   claimMediaSend,
   completeMediaSend,
-  sendCampaignWelcome,
   hasMediaBeenSent,
   markMediaAsSent,
-  initMediaTrackingClient,
 };

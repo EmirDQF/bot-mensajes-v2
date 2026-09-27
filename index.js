@@ -1,30 +1,10 @@
 import './src/envLoader.js';
-import fs from 'fs/promises';
-import path from 'path';
 import createApp from './app.js';
 import { initializeGeminiClient } from './src/geminiClient.js';
 import clinic, { missingPhoneVars } from './config/clinic.config.js';
 
 const app = createApp();
 
-// Limpieza de archivos temporales huérfanos relacionados con leads.
-// Esto elimina archivos como leads.json.tmp o leads.test.json.tmp que podrían haber quedado si el proceso
-// se cayó mientras se escribía el archivo temporal. Se ejecuta al inicio y no bloquea el arranque en caso de error.
-(async function cleanupTmpFiles() {
-  try {
-    const cwd = process.cwd();
-    const files = await fs.readdir(cwd);
-    for (const f of files) {
-      if (/^leads(\.test)?\.json\.tmp$/.test(f)) {
-        const p = path.resolve(cwd, f);
-        await fs.rm(p, { force: true });
-        console.log(`🧹 Removed orphan tmp file: ${p}`);
-      }
-    }
-  } catch (e) {
-    console.warn('Error cleaning tmp files at startup:', e && e.message ? e.message : e);
-  }
-})();
 const port = process.env.PORT || 3000;
 
 // Initialize once at startup so webhook batches reuse the same Gemini client.

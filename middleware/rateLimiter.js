@@ -5,7 +5,6 @@
 
 const DEFAULT_MAX = Number(process.env.RATE_LIMIT_MAX || 20);
 const DEFAULT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000); // 1 minute
-const DEFAULT_CLEANUP_MS = Number(process.env.RATE_LIMIT_CLEANUP_MS || 60_000);
 
 // Map<string, number[]> -> key (phone or ip) -> array of timestamps (ms)
 const buckets = new Map();
@@ -44,9 +43,8 @@ function cleanupBuckets(windowMs = DEFAULT_WINDOW_MS) {
   }
 }
 
-// start periodic cleanup
-const cleanupInterval = setInterval(() => cleanupBuckets(DEFAULT_WINDOW_MS), DEFAULT_CLEANUP_MS);
-cleanupInterval.unref && cleanupInterval.unref();
+// Limpieza perezosa (en cada request, como mucho una vez por ventana): sin temporizadores.
+let lastCleanup = 0;
 
 export default function rateLimiter(options = {}) {
   const max = Number(options.max || DEFAULT_MAX);
@@ -65,6 +63,10 @@ export default function rateLimiter(options = {}) {
       }
 
       const now = nowMs();
+      if (now - lastCleanup > windowMs) {
+        cleanupBuckets(windowMs);
+        lastCleanup = now;
+      }
       const cutoff = now - windowMs;
       const existing = buckets.get(key) || [];
       const recent = existing.filter((t) => t > cutoff);

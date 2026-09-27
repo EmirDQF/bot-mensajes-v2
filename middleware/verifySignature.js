@@ -1,21 +1,6 @@
 import crypto from 'crypto';
 import config from '../config/env.js';
 
-// Map to track processed message IDs with expiry timestamp
-const processedIds = new Map();
-const DEFAULT_TTL_MS = Number(process.env.WHATSAPP_MESSAGE_DEDUP_TTL_MS || 5 * 60 * 1000); // 5 minutes
-const CLEANUP_INTERVAL_MS = Number(process.env.WHATSAPP_DEDUP_CLEANUP_MS || 60 * 1000);
-
-function cleanupProcessedIds() {
-  const now = Date.now();
-  for (const [id, exp] of processedIds) {
-    if (exp <= now) processedIds.delete(id);
-  }
-}
-
-const cleanupInterval = setInterval(cleanupProcessedIds, CLEANUP_INTERVAL_MS);
-cleanupInterval.unref && cleanupInterval.unref();
-
 export default function verifySignature(options = {}) {
   const appSecret = config.whatsapp?.appSecret || process.env.WHATSAPP_APP_SECRET || null;
   const enforce = String(process.env.ENFORCE_WHATSAPP_SIGNATURE || 'false').toLowerCase() === 'true';
@@ -72,7 +57,7 @@ export default function verifySignature(options = {}) {
         return res.status(403).json({ error: 'Forbidden' });
       }
 
-      // Parse body and deduplicate by message.id
+      // Cuerpo firmado y válido: se parsea una sola vez para el controlador.
       let parsed = null;
       try {
         parsed = JSON.parse(rawBody.toString('utf8'));
@@ -82,25 +67,7 @@ export default function verifySignature(options = {}) {
         return res.sendStatus(400);
       }
 
-      // Extract message.id from known Cloud API shapes
-      const messageId = parsed?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id
-        || parsed?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.message?.id
-        || parsed?.messages?.[0]?.id
-        || parsed?.id
-        || null;
-
-      if (messageId) {
-        const existing = processedIds.get(messageId);
-        if (existing && existing > Date.now()) {
-          // Already processed recently -> respond 200 and do not call next (idempotent)
-          console.log('verifySignature: duplicate message ignored', messageId);
-          return res.sendStatus(200);
-        }
-
-        // register id with expiry
-        processedIds.set(messageId, Date.now() + DEFAULT_TTL_MS);
-      }
-
+      // La deduplicación por message.id la hace services/messageDedup.js (memoria + tabla webhook_events).
       // attach parsed body for downstream consumers to avoid reparsing
       req.parsedBody = parsed;
       return next();

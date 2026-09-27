@@ -2,7 +2,7 @@ import assert from 'assert';
 import { describe, it, before } from 'node:test';
 
 process.env.NODE_ENV = 'test';
-process.env.ADMIN_WHATSAPP_NUMBER = '51987654321';
+process.env.RECEPTION_ALERT_PHONE = '51987654321';
 
 let notificationService;
 
@@ -55,9 +55,8 @@ describe('notificationService', () => {
     assert.equal(notifiedId, 'lead-123');
   });
 
-  it('uses clinic admin_whatsapp_number when provided', async () => {
+  it('ignores any phone stored in the database: only RECEPTION_ALERT_PHONE receives alerts', async () => {
     let sentTo = null;
-    let sentText = null;
     const result = await notificationService.notifyAdminNewLead({
       id: 'lead-999',
       ready_to_notify: true,
@@ -67,25 +66,14 @@ describe('notificationService', () => {
       distrito: 'Barranco',
       fecha_hora_texto: 'viernes 14 de agosto a las 3pm',
     }, {
-      whatsappService: {
-        async sendWhatsAppMessage(toPhone, text) {
-          sentTo = toPhone;
-          sentText = text;
-          return { success: true };
-        },
-      },
-      leadService: {
-        async markAsNotified(id) { return { id, notified_at: new Date().toISOString() }; },
-      },
-      clinic: {
-        admin_whatsapp_number: '51911122233',
-      },
+      whatsappService: { async sendWhatsAppMessage(toPhone) { sentTo = toPhone; return { success: true }; } },
+      leadService: { async markAsNotified(id) { return { id, notified_at: new Date().toISOString() }; } },
+      clinic: { admin_whatsapp_number: '51911122233' },
     });
 
     assert.equal(result, true);
-    assert.equal(sentTo, '51911122233');
-    assert.ok(sentText.includes('🚨 ¡NUEVO PACIENTE AGENDADO!'));
-   });
+    assert.equal(sentTo, '51987654321');
+  });
 
    it('does not send admin alert if lead is already notified', async () => {
     let sent = false;
