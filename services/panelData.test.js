@@ -4,7 +4,6 @@ import assert from 'assert';
 process.env.NODE_ENV = 'test';
 
 const { createPanelData } = await import('./panelDataService.js');
-const { prioritizeWaitingHuman } = await import('../controllers/panelController.js');
 const { fakeDb } = await import('./testing/fakeSupabase.js');
 const { default: clinic } = await import('../config/clinic.config.js');
 
@@ -28,7 +27,7 @@ describe('panel: agenda de hoy / mañana', () => {
     assert.deepEqual(agenda.appointments.map((a) => a.id), ['a', 'b']); // sin la otra clínica
     assert.deepEqual(agenda.appointments[1], {
       id: 'b', time: '11:00', timeLabel: '11:00 a. m.', patientName: 'Luis Rojas', phone: '51922222222',
-      treatment: 'Ortodoncia', status: 'confirmada', ad: 'Brackets S/ 0', reminderSent: true,
+      treatment: 'Ortodoncia', status: 'confirmada', ad: 'Brackets S/ 0', reminderSent: true, afterHours: false, isTest: false,
     });
     const tomorrow = await panel.getAgenda('tomorrow');
     assert.deepEqual(tomorrow.appointments.map((a) => a.id), ['c']);
@@ -87,16 +86,6 @@ describe('panel: métricas', () => {
     assert.deepEqual(m.byAd, [
       { ad: 'Orgánico / sin anuncio', count: 3 },
       { ad: 'Brackets S/ 0', count: 2 },
-    ]);
-  });
-});
-
-describe('panel: conversaciones que esperan a un humano primero', () => {
-  it('flags and sorts conversations with the bot paused', async () => {
-    const db = fakeDb({ conversations: [{ conversation_id: '51922222222', status: 'human' }, { conversation_id: '51911111111', status: 'active' }] });
-    const list = await prioritizeWaitingHuman(db, [{ phone: '51911111111' }, { phone: '+51 922 222 222' }, { phone: '51933333333' }]);
-    assert.deepEqual(list.map((c) => [c.phone, c.waitingHuman]), [
-      ['+51 922 222 222', true], ['51911111111', false], ['51933333333', false],
     ]);
   });
 });

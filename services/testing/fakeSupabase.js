@@ -43,6 +43,7 @@ export function fakeDb(tables = {}, { uniqueOn = {} } = {}) {
         gte(c, v) { state.filters.push((r) => r[c] >= v); return b; },
         lte(c, v) { state.filters.push((r) => r[c] <= v); return b; },
         lt(c, v) { state.filters.push((r) => r[c] < v); return b; },
+        gt(c, v) { state.filters.push((r) => r[c] > v); return b; },
         is(c, v) { state.filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return b; },
         not(c, op, v) { state.filters.push((r) => (op === 'is' && v === null ? r[c] != null : r[c] !== v)); return b; },
         order(c, { ascending = true } = {}) { state.sort = [c, ascending]; return b; },

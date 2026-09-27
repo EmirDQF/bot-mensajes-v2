@@ -2,6 +2,8 @@ import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic, { findTreatment, getReceptionPhone } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
 import { now as clockNow } from './clock.js';
+import liveEvents from './liveEvents.js';
+import { testMode } from './testContext.js';
 
 // Agenda real con disponibilidad. Fechas y horas se guardan en la hora local de la clínica.
 
@@ -115,6 +117,7 @@ export function createAppointmentService({
   clinic = activeClinic,
   whatsapp = whatsappService,
   now = clockNow,
+  events = liveEvents,
 } = {}) {
   async function db() {
     const client = await getClient();
@@ -184,7 +187,7 @@ export function createAppointmentService({
 
   async function saveAppointment({
     clinicId = clinic.id, senderPhone, patientName = null, treatment = null,
-    appointmentDate, appointmentTime, durationMin = null, notes = null, source = 'whatsapp', adReferral = null,
+    appointmentDate, appointmentTime, durationMin = null, notes = null, source = 'whatsapp', adReferral = null, isTest = false,
   }) {
     const phone = String(senderPhone || '').replace(/\D/g, '');
     if (!phone) throw new Error('senderPhone es obligatorio');
@@ -212,18 +215,20 @@ export function createAppointmentService({
       notes,
       // Solicitud hecha con la clínica cerrada (se mide en el reporte semanal).
       after_hours: !isWithinWorkingHours(clinic, now()),
+      ...(isTest || testMode()?.isTest ? { is_test: true } : {}),
     };
     let { data, error } = await client.from('appointments').insert([row]).select().single();
-    if (error && isMissingColumn(error, 'after_hours')) {
+    if (error && (isMissingColumn(error, 'after_hours') || isMissingColumn(error, 'is_test'))) {
       // La migración 20260927_after_hours_metrics.sql aún no se ejecutó: la cita se guarda igual.
       console.warn('[Appointments] Falta la columna appointments.after_hours; ejecuta migrations/20260927_after_hours_metrics.sql');
-      const { after_hours: _omitted, ...legacyRow } = row;
+      const { after_hours: _omitted, is_test: _test, ...legacyRow } = row;
       ({ data, error } = await client.from('appointments').insert([legacyRow]).select().single());
     }
     if (error) {
       if (error.code === '23505') throw new SlotTakenError();
       throw error;
     }
+    events.publish('appointment', { event: 'nueva', phone, appointment: data });
     return data;
   }
 
@@ -256,6 +261,7 @@ export function createAppointmentService({
       ({ data, error } = await run(Object.fromEntries(Object.entries(patch).filter(([key]) => !METRIC_COLUMNS.includes(key)))));
     }
     if (error) throw error;
+    events.publish('appointment', { event: status, phone: String(data?.sender_phone || '').replace(/\D/g, ''), appointment: data });
     return data;
   }
 

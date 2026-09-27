@@ -56,7 +56,8 @@ export function createJobs({
   }
 
   // Dentro de la ventana de 24 h se envía texto libre; fuera de ella, la plantilla aprobada.
-  async function sendWithWindow(to, { text, template, params }) {
+  // sent (opcional) recibe la respuesta de Meta en sent.result (el panel guarda el id para los ✓✓).
+  async function sendWithWindow(to, { text, template, params }, sent = {}) {
     let inWindow = false;
     try {
       const last = await lastInboundAt(to);
@@ -65,10 +66,10 @@ export function createJobs({
       console.warn('[Jobs] No se pudo leer el último mensaje del paciente; se usará la plantilla:', error?.message || error);
     }
     if (inWindow) {
-      await whatsapp.sendTextMessage(to, text);
+      sent.result = await whatsapp.sendTextMessage(to, text);
       return 'text';
     }
-    await whatsapp.sendTemplateMessage(to, template.name, params, { language: template.language });
+    sent.result = await whatsapp.sendTemplateMessage(to, template.name, params, { language: template.language });
     return 'template';
   }
 

@@ -53,6 +53,8 @@ export function createPanelData({
         status: a.status,
         ad: a.ad_referral ? adName(a.ad_referral) : null,
         reminderSent: Boolean(a.reminder_24h_sent_at || a.reminder_2h_sent_at),
+        afterHours: Boolean(a.after_hours),
+        isTest: Boolean(a.is_test),
       })),
     };
   }

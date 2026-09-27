@@ -1,7 +1,8 @@
 import { getSupabase as getDefaultClient } from './supabaseClient.js';
 import activeClinic, { getReceptionPhone } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
-import { isWithinWorkingHours } from './appointmentService.js';
+import { isMissingColumn, isWithinWorkingHours } from './appointmentService.js';
+import liveEvents from './liveEvents.js';
 
 // Pase a humano: pausa el bot en una conversación y avisa a recepción.
 // El estado vive en conversations.status ('human' = bot pausado), así sobrevive a reinicios de Render
@@ -31,7 +32,7 @@ const CACHE_MS = 60 * 1000;
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 
 export function createHandoffService({
-  getClient = getDefaultClient, whatsapp = whatsappService, clinic = activeClinic, now = () => Date.now(),
+  getClient = getDefaultClient, whatsapp = whatsappService, clinic = activeClinic, now = () => Date.now(), events = liveEvents,
 } = {}) {
   const cache = new Map();
 
@@ -54,21 +55,28 @@ export function createHandoffService({
     return paused;
   }
 
-  async function setPaused(phone, paused) {
+  // reason: 'urgencia' | 'humano' | 'recepcion' (recepción respondió desde el panel) | null.
+  async function setPaused(phone, paused, reason = null) {
     const id = digits(phone);
     cache.set(id, { paused, at: now() });
     try {
       const client = await getClient();
       if (client) {
-        const { error } = await client.from('conversations').upsert({
+        const row = {
           conversation_id: id, phone: id, contact_number: id,
           status: paused ? 'human' : 'active', updated_at: new Date(now()).toISOString(),
-        }, { onConflict: 'conversation_id' });
+        };
+        let { error } = await client.from('conversations')
+          .upsert({ ...row, handoff_reason: paused ? reason : null }, { onConflict: 'conversation_id' });
+        if (error && isMissingColumn(error, 'handoff_reason')) {
+          ({ error } = await client.from('conversations').upsert(row, { onConflict: 'conversation_id' }));
+        }
         if (error) throw error;
       }
     } catch (error) {
       console.error('[Handoff] No se pudo guardar el estado del bot:', error?.message || error);
     }
+    events.publish('bot', { phone: id, paused, reason: paused ? reason : null });
     return paused;
   }
 
@@ -93,8 +101,9 @@ export function createHandoffService({
 
   // Pausa el bot y avisa a RECEPTION_ALERT_PHONE. Nunca lanza.
   async function handoff({ phone, reason, message = '', contactName = null }) {
-    await setPaused(phone, true);
+    await setPaused(phone, true, reason);
     await logHandoff(phone, reason);
+    events.publish('handoff', { phone: digits(phone), reason, contactName, message: String(message).slice(0, 200) });
     const to = getReceptionPhone();
     if (!to) {
       console.warn('[Handoff] RECEPTION_ALERT_PHONE no está definida; no se avisó a recepción.');

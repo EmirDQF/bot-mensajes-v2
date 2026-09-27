@@ -1,4 +1,5 @@
 import config from '../config/env.js';
+import { testMode } from './testContext.js';
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.WHATSAPP_TIMEOUT_MS || 8000);
 const DEFAULT_MAX_RETRIES = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
@@ -25,6 +26,14 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const caption = options.caption || text || '';
 
   if (!fetchImpl) throw new Error('No fetch implementation provided');
+
+  // Probador del panel: WhatsApp falso. Nada sale a Meta; el envío se entrega al Probador.
+  const test = testMode();
+  if (test && !options.fetchImpl) {
+    const id = `wamid.prueba.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    test.onSend?.(String(toPhone), { text, template: options.template?.name || null, media: media?.link || null, id });
+    return { messages: [{ id }], test: true };
+  }
 
   const url = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const template = options.template || null;
@@ -65,7 +74,6 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      console.log(`Sending WhatsApp message to ${masked} (attempt ${attempt})`);
       const res = await fetchImpl(url, {
         method: 'POST',
         headers: {
@@ -90,6 +98,8 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
       if (status && status >= 400 && status < 500) {
         const err = new Error(`WhatsApp API returned status ${status}`);
         err.status = status;
+        // Detalle de Meta (código y motivo) para mostrarlo en el panel; nunca incluye el token.
+        try { err.meta = JSON.parse(txt || '{}')?.error || null; } catch { err.meta = null; }
         lastError = err;
         console.error(`WhatsApp send failed to ${masked}: ${status} ${txt}`);
         throw err;
@@ -166,7 +176,7 @@ export function sendTemplateMessage(toPhone, name, bodyParams = [], { language =
 async function sendStatus(toPhone, status, messageId = null, typing = false) {
   const phoneNumberId = config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
-  if (!phoneNumberId || !token || !messageId) return null;
+  if (!phoneNumberId || !token || !messageId || testMode()) return null;
 
   const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
   const response = await fetch(`https://graph.facebook.com/${version}/${phoneNumberId}/messages`, {

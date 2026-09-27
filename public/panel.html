@@ -3,72 +3,117 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Panel de Monitoreo en Vivo</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Panel de la clínica</title>
     <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app/main.js"></script>
   </head>
-  <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <div class="brand-block">
-            <div class="brand-logo-wrap">
-              <img id="brandLogo" src="" alt="" class="brand-logo" />
+  <body data-view="inbox">
+    <a class="skip-link" href="#main">Saltar al contenido</a>
+
+    <!-- Inicio de sesión -->
+    <main id="login" class="login" hidden>
+      <form id="loginForm" class="login__card" autocomplete="on">
+        <h1 class="login__title">Panel de la clínica</h1>
+        <p class="login__hint">Ingresa con el usuario de recepción o del dueño.</p>
+        <label for="loginUser">Usuario</label>
+        <input id="loginUser" name="username" type="text" autocomplete="username" required />
+        <label for="loginPass">Contraseña</label>
+        <input id="loginPass" name="password" type="password" autocomplete="current-password" required />
+        <p id="loginError" class="login__error" role="alert"></p>
+        <button id="loginSubmit" type="submit" class="btn btn--primary btn--block">Ingresar</button>
+      </form>
+    </main>
+
+    <div id="app" class="app" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <img id="brandLogo" class="brand__logo" alt="" hidden />
+          <span id="brandName" class="brand__name">Panel</span>
+        </div>
+        <nav id="tabs" class="tabs" role="tablist" aria-label="Secciones del panel"></nav>
+        <div class="topbar__actions">
+          <span id="liveStatus" class="live" data-status="reconnecting" role="status" aria-live="polite">
+            <span class="live__dot" aria-hidden="true"></span><span id="liveStatusText">Conectando…</span>
+          </span>
+          <label class="switch" title="Sonido y notificación para urgencias y solicitudes">
+            <input id="alertsToggle" type="checkbox" />
+            <span class="switch__track" aria-hidden="true"></span>
+            <span class="switch__label">🔔 Alertas</span>
+          </label>
+          <span id="sessionRole" class="role-chip"></span>
+          <button id="logoutBtn" type="button" class="btn btn--ghost">Salir</button>
+        </div>
+      </header>
+
+      <main id="main" class="views">
+        <!-- Bandeja -->
+        <section id="view-inbox" class="view view--inbox" role="tabpanel" aria-labelledby="tab-inbox">
+          <aside class="inbox" aria-label="Conversaciones">
+            <div class="inbox__search">
+              <label for="inboxSearch" class="sr-only">Buscar por nombre, teléfono o mensaje</label>
+              <input id="inboxSearch" type="search" placeholder="Buscar por nombre, teléfono o mensaje" />
             </div>
-            <div class="brand-text">
-              <h1 id="brandName">Panel de recepción</h1>
+            <div id="inboxFilters" class="chips" role="group" aria-label="Filtros"></div>
+            <p id="inboxCount" class="inbox__count" aria-live="polite"></p>
+            <div id="inboxList" class="inbox__list"></div>
+          </aside>
+
+          <section class="chat-pane" aria-label="Conversación">
+            <div id="chatEmpty" class="chat-empty">
+              <p class="state__title">Elige una conversación</p>
+              <p class="state__hint">Los mensajes llegan en vivo. Si respondes desde aquí, el asistente se pausa en esa conversación.</p>
             </div>
-          </div>
-          <span class="status-pill"><span class="live-dot"></span> En vivo</span>
-        </div>
-
-        <div class="sidebar-meta">
-          <span id="conversationCount">0 conversaciones</span>
-        </div>
-
-        <div class="search-wrap">
-          <input id="searchInput" type="search" placeholder="Buscar paciente o WhatsApp" aria-label="Buscar conversación" />
-        </div>
-
-        <div id="conversationList" class="conversation-list" aria-live="polite"></div>
-      </aside>
-
-      <main class="chat-panel">
-        <nav class="view-tabs" role="tablist" aria-label="Secciones del panel">
-          <button type="button" class="view-tab is-active" data-view="chat" role="tab" aria-selected="true">💬 Conversaciones</button>
-          <button type="button" class="view-tab" data-view="agenda" role="tab" aria-selected="false">📅 Agenda</button>
-          <button type="button" class="view-tab" data-view="metrics" role="tab" aria-selected="false">📊 Métricas</button>
-          <button type="button" class="view-tab" data-view="report" role="tab" aria-selected="false">📈 Reporte</button>
-        </nav>
-
-        <section id="reportView" class="view view--scroll" hidden>
-          <div class="view-toolbar no-print">
-            <label for="reportFrom" class="view-toolbar__label">Desde</label>
-            <input type="date" id="reportFrom" class="date-input">
-            <label for="reportTo" class="view-toolbar__label">Hasta</label>
-            <input type="date" id="reportTo" class="date-input">
-            <button type="button" id="reportRun" class="status-btn">Generar</button>
-            <button type="button" id="reportPrint" class="status-btn">🖨️ Imprimir / PDF</button>
-          </div>
-          <article id="reportSheet" class="report-sheet" aria-live="polite"></article>
+            <div id="chat" class="chat" hidden>
+              <header class="chat__header">
+                <button id="btnBackToList" type="button" class="btn btn--ghost chat__back" aria-label="Volver a la lista">←</button>
+                <span id="chatAvatar" class="avatar" aria-hidden="true"></span>
+                <div class="chat__who">
+                  <h2 id="chatName" class="chat__name"></h2>
+                  <p id="chatPhone" class="chat__phone"></p>
+                  <p id="chatBadges" class="chat__badges"></p>
+                </div>
+                <div class="chat__actions">
+                  <span id="chatBotState" class="bot-state" role="status"></span>
+                  <button id="btnIntervene" type="button" class="btn btn--warn">Intervenir</button>
+                  <button id="btnBackToBot" type="button" class="btn btn--primary" hidden>Devolver al bot</button>
+                  <button id="btnProfile" type="button" class="btn btn--ghost" aria-expanded="false" aria-controls="profile">Ficha</button>
+                </div>
+              </header>
+              <div class="chat__body">
+                <div class="chat__column">
+                  <div id="chatMessages" class="chat__messages" aria-live="polite" aria-label="Mensajes"></div>
+                  <p id="typingIndicator" class="typing" hidden role="status"><span class="typing__dots" aria-hidden="true"><i></i><i></i><i></i></span> Bot escribiendo…</p>
+                  <div id="windowNotice" class="window-notice" hidden></div>
+                  <div id="quickReplies" class="chips chips--quick" aria-label="Respuestas rápidas" hidden></div>
+                  <form id="composer" class="composer">
+                    <label for="composerText" class="sr-only">Mensaje para el paciente</label>
+                    <textarea id="composerText" rows="1" maxlength="4096" placeholder="Escribe como recepción… (Enter envía, Shift+Enter hace un salto de línea)"></textarea>
+                    <button id="btnSend" type="submit" class="btn btn--primary">Enviar</button>
+                  </form>
+                </div>
+                <aside id="profile" class="profile" hidden aria-label="Ficha del paciente"></aside>
+              </div>
+            </div>
+          </section>
         </section>
 
-        <section id="agendaView" class="view view--scroll" hidden>
-          <div class="view-toolbar">
-            <div class="segmented" role="group" aria-label="Día">
-              <button type="button" class="day-btn is-active" data-day="today">Hoy</button>
-              <button type="button" class="day-btn" data-day="tomorrow">Mañana</button>
+        <!-- Agenda -->
+        <section id="view-agenda" class="view view--scroll" role="tabpanel" aria-labelledby="tab-agenda" hidden>
+          <div class="toolbar">
+            <div id="agendaDays" class="segmented" role="group" aria-label="Día">
+              <button type="button" class="is-active" aria-pressed="true" data-day="today">Hoy</button>
+              <button type="button" aria-pressed="false" data-day="tomorrow">Mañana</button>
             </div>
-            <span id="agendaLabel" class="view-toolbar__label"></span>
+            <span id="agendaLabel" class="toolbar__label"></span>
           </div>
-          <div id="agendaList" class="agenda-list" aria-live="polite"></div>
+          <div id="agendaList" class="agenda" aria-live="polite"></div>
         </section>
 
-        <section id="metricsView" class="view view--scroll" hidden>
-          <div class="view-toolbar">
-            <label for="metricsDays" class="view-toolbar__label">Periodo</label>
+        <!-- Métricas -->
+        <section id="view-metrics" class="view view--scroll" role="tabpanel" aria-labelledby="tab-metrics" hidden>
+          <div class="toolbar">
+            <label for="metricsDays" class="toolbar__label">Periodo</label>
             <select id="metricsDays">
               <option value="7">Últimos 7 días</option>
               <option value="30" selected>Últimos 30 días</option>
@@ -80,182 +125,31 @@
           <div id="metricsByAd" class="ad-list"></div>
         </section>
 
-        <div id="chatView" class="view view--chat">
-        <header class="chat-header">
-          <div class="chat-header__identity">
-            <div class="avatar avatar--header" id="headerAvatar">E</div>
-            <div>
-              <h2 id="chatTitle">Select a contact</h2>
-              <p id="chatPhone">+51 9XX XXX XXX</p>
-            </div>
+        <!-- Reporte -->
+        <section id="view-report" class="view view--scroll" role="tabpanel" aria-labelledby="tab-report" hidden>
+          <div class="toolbar no-print">
+            <label for="reportFrom" class="toolbar__label">Desde</label>
+            <input type="date" id="reportFrom" />
+            <label for="reportTo" class="toolbar__label">Hasta</label>
+            <input type="date" id="reportTo" />
+            <button type="button" id="reportRun" class="btn">Generar</button>
+            <button type="button" id="reportPrint" class="btn">🖨️ Imprimir / PDF</button>
           </div>
-          <div class="chat-header__actions">
-            <div class="bot-status"><span class="bot-status__dot"></span> Bot activo</div>
-            <button id="interveneButton" class="intervene-btn" type="button">Intervenir</button>
-                      <button id="logoutBtn" class="intervene-btn" type="button" style="margin-left:8px;background:#ef4444">Cerrar sesión</button>
-                    </div>
-        </header>
+          <article id="reportSheet" class="report-sheet" aria-live="polite"></article>
+        </section>
 
-        <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
-        <div class="chat-footer" id="chatFooter">
-          <input id="messageInput" class="message-input" placeholder="Escribe un mensaje aquí..." aria-label="Mensaje" />
-          <button id="sendBtn" class="send-btn" title="Enviar">✈</button>
-        </div>
-        </div>
+        <!-- Configuración (solo el dueño) -->
+        <section id="view-config" class="view view--scroll" role="tabpanel" aria-labelledby="tab-config" hidden></section>
+
+        <!-- Probador (solo el dueño) -->
+        <section id="view-tester" class="view view--tester" role="tabpanel" aria-labelledby="tab-tester" hidden></section>
       </main>
     </div>
 
-    <div id="lightbox" class="lightbox" aria-hidden="true">
-      <button class="lightbox__close" type="button" aria-label="Cerrar vista previa">×</button>
-      <img id="lightboxImage" src="" alt="Vista previa de imagen" />
+    <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Foto ampliada">
+      <button id="lightboxClose" type="button" class="lightbox__close" aria-label="Cerrar">×</button>
+      <img id="lightboxImage" alt="Foto ampliada" />
     </div>
-
-    <!-- Login modal -->
-    <div id="loginModal" class="login-modal" aria-hidden="true">
-      <div class="login-modal__content">
-        <h3>Acceso al Panel</h3>
-        <p>Introduce usuario y contraseña para acceder al panel de monitoreo.</p>
-        <div style="width:100%;display:flex;flex-direction:column;gap:8px;margin-top:12px">
-          <input id="loginUser" type="text" placeholder="Usuario" style="padding:10px;border-radius:6px;border:1px solid #233044;background:#071025;color:#fff" />
-          <input id="loginPass" type="password" placeholder="Contraseña" style="padding:10px;border-radius:6px;border:1px solid #233044;background:#071025;color:#fff" />
-          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
-            <button id="loginCancel" type="button" style="background:#374151">Cancelar</button>
-            <button id="loginSubmit" type="button" style="background:linear-gradient(135deg,#10b981 0%,#0f766e 100%);">Iniciar sesión</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <style>
-      :root{--bg:#0b141a;--sidebar:#111b21;--panelHeader:#202c33;--muted:#8696a0;--accent:#00a884;--bot:#005c4b;--patient:#202c33}
-      html,body{height:100%;margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#e9edef}
-      .app-shell{display:flex;height:100vh;overflow:hidden}
-      .sidebar{width:380px;background:var(--sidebar);border-right:1px solid #202c33;display:flex;flex-direction:column}
-      .sidebar-header{background:var(--panelHeader);padding:12px 14px;display:flex;align-items:center;justify-content:space-between}
-      .brand-block{display:flex;align-items:center;gap:12px}
-      .brand-logo{width:40px;height:40px;border-radius:8px;object-fit:cover}
-      .brand-text h1{margin:0;font-size:16px;color:#e9edef}
-      .status-pill{color:var(--accent);align-self:center;font-weight:600}
-      .search-wrap{padding:12px;background:var(--sidebar)}
-      .search-wrap input{width:100%;padding:10px;border-radius:10px;border:none;background:#202c33;color:#e9edef}
-      .conversation-list{overflow:auto;padding:8px 0}
-      .conversation-item{cursor:pointer;padding:12px 16px;border-bottom:1px solid #202c33;display:flex;gap:12px;align-items:center}
-      .conversation-item:hover{background:#2a3942}
-      .conversation-item.is-active{background:#2a3942}
-      .avatar{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#001; font-weight:700}
-      .conversation-item__main{flex:1;min-width:0}
-      .conversation-item__main h3{margin:0;color:#e9edef;font-size:14px}
-      .conversation-item__snippet{margin:4px 0 0 0;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .conversation-item__time{color:var(--muted);font-size:12px}
-
-      .chat-panel{flex:1;display:flex;flex-direction:column;background:var(--bg)}
-      .chat-header{background:var(--panelHeader);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #202c33}
-      .chat-header__identity{display:flex;align-items:center;gap:12px}
-      .avatar--header{width:40px;height:40px;border-radius:8px;background:#0ea5a4;color:#001;display:flex;align-items:center;justify-content:center}
-      .chat-header__actions{display:flex;align-items:center;gap:8px}
-      .bot-status{color:var(--muted)}
-      .intervene-btn{background:linear-gradient(135deg,#10b981 0%,#0f766e 100%);border:none;color:#fff;padding:8px 12px;border-radius:8px;cursor:pointer}
-
-      .chat-messages{flex:1;overflow-y:auto;padding:20px 40px;display:flex;flex-direction:column;gap:8px;background:var(--bg)}
-      .message-row{display:flex}
-      .message-row--patient{justify-content:flex-start}
-      .message-row--bot{justify-content:flex-end}
-      .message-bubble{max-width:65%;padding:8px 12px;border-radius:8px;box-shadow:0 1px 0.5px rgba(11,20,26,.13);position:relative}
-      .message-row--patient .message-bubble{background:var(--patient);color:#e9edef;border-top-left-radius:0}
-      .message-row--bot .message-bubble{background:var(--bot);color:#e9edef;border-top-right-radius:0}
-      .message-meta{font-size:11px;color:var(--muted);margin-top:6px;text-align:right}
-      .message-image{max-width:280px;border-radius:12px;display:block;margin-bottom:6px;cursor:pointer}
-
-      .chat-footer{background:var(--panelHeader);padding:10px 16px;display:flex;gap:10px;align-items:center}
-      .message-input{flex:1;padding:10px 14px;border-radius:8px;border:none;background:#2a3942;color:#fff}
-      .send-btn{width:42px;height:42px;border-radius:50%;background:var(--accent);border:none;color:#001;font-weight:700;cursor:pointer}
-
-      /* login modal */
-      .login-modal{position:fixed;inset:0;background:rgba(2,6,23,0.7);display:flex;align-items:center;justify-content:center;z-index:9999}
-      .login-modal[aria-hidden="true"]{display:none}
-      .login-modal__content{width:360px;padding:20px;border-radius:12px;background:linear-gradient(180deg,#071025,#06111a);box-shadow:0 10px 40px rgba(2,6,23,0.6);color:#e6eef8}
-      .login-modal__content h3{margin:0 0 6px 0}
-      .login-modal__content p{margin:0;color:#94a3b8}
-
-      /* vistas: conversaciones / agenda / métricas */
-      .chat-panel{min-width:0}
-      .view-tabs{display:flex;gap:4px;padding:8px 12px;background:var(--sidebar);border-bottom:1px solid #202c33}
-      .view-tab{background:transparent;border:none;color:var(--muted);padding:8px 14px;border-radius:8px;cursor:pointer;font:inherit;font-weight:600}
-      .view-tab:hover{background:#2a3942;color:#e9edef}
-      .view-tab.is-active{background:#2a3942;color:#e9edef;box-shadow:inset 0 -2px 0 var(--accent)}
-      .view[hidden]{display:none !important}
-      .view--chat{flex:1;display:flex;flex-direction:column;min-height:0}
-      .view--scroll{flex:1;overflow-y:auto;padding:20px 28px}
-      .view-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-      .view-toolbar__label{color:var(--muted);text-transform:capitalize}
-      .view-toolbar select{background:#202c33;color:#e9edef;border:1px solid #2a3942;border-radius:8px;padding:8px 10px;font:inherit}
-      .segmented{display:inline-flex;background:#202c33;border-radius:10px;padding:3px}
-      .day-btn{background:transparent;border:none;color:var(--muted);padding:7px 16px;border-radius:8px;cursor:pointer;font:inherit;font-weight:600}
-      .day-btn.is-active{background:var(--accent);color:#001}
-      .muted{color:var(--muted)}
-      .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;background:#2a3942;color:#e9edef}
-      .badge--human{background:#f59e0b;color:#1a1200}
-      .badge--pendiente{background:#374151}
-      .badge--confirmada{background:#0e7490}
-      .badge--reprogramada{background:#6d28d9}
-      .badge--cancelada{background:#7f1d1d}
-      .badge--asistio{background:#15803d}
-      .badge--no_asistio{background:#b45309}
-      .agenda-list{display:flex;flex-direction:column;gap:10px}
-      .agenda-card{display:grid;grid-template-columns:96px 1fr auto;gap:14px;align-items:center;background:#111b21;border:1px solid #202c33;border-radius:12px;padding:14px 16px}
-      .agenda-card.status--cancelada{opacity:.6}
-      .agenda-card__time{font-size:18px;font-weight:800;color:#e9edef}
-      .agenda-card__main h3{margin:0 0 4px;font-size:15px}
-      .agenda-card__main p{margin:2px 0;font-size:13px}
-      .agenda-card__main a{color:var(--accent);text-decoration:none}
-      .agenda-card__actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-      .status-btn{border:1px solid #2a3942;background:#202c33;color:#e9edef;border-radius:8px;padding:7px 10px;cursor:pointer;font:inherit;font-size:13px}
-      .status-btn:hover:not(:disabled){border-color:var(--accent)}
-      .status-btn:disabled{opacity:.45;cursor:default}
-      .status-btn--cancelada:hover:not(:disabled){border-color:#ef4444}
-      .metrics-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px}
-      .metric-tile{background:#111b21;border:1px solid #202c33;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:4px}
-      .metric-tile__label{color:var(--muted);font-size:13px}
-      .metric-tile__value{font-size:30px;color:#e9edef;font-variant-numeric:tabular-nums}
-      .metric-tile__hint{color:var(--muted);font-size:12px}
-      .section-title{margin:0 0 12px;font-size:15px}
-      .ad-list{display:flex;flex-direction:column;gap:8px}
-      .ad-row{display:grid;grid-template-columns:minmax(120px,240px) 1fr 40px;gap:12px;align-items:center}
-      .ad-row__name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .ad-row__bar{height:10px;background:#202c33;border-radius:999px;overflow:hidden}
-      .ad-row__bar span{display:block;height:100%;background:var(--accent);border-radius:999px}
-      .ad-row strong{text-align:right;font-variant-numeric:tabular-nums}
-      .date-input{background:#202c33;color:#e9edef;border:1px solid #2a3942;border-radius:8px;padding:7px 10px;font:inherit;color-scheme:dark}
-      .report-sheet{max-width:860px}
-      .report-sheet h2{margin:0 0 2px;font-size:20px}
-      .report-guarantee{margin:16px 0 20px;padding:16px 18px;border-radius:12px;font-size:17px;font-weight:700;border:1px solid #2a3942;background:#111b21}
-      .report-guarantee.is-met{border-color:#15803d;background:rgba(21,128,61,.18)}
-      .report-guarantee.is-pending{border-color:#b45309;background:rgba(180,83,9,.16)}
-      .report-table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px}
-      .report-table th,.report-table td{padding:8px 10px;border-bottom:1px solid #202c33;text-align:left}
-      .report-table td.num,.report-table th.num{text-align:right;font-variant-numeric:tabular-nums}
-      .report-note{font-size:12px;color:var(--muted);line-height:1.5}
-      @media print{
-        body{background:#fff !important;color:#111 !important}
-        .sidebar,.view-tabs,.no-print,#chatView,#agendaView,#metricsView,.login-modal{display:none !important}
-        .app-shell,.chat-panel{display:block !important;height:auto !important;background:#fff !important}
-        #reportView{display:block !important;overflow:visible;padding:0}
-        .report-sheet{max-width:none;color:#111}
-        .report-sheet .metric-tile{background:#fff;border-color:#ccc}
-        .report-sheet .metric-tile__value{color:#111}
-        .report-sheet .metric-tile__label,.report-sheet .metric-tile__hint,.report-note,.muted{color:#444 !important}
-        .report-guarantee{background:#fff !important;color:#111}
-        .report-table th,.report-table td{border-bottom-color:#ccc}
-      }
-      @media (max-width: 800px){
-        .app-shell{flex-direction:column}
-        .sidebar{width:100%;max-height:40vh}
-        .view--scroll{padding:16px}
-        .agenda-card{grid-template-columns:1fr}
-        .agenda-card__actions{justify-content:flex-start}
-      }
-    </style>
-
-    <script src="/panel.js"></script>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </body>
 </html>

@@ -1,49 +1,33 @@
 import express from 'express';
 import path from 'path';
-import { createClient } from '@supabase/supabase-js';
 import webhookRouter from './routes/webhook.js';
 import panelRouter from './routes/panel.js';
 import jobsRouter, { requireCronSecret } from './routes/jobs.js';
-import config from './config/env.js';
+import { getSupabase as getDefaultSupabase } from './services/supabaseClient.js';
 import errorHandler from './middleware/errorHandler.js';
 import clinic, { publicClinicInfo } from './config/clinic.config.js';
 
 // Arma la aplicación Express sin escuchar un puerto (index.js la levanta; los tests la usan directo).
 
-let defaultSupabase = null;
-function getDefaultSupabase() {
-  if (defaultSupabase) return defaultSupabase;
-  if (!config.supabase.url || !config.supabase.serviceRoleKey) return null;
-  defaultSupabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-  return defaultSupabase;
-}
+// Cabeceras de seguridad del panel: sin iframes de otros sitios, sin scripts externos ni inline.
+const PANEL_CSP = [
+  "default-src 'self'", "script-src 'self'", "style-src 'self'", "img-src 'self' data: blob: https:",
+  "media-src 'self' blob:", "connect-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'",
+].join('; ');
 
-function requirePanelAuth(req, res, next) {
-  const username = process.env.PANEL_USER;
-  const password = process.env.PANEL_PASSWORD;
-  const [scheme, encoded] = (req.headers.authorization || '').split(' ');
-
-  if (!username || !password) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Panel Clinica"');
-    return res.status(503).json({ error: 'Panel no configurado. Define PANEL_USER y PANEL_PASSWORD en Render o tu .env.' });
-  }
-  if (scheme !== 'Basic' || !encoded) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Panel Clinica"');
-    return res.status(401).send('Acceso requerido');
-  }
-  const decoded = Buffer.from(encoded, 'base64').toString('utf8');
-  const separatorIndex = decoded.indexOf(':');
-  const providedUser = separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : '';
-  const providedPass = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : '';
-  if (providedUser !== username || providedPass !== password) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Panel Clinica"');
-    return res.status(401).send('Credenciales inválidas');
-  }
-  return next();
+function securityHeaders(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  if (req.path === '/panel' || req.path.startsWith('/panel/') || req.path === '/panel.html') res.setHeader('Content-Security-Policy', PANEL_CSP);
+  next();
 }
 
 export function createApp({ getSupabase = getDefaultSupabase } = {}) {
   const app = express();
+  // Render (y cualquier proxy) termina el TLS: la IP real del cliente viene en X-Forwarded-For.
+  app.set('trust proxy', 1);
+  app.disable('x-powered-by');
 
   // Health primero: sin auth, sin CORS y antes de cualquier middleware del webhook.
   // cron-job.org lo llama cada 10 min para que Render no duerma el servicio.
@@ -67,6 +51,7 @@ export function createApp({ getSupabase = getDefaultSupabase } = {}) {
     }
   });
 
+  app.use(securityHeaders);
   const publicDir = path.join(process.cwd(), 'public');
   app.use('/media', express.static(path.join(process.cwd(), 'media')));
   app.use(express.static(publicDir));
@@ -76,7 +61,8 @@ export function createApp({ getSupabase = getDefaultSupabase } = {}) {
     res.json(publicClinicInfo());
   });
 
-  app.get('/panel', requirePanelAuth, (req, res) => {
+  // La página no tiene datos: pide iniciar sesión y todo lo demás va por /api/panel (con auth).
+  app.get('/panel', (req, res) => {
     res.sendFile(path.join(publicDir, 'panel.html'));
   });
 

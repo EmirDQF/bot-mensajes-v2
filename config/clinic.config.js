@@ -54,6 +54,13 @@ export function validateClinic(clinic) {
   }
   if (!clinic.media || typeof clinic.media !== 'object' || !clinic.media.logo) errors.push('"media.logo" es obligatorio');
   if (!Array.isArray(clinic.faq)) errors.push('"faq" debe ser un arreglo');
+  if (clinic.quickReplies !== undefined && (!Array.isArray(clinic.quickReplies) || clinic.quickReplies.some((q) => typeof q !== 'string'))) {
+    errors.push('"quickReplies" debe ser una lista de textos');
+  }
+  for (const key of ['primary', 'accent']) {
+    const color = clinic.colors?.[key];
+    if (color !== undefined && !/^#[0-9a-f]{6}$/i.test(color)) errors.push(`colors.${key} debe ser un color #RRGGBB`);
+  }
   return errors;
 }
 
@@ -179,5 +186,7 @@ export function publicClinicInfo() {
     address: clinic.address,
     logoUrl: `/media/${clinic.id}/${clinic.media.logo}`,
     treatments: clinic.treatments.map(({ key, name }) => ({ key, name })),
+    colors: clinic.colors || null,
+    quickReplies: clinic.quickReplies || [],
   };
 }

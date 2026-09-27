@@ -1,56 +1,43 @@
 import express from 'express';
-import {
-  getConversations, getMessages, toggleBot, getAgenda, setAppointmentStatus, getMetrics, getReport,
-} from '../controllers/panelController.js';
-import { sendMessage } from '../controllers/panelSend.js';
+import { getAgenda, setAppointmentStatus, getMetrics, getReport, getSession } from '../controllers/panelController.js';
+import inbox from '../controllers/inboxController.js';
+import { login, logout, requirePanel } from '../middleware/panelAuth.js';
+
+// API del panel. Recepción (PANEL_USER) y dueño (PANEL_OWNER_USER) ven la bandeja, la agenda,
+// las métricas y el reporte; Configuración y Probador son solo del dueño (requirePanel('owner')).
 
 const router = express.Router();
-router.use(express.json());
+router.use(express.json({ limit: '100kb' }));
 
-function requirePanelAuth(req, res, next) {
-  const username = process.env.PANEL_USER;
-  const password = process.env.PANEL_PASSWORD;
-
-  const authHeader = req.headers.authorization || '';
-  const [scheme, encoded] = authHeader.split(' ');
-
-  if (!username || !password) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Panel Clinica"');
-    return res.status(503).json({ error: 'Panel no configurado. Define PANEL_USER y PANEL_PASSWORD en .env.' });
+// Las escrituras solo aceptan JSON: un formulario de otro sitio no puede enviarlo (defensa CSRF,
+// además de la cookie SameSite=Strict).
+router.use((req, res, next) => {
+  const hasBody = Number(req.headers['content-length'] || 0) > 0 || req.headers['transfer-encoding'];
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && hasBody && !req.is('application/json')) {
+    return res.status(415).json({ error: 'Envía JSON' });
   }
-
-  if (scheme !== 'Basic' || !encoded) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Panel Clinica"');
-    return res.status(401).send('Acceso requerido');
-  }
-
-  let decoded;
-  try {
-    decoded = Buffer.from(encoded, 'base64').toString('utf8');
-  } catch (error) {
-    decoded = '';
-  }
-
-  const separatorIndex = decoded.indexOf(':');
-  const providedUser = separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : '';
-  const providedPass = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : '';
-
-  if (providedUser !== username || providedPass !== password) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Panel Clinica"');
-    return res.status(401).send('Credenciales inválidas');
-  }
-
   return next();
-}
+});
 
-// All panel API routes require basic auth
-router.get('/conversations', requirePanelAuth, getConversations);
-router.get('/messages/:phone', requirePanelAuth, getMessages);
-router.post('/toggle-bot/:phone', requirePanelAuth, toggleBot);
-router.post('/send-message', requirePanelAuth, sendMessage);
-router.get('/agenda', requirePanelAuth, getAgenda);
-router.post('/appointments/:id/status', requirePanelAuth, setAppointmentStatus);
-router.get('/metrics', requirePanelAuth, getMetrics);
-router.get('/report', requirePanelAuth, getReport);
+router.post('/login', login);
+router.post('/logout', logout);
+
+const panel = requirePanel();
+router.get('/session', panel, getSession);
+
+// Bandeja en vivo
+router.get('/stream', panel, inbox.stream);
+router.get('/conversations', panel, inbox.list);
+router.get('/conversations/:phone/messages', panel, inbox.messages);
+router.post('/conversations/:phone/messages', panel, inbox.send);
+router.post('/conversations/:phone/read', panel, inbox.read);
+router.post('/conversations/:phone/bot', panel, inbox.setBot);
+router.get('/media/:mediaId', panel, inbox.media);
+
+// Agenda, métricas y reporte
+router.get('/agenda', panel, getAgenda);
+router.post('/appointments/:id/status', panel, setAppointmentStatus);
+router.get('/metrics', panel, getMetrics);
+router.get('/report', panel, getReport);
 
 export default router;

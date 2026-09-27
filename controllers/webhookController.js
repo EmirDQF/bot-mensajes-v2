@@ -1,4 +1,3 @@
-import config from '../config/env.js';
 import geminiService from '../services/geminiService.js';
 import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
@@ -13,6 +12,9 @@ import handoffService, { detectHandoff, patientHandoffReply } from '../services/
 import conversationMetrics from '../services/conversationMetrics.js';
 import messageDedup from '../services/messageDedup.js';
 import { now as clockNow } from '../services/clock.js';
+import inboxService from '../services/inboxService.js';
+import liveEvents from '../services/liveEvents.js';
+import { fetchMetaMedia } from '../services/metaMedia.js';
 
 // Origen del anuncio de Meta (click-to-WhatsApp). Solo llega en el primer mensaje: se guarda en memoria
 // y en leads.ad_referral para asociarlo después a la cita.
@@ -96,7 +98,7 @@ async function hardResetUserSession(phone) {
         if (result.status === 'rejected') console.warn(`[Privacidad] No se pudo borrar en ${result.reason?.table}:`, result.reason?.message || result.reason);
       }
     }
-    console.log(`[RESET TOTAL] Lead y sesiones eliminadas para: ${shortPhone} (${rawDigits})`);
+    console.log(`[Privacidad] Datos del paciente eliminados (***${rawDigits.slice(-4)})`);
     return true;
   } catch (err) {
     console.error('Error en hardResetUserSession:', err?.message || err);
@@ -104,62 +106,19 @@ async function hardResetUserSession(phone) {
   }
 }
 
-async function persistToSupabaseConversation({
-  conversationId,
-  contactNumber,
-  sender,
-  text,
-  mediaUrl,
-  timestamp,
-  whatsappMessageId = null,
-}) {
-  let supabase;
+// Guarda el mensaje en la bandeja (conversations + messages) y lo publica en vivo al panel.
+// Nunca lanza: si Supabase falla, la conversación con el paciente sigue.
+async function recordInbox(entry) {
   try {
-    supabase = await getSupabaseClient();
+    return await inboxService.recordMessage(entry);
   } catch (error) {
-    console.error('[Supabase] Error al persistir conversación:', error);
-    return null;
-  }
-  if (!supabase || !conversationId) return null;
-
-  const normalizedId = String(conversationId).trim();
-  const cleanPhone = String(contactNumber || normalizedId).replace(/\D/g, '');
-  const ts = timestamp || new Date().toISOString();
-  try {
-    try {
-      const { error } = await supabase.from('conversations').upsert({
-        conversation_id: cleanPhone,
-        contact_number: cleanPhone,
-        phone: cleanPhone,
-        last_message: text ? String(text).trim() : (mediaUrl ? '[Imagen]' : 'Mensaje'),
-        last_message_at: ts,
-        created_at: ts,
-        updated_at: ts,
-        // status no se envía: 'human' (bot en pausa) lo gestiona handoffService y no debe pisarse.
-      }, { onConflict: 'conversation_id' });
-      if (error) console.error('[Supabase] Error al persistir conversación:', error);
-    } catch (error) {
-      console.error('[Supabase] Error al persistir conversación:', error);
-    }
-
-    try {
-      const { error } = await supabase.from('messages').insert({
-        phone: cleanPhone,
-        from_phone: cleanPhone,
-        role: sender === 'bot' ? 'assistant' : 'user',
-        content: text || (mediaUrl ? '[Imagen]' : null),
-        whatsapp_message_id: whatsappMessageId,
-        created_at: ts
-      });
-      if (error) console.error('[Supabase] Error al persistir mensaje:', error);
-    } catch (error) {
-      console.error('[Supabase] Error al persistir mensaje:', error);
-    }
-  } catch (e) {
-    console.error('[Supabase] Error al persistir conversación:', e);
+    console.error('[Bandeja] No se pudo guardar el mensaje:', error?.message || error);
     return null;
   }
 }
+
+// Tipos de mensaje del paciente con archivo en Meta (se ven en el panel por el proxy autenticado).
+const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 
 async function persistToChatSessions(sessionIdentifier, entry) {
   try {
@@ -440,17 +399,8 @@ const userProcessingQueues = new Map();
 const intakeQueues = new Map();
 const BUFFER_WAIT_MS = 2000;
 async function downloadIncomingImage(mediaId) {
-  const token = config.whatsapp.token;
-  const version = config.whatsapp.apiVersion;
-  if (!token || !mediaId) throw new Error('Missing WhatsApp token or media id');
-  const metadata = await fetch(`https://graph.facebook.com/${version}/${mediaId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!metadata.ok) throw new Error(`Media metadata request failed: ${metadata.status}`);
-  const { url, mime_type: mimeType } = await metadata.json();
-  const binary = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!binary.ok) throw new Error(`Media download failed: ${binary.status}`);
-  return { mimeType: mimeType || binary.headers.get('content-type') || 'application/octet-stream', base64Data: Buffer.from(await binary.arrayBuffer()).toString('base64') };
+  const { contentType, buffer } = await fetchMetaMedia(mediaId);
+  return { mimeType: contentType, base64Data: buffer.toString('base64') };
 }
 
 function enqueueUserWork(from, work) {
@@ -503,24 +453,10 @@ async function sendFirstContactWelcome(senderPhone, context, messageText, { pers
   const result = await whatsappService.sendImageMessage(senderPhone, imageUrl, caption);
   welcomeSentRecipients.add(String(senderPhone).replace(/\D/g, ''));
   const timestamp = new Date().toISOString();
-  if (persistPatient) {
-    await persistToSupabaseConversation({
-      conversationId: senderPhone,
-      contactNumber: senderPhone,
-      sender: 'user',
-      text: messageText || '[Imagen]',
-      timestamp,
-      whatsappMessageId: context.messageId || null,
-    });
-  }
-  await persistToSupabaseConversation({
-    conversationId: senderPhone,
-    contactNumber: senderPhone,
-    sender: 'bot',
-    text: caption,
-    mediaUrl: imageUrl,
-    timestamp,
-    whatsappMessageId: result?.messages?.[0]?.id || null,
+  // El mensaje del paciente ya quedó en la bandeja al llegar; aquí solo se guarda la bienvenida.
+  await recordInbox({
+    phone: senderPhone, sender: 'bot', text: caption, type: 'image', mediaUrl: imageUrl,
+    wamid: result?.messages?.[0]?.id || null,
   });
   if (persistPatient) {
     await persistToChatSessions(senderPhone, {
@@ -542,10 +478,7 @@ async function sendFirstContactWelcome(senderPhone, context, messageText, { pers
 async function recordBotReply(from, messageText, text, mediaUrlSent, sendResult) {
   const timestamp = new Date().toISOString();
   const wamid = sendResult?.messages?.[0]?.id || null;
-  void persistToSupabaseConversation({
-    conversationId: from, contactNumber: from, sender: 'bot',
-    text, mediaUrl: mediaUrlSent, timestamp, whatsappMessageId: wamid,
-  }).catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
+  if (text) void recordInbox({ phone: from, sender: 'bot', text, wamid });
   try {
     await persistToChatSessions(from, { from: 'patient', text: messageText, phone: from, timestamp });
     await persistToChatSessions(from, { from: 'bot', text, phone: from, timestamp });
@@ -568,14 +501,7 @@ async function processBatch(from, buffer) {
       }
     });
   }
-  const persistencePromise = persistToSupabaseConversation({
-    conversationId: from, contactNumber: from,
-    sender: 'user', text: messageText || null, mediaUrl: null, timestamp: new Date().toISOString(),
-    whatsappMessageId: buffer.context?.messageId || null,
-  });
-  void persistencePromise.catch((error) => console.error('[Supabase] Error al persistir conversación:', error));
-
-  // Pase a humano activo: el mensaje ya quedó guardado, pero el bot no responde.
+  // Pase a humano activo: el mensaje ya quedó guardado (al llegar), pero el bot no responde.
   if (await handoffService.isPaused(from)) return;
 
   // Urgencia clínica o pedido de hablar con una persona: se pausa el bot y se avisa a recepción.
@@ -589,11 +515,8 @@ async function processBatch(from, buffer) {
       const sendResult = await whatsappService.sendTextMessage(from, reply);
       await recordBotReply(from, messageText, reply, null, sendResult);
       if (firstContactUrgent) {
-        // La fila de conversations la crea la persistencia del mensaje entrante: se espera antes de medir.
-        const respondedAt = clockNow();
-        void persistencePromise.catch(() => {}).then(() => conversationMetrics.recordFirstContact({
-          phone: from, firstMessageAt: buffer.context.sentAt, respondedAt,
-        }));
+        // La fila de conversations ya existe: el mensaje entrante se guardó en la bandeja al llegar.
+        void conversationMetrics.recordFirstContact({ phone: from, firstMessageAt: buffer.context.sentAt, respondedAt: clockNow() });
       }
     } catch (error) {
       console.error('webhookController: failed sending message to user', error);
@@ -719,7 +642,8 @@ async function processBatch(from, buffer) {
         }
         if (!claim.claimed) continue;
         try {
-          await whatsappService.sendImageMessage(from, imageUrl, `${activeClinic.name} 🦷`);
+          const imageResult = await whatsappService.sendImageMessage(from, imageUrl, `${activeClinic.name} 🦷`);
+          void recordInbox({ phone: from, sender: 'bot', type: 'image', mediaUrl: imageUrl, wamid: imageResult?.messages?.[0]?.id || null });
         } catch (error) {
           if (claim.id) {
             try { await completeMediaSend(claim.id, 'failed', error?.message || error); }
@@ -765,10 +689,14 @@ async function addMessageToBuffer(from, part, context) {
   current.lastActivity = Date.now();
   current.context = context;
   if (current.timer) clearTimeout(current.timer);
+  // "Bot escribiendo…" en la bandeja mientras corre el debounce y se genera la respuesta.
+  if (!context.botPaused) liveEvents.publish('typing', { phone: from, typing: true });
   current.timer = setTimeout(() => {
     messageBuffers.delete(from);
     current.timer = null;
-    enqueueUserWork(from, () => processBatch(from, current)).catch((error) => console.error('webhookController: batch failed', error));
+    enqueueUserWork(from, () => processBatch(from, current))
+      .catch((error) => console.error('webhookController: batch failed', error))
+      .finally(() => liveEvents.publish('typing', { phone: from, typing: false }));
   }, BUFFER_WAIT_MS);
   messageBuffers.set(from, current);
 }
@@ -792,7 +720,12 @@ export default async function webhookController(req, res, next) {
     let payload = req.parsedBody || req.body;
     if (Buffer.isBuffer(payload)) payload = JSON.parse(payload.toString('utf8'));
     const value = payload?.entry?.[0]?.changes?.[0]?.value;
-    if (Array.isArray(value?.statuses) && value.statuses.length > 0) return;
+    // Estados de entrega (enviado, entregado, leído, fallido): se guardan y se ven en la bandeja.
+    if (Array.isArray(value?.statuses) && value.statuses.length > 0) {
+      await inboxService.applyStatuses(value.statuses)
+        .catch((error) => console.error('[Bandeja] No se pudo guardar el estado de entrega:', error?.message || error));
+      return;
+    }
     const message = value?.messages?.[0];
     if (!message) return;
     // Meta reintenta si el 200 llega tarde (Render despertando): cada message.id se procesa una sola vez.
@@ -839,7 +772,16 @@ export default async function webhookController(req, res, next) {
           }
           return;
         }
-        if (!(await hasPreviousConversation(from))) {
+        const firstContact = !(await hasPreviousConversation(from));
+        // A la bandeja apenas llega (antes del debounce), con su foto, audio o documento si trae uno.
+        const mediaType = MEDIA_TYPES.includes(message.type) ? message.type : null;
+        await recordInbox({
+          phone: from, sender: 'patient', text: text || null, type: mediaType || 'text',
+          mediaId: mediaType ? message[mediaType]?.id || null : null, wamid: message.id || null,
+          contactName: value?.contacts?.[0]?.profile?.name || null, at: context.sentAt,
+        });
+        context.botPaused = await handoffService.isPaused(from);
+        if (firstContact) {
           const unsupported = Boolean(UNSUPPORTED_REPLIES[message.type]);
           if (detectHandoff(text) === 'urgencia') {
             // Con dolor o sangrado no se manda la promo: la derivación sale primero, con el aviso de privacidad.
@@ -861,7 +803,7 @@ export default async function webhookController(req, res, next) {
           }
         }
         if (UNSUPPORTED_REPLIES[message.type]) {
-          if (await handoffService.isPaused(from)) return;
+          if (context.botPaused) return;
           try {
             const reply = UNSUPPORTED_REPLIES[message.type];
             const sendResult = await whatsappService.sendTextMessage(from, reply);

@@ -125,6 +125,17 @@ Cuéntame:
     extraccion: 'extraccion.png',
   },
 
+  // Colores del panel (hex). Opcional.
+  colors: { primary: '#0f766e', accent: '#14b8a6' },
+
+  // Respuestas rápidas de recepción en la bandeja del panel.
+  quickReplies: [
+    '¡Hola! Te escribe recepción 😊 ¿En qué te ayudo?',
+    'Te confirmo tu cita. Te esperamos 10 minutos antes, por favor.',
+    'Para darte el precio exacto necesitamos la evaluación. ¿Qué día te acomoda?',
+    'Gracias por escribirnos. En unos minutos te respondemos.',
+  ],
+
   faq: [
     { q: '¿La evaluación tiene costo?', a: 'No. La evaluación digital 3D es sin costo durante la campaña.' },
     { q: '¿Aceptan tarjeta?', a: 'Sí, aceptamos tarjetas, Yape, Plin y efectivo.' },
