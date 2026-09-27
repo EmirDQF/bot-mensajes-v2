@@ -12,6 +12,7 @@ import appointmentService, {
 } from '../services/appointmentService.js';
 import handoffService, { detectHandoff, patientHandoffReply } from '../services/handoffService.js';
 import conversationMetrics from '../services/conversationMetrics.js';
+import messageDedup from '../services/messageDedup.js';
 import { now as clockNow } from '../services/clock.js';
 
 // Origen del anuncio de Meta (click-to-WhatsApp). Solo llega en el primer mensaje: se guarda en memoria
@@ -49,9 +50,7 @@ import {
 // Helper: upsert a message into chat_sessions.history
 let supabaseClient = null;
 const chatSessionHistoryCache = new Map();
-const processedMessages = new Map();
 const welcomeSentRecipients = new Set();
-const PROCESSED_IDS_TTL_MS = 60 * 1000;
 // Perfil de la clínica activa (config/clinics/<ACTIVE_CLINIC>.js). Una fila de la tabla
 // `clinics` de Supabase con el mismo waba_phone_number_id puede sobrescribir estos campos.
 export const DEFAULT_CLINIC = {
@@ -68,6 +67,24 @@ async function getSupabaseClient() {
   if (!rawUrl || !key) return null;
   supabaseClient = createClient(rawUrl, key);
   return supabaseClient;
+}
+
+// Filtros del derecho de supresión (Ley 29733): todo lo que el bot guarda de un paciente, por teléfono.
+// Las citas se conservan (la clínica las necesita para atenderlo; el paciente puede cancelarlas).
+export function dataDeletionFilters(phone) {
+  const rawDigits = String(phone || '').replace(/\D/g, '');
+  const shortPhone = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
+  const ids = [...new Set([rawDigits, shortPhone].filter(Boolean))];
+  const any = (...columns) => columns.flatMap((column) => ids.map((id) => `${column}.eq.${id}`)).join(',');
+  return {
+    leads: any('telefono'),
+    chat_sessions: any('id'),
+    conversations: any('conversation_id', 'phone'),
+    messages: any('phone', 'from_phone'),
+    follow_ups: any('phone'),
+    handoffs: any('phone'),
+    whatsapp_media_sends: any('recipient'),
+  };
 }
 
 async function hardResetUserSession(phone) {
@@ -87,12 +104,14 @@ async function hardResetUserSession(phone) {
     welcomeSentRecipients.delete(shortPhone);
 
     if (client) {
-      await Promise.allSettled([
-        client.from('leads').delete().or(`telefono.ilike.%${shortPhone}%,telefono.eq.${shortPhone},telefono.eq.${rawDigits}`),
-        client.from('chat_sessions').delete().or(`id.eq.${rawDigits},id.eq.${shortPhone}`),
-        client.from('conversations').delete().or(`contact_name.ilike.%${shortPhone}%`),
-        client.from('messages').delete().or(`sender.ilike.%${shortPhone}%`)
-      ]);
+      const results = await Promise.allSettled(Object.entries(dataDeletionFilters(rawDigits))
+        .map(async ([table, filter]) => {
+          const { error } = await client.from(table).delete().or(filter);
+          if (error) throw Object.assign(error, { table });
+        }));
+      for (const result of results) {
+        if (result.status === 'rejected') console.warn(`[Privacidad] No se pudo borrar en ${result.reason?.table}:`, result.reason?.message || result.reason);
+      }
     }
     console.log(`[RESET TOTAL] Lead y sesiones eliminadas para: ${shortPhone} (${rawDigits})`);
     return true;
@@ -884,17 +903,8 @@ export default async function webhookController(req, res, next) {
     const message = value?.messages?.[0];
     if (!message) return;
     if (payload) notifyDashboardIncoming(payload);
-    const msgId = message.id;
-    const processedAt = msgId ? processedMessages.get(msgId) : null;
-    if (msgId && processedAt && Date.now() - processedAt < PROCESSED_IDS_TTL_MS) return;
-    if (msgId) {
-      processedMessages.set(msgId, Date.now());
-      setTimeout(() => {
-        if (processedMessages.get(msgId) === processedAt || Date.now() - processedMessages.get(msgId) >= PROCESSED_IDS_TTL_MS) {
-          processedMessages.delete(msgId);
-        }
-      }, PROCESSED_IDS_TTL_MS).unref?.();
-    }
+    // Meta reintenta si el 200 llega tarde (Render despertando): cada message.id se procesa una sola vez.
+    if (await messageDedup.seen(message.id)) return;
     if (message.from === 'status@broadcast' || message.type === 'system') return;
     const from = String(message.from || '').replace(/\D/g, '');
     if (!from) return;

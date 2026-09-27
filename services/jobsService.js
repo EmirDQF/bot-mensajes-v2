@@ -8,6 +8,7 @@ import appointmentService, {
 } from './appointmentService.js';
 import { now as clockNow } from './clock.js';
 import handoffService from './handoffService.js';
+import messageDedup from './messageDedup.js';
 import { fetchAllRows } from './supabasePaging.js';
 
 // Tareas programadas. Las dispara un cron externo (Render Cron Job) vía POST /jobs/* con CRON_SECRET;
@@ -36,6 +37,7 @@ export function createJobs({
   whatsapp = whatsappService,
   appointments = appointmentService,
   handoff = handoffService,
+  dedup = messageDedup,
   clinic = activeClinic,
   now = clockNow,
 } = {}) {
@@ -174,6 +176,12 @@ export function createJobs({
   }
 
   async function runDailySummary() {
+    // Mantenimiento diario: los ids de mensajes de más de 7 días ya no se necesitan para deduplicar.
+    try {
+      await dedup.prune(7);
+    } catch (error) {
+      console.warn('[Jobs] No se pudo limpiar webhook_events:', error?.message || error);
+    }
     const summary = await buildDailySummary();
     const text = [
       `📊 Resumen de ${clinic.name} — ${summary.date}`,

@@ -25,6 +25,7 @@ export function fakeDb(tables = {}, { uniqueOn = {} } = {}) {
           if (existing) Object.assign(existing, state.payload); else data[table].push({ ...state.payload });
           return { data: [state.payload], error: null };
         }
+        if (state.op === 'delete') { const match = rows(); data[table] = data[table].filter((r) => !match.includes(r)); return { data: match, error: null }; }
         if (state.op === 'update') { const match = rows(); match.forEach((r) => Object.assign(r, state.payload)); return { data: match, error: null }; }
         let list = rows();
         if (state.sort) { const [c, asc] = state.sort; list = [...list].sort((x, y) => (x[c] > y[c] ? 1 : -1) * (asc ? 1 : -1)); }
@@ -35,6 +36,7 @@ export function fakeDb(tables = {}, { uniqueOn = {} } = {}) {
         select() { return b; },
         insert(p) { state.op = 'insert'; state.payload = p; return b; },
         update(p) { state.op = 'update'; state.payload = p; return b; },
+        delete() { state.op = 'delete'; return b; },
         upsert(p, opts) { state.op = 'upsert'; state.payload = p; state.conflict = [opts.onConflict]; return b; },
         eq(c, v) { state.filters.push((r) => r[c] === v); return b; },
         in(c, v) { state.filters.push((r) => v.includes(r[c])); return b; },

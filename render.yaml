@@ -1,0 +1,68 @@
+# Blueprint de Render: https://render.com/docs/blueprint-spec
+# Render → New → Blueprint → elige este repositorio. Te pedirá el valor de cada variable (sync: false):
+# copia los valores de tu .env y deja vacías las opcionales. Guía completa: docs/deploy.md
+services:
+  - type: web
+    name: asistente-dental
+    runtime: node
+    plan: free # un servicio 24/7 entra en las 750 h gratis al mes; desde el 2.º cliente conviene Starter
+    region: virginia
+    buildCommand: npm ci --omit=dev
+    startCommand: node index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ACTIVE_CLINIC
+        sync: false
+      - key: CLINIC_PHONE
+        sync: false
+      - key: RECEPTION_ALERT_PHONE
+        sync: false
+      - key: OWNER_ALERT_PHONE
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: ENFORCE_WHATSAPP_SIGNATURE
+        sync: false
+      - key: WHATSAPP_API_VERSION
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PANEL_USER
+        sync: false
+      - key: PANEL_PASSWORD
+        sync: false
+      - key: PANEL_BACKEND_URL
+        sync: false
+      - key: APPOINTMENT_MIN_LEAD_MINUTES
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: FOLLOW_UP_AFTER_HOURS
+        sync: false
+      - key: WA_TEMPLATE_REMINDER_24H
+        sync: false
+      - key: WA_TEMPLATE_REMINDER_2H
+        sync: false
+      - key: WA_TEMPLATE_REACTIVATION
+        sync: false
+      - key: WA_TEMPLATE_REVIEW
+        sync: false
+      - key: WA_TEMPLATE_DAILY_SUMMARY
+        sync: false
