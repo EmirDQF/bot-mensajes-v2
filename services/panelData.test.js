@@ -38,7 +38,9 @@ describe('panel: agenda de hoy / mañana', () => {
 describe('panel: botones de estado', () => {
   it('only accepts confirmar / asistió / no asistió / cancelar', async () => {
     const calls = [];
-    const appointments = { async updateStatus(id, status) { calls.push([id, status]); return { id, status, sender_phone: '51911111111', patient_name: 'Ana' }; } };
+    const updateStatus = async (id, status) => { calls.push([id, status]); return { id, status, sender_phone: '51911111111', patient_name: 'Ana' }; };
+    // "Confirmar" pasa por appointments.confirm(), que además marca confirmed_at para la garantía.
+    const appointments = { updateStatus, confirm: (id) => updateStatus(id, 'confirmada') };
     const panel = createPanelData({ getClient: () => fakeDb(), appointments, now: () => NOW });
     for (const status of ['confirmada', 'asistio', 'no_asistio', 'cancelada']) await panel.setAppointmentStatus('a', status);
     assert.deepEqual(calls.map((c) => c[1]), ['confirmada', 'asistio', 'no_asistio', 'cancelada']);

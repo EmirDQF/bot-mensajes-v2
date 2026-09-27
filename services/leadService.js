@@ -470,6 +470,12 @@ export async function saveLeadAdReferral(telefono, adReferral) {
   return upsertLeadFields(telefono, { ad_referral: adReferral || null }, 'saveLeadAdReferral');
 }
 
+// Primer contacto con la clínica cerrada (modo nocturno). Requiere migrations/20260927_after_hours_metrics.sql.
+export async function saveLeadAfterHours(telefono, afterHours) {
+  if (!telefono) throw new Error('telefono is required to save after_hours');
+  return upsertLeadFields(telefono, { after_hours: Boolean(afterHours) }, 'saveLeadAfterHours');
+}
+
 async function upsertLeadFields(telefono, fields, caller) {
   const client = getSupabaseClient();
   const normalized = normalizePhone(telefono);
@@ -577,5 +583,6 @@ export default {
   getClinicByWabaPhoneId,
   saveLeadSnapshot,
   saveLeadAdReferral,
+  saveLeadAfterHours,
   _internals: { normalizePhone },
 };

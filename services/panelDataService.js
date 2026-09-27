@@ -5,6 +5,7 @@ import TEMPLATES from '../config/whatsappTemplates.js';
 import appointmentService, { addDays, formatDateEs, formatTimeEs, localParts } from './appointmentService.js';
 import jobsService from './jobsService.js';
 import { fetchAllRows } from './supabasePaging.js';
+import { now as clockNow } from './clock.js';
 
 // Datos del panel de recepción: agenda del día, cambio de estado y métricas.
 
@@ -27,7 +28,7 @@ export function createPanelData({
   clinic = activeClinic,
   appointments = appointmentService,
   jobs = jobsService,
-  now = () => new Date(),
+  now = clockNow,
 } = {}) {
   async function db() {
     const client = await getClient();
@@ -68,7 +69,7 @@ export function createPanelData({
   // Cambia el estado desde el panel. "asistió" dispara el pedido de reseña si la clínica tiene reviewUrl.
   async function setAppointmentStatus(id, status) {
     if (!PANEL_STATUSES.includes(status)) throw Object.assign(new Error(`Estado no permitido: ${status}`), { status: 400 });
-    const updated = await appointments.updateStatus(id, status);
+    const updated = status === 'confirmada' ? await appointments.confirm(id) : await appointments.updateStatus(id, status);
     if (status === 'asistio' && clinic.reviewUrl && updated?.sender_phone) {
       const data = { patient: String(updated.patient_name || '').split(' ')[0] || 'paciente', clinicName: clinic.name, reviewUrl: clinic.reviewUrl };
       const text = `¡Gracias por visitarnos, ${data.patient}! 🦷 Nos ayudaría mucho tu opinión: ${clinic.reviewUrl}`;

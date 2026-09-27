@@ -6,9 +6,13 @@ import whatsappService, { markMessageAsRead, sendTypingIndicator } from '../serv
 import forwardToDashboard from '../src/dashboardForwarder.js';
 import { getGeminiClient } from '../src/geminiClient.js';
 import { createClient } from '@supabase/supabase-js';
-import activeClinic, { findTreatment, mediaUrl } from '../config/clinic.config.js';
-import appointmentService, { SlotTakenError, slotLabel } from '../services/appointmentService.js';
+import activeClinic, { findTreatment, getReceptionPhone, mediaUrl } from '../config/clinic.config.js';
+import appointmentService, {
+  OutsideHoursError, SlotTakenError, isWithinWorkingHours, localParts, parseRequestedDay, slotLabel,
+} from '../services/appointmentService.js';
 import handoffService, { detectHandoff, patientHandoffReply } from '../services/handoffService.js';
+import conversationMetrics from '../services/conversationMetrics.js';
+import { now as clockNow } from '../services/clock.js';
 
 // Origen del anuncio de Meta (click-to-WhatsApp). Solo llega en el primer mensaje: se guarda en memoria
 // y en leads.ad_referral para asociarlo después a la cita.
@@ -342,13 +346,15 @@ async function persistAgendaPayload(payload, context = {}) {
     return { status: 'saved', appointment };
   } catch (error) {
     if (error instanceof SlotTakenError) {
+      const outsideHours = error instanceof OutsideHoursError;
       let alternatives = [];
       try {
-        alternatives = await appointmentService.findNextSlots(payload.tratamiento || null, { fromDate: payload.fecha });
+        // Fuera de horario (p. ej. "a las 11 p. m.") se ofrecen los más cercanos desde ahora.
+        alternatives = await appointmentService.findNextSlots(payload.tratamiento || null, outsideHours ? {} : { fromDate: payload.fecha });
       } catch (slotError) {
         console.error('[Appointments] No se pudieron calcular horarios alternativos:', slotError?.message || slotError);
       }
-      return { status: 'slot_taken', alternatives };
+      return { status: 'slot_taken', reason: outsideHours ? 'outside_hours' : 'taken', alternatives };
     }
     console.error('[Appointments] No se pudo guardar la cita:', error?.message || error);
     return { status: 'error' };
@@ -362,6 +368,35 @@ export function formatSlotList(slots) {
   return `\n\n📅 Horarios disponibles:\n${lines.join('\n')}\n\nResponde 1, 2 o 3 👆`;
 }
 
+// Si Gemini falla (cuota agotada, caída o clave inválida) el paciente no se queda sin respuesta:
+// recibe los horarios ofrecidos o un aviso, y recepción recibe una alerta (máximo una por paciente por hora).
+export function aiFallbackReply(offeredSlots) {
+  return offeredSlots?.length
+    ? `¡Gracias por escribirnos! 😊 Te comparto los horarios más cercanos para tu evaluación:${formatSlotList(offeredSlots)}`
+    : '¡Gracias por escribirnos! 🙏 Tuve un inconveniente para responderte en este momento; ya avisé al equipo de la clínica para que te escriba por aquí.';
+}
+const FALLBACK_ALERT_MS = 60 * 60 * 1000;
+const fallbackAlertAt = new Map();
+
+async function alertReceptionNoAI(from, messageText) {
+  const to = getReceptionPhone();
+  const last = fallbackAlertAt.get(from);
+  if (!to || (last && Date.now() - last < FALLBACK_ALERT_MS)) return;
+  fallbackAlertAt.set(from, Date.now());
+  const text = [
+    `⚠️ El asistente no pudo responder con IA (${activeClinic.name})`,
+    `📱 +${from} (wa.me/${from})`,
+    `💬 "${String(messageText || '').slice(0, 300)}"`,
+    '',
+    'Escríbele al paciente. Si se repite, revisa GEMINI_API_KEY y la cuota de Gemini (npm run preflight).',
+  ].join('\n');
+  try {
+    await whatsappService.sendTextMessage(to, text);
+  } catch (error) {
+    console.error('[Gemini] No se pudo avisar a recepción de la falla:', error?.message || error);
+  }
+}
+
 const BOOKING_INTENT = /\b(citas?|agendar|agendo|agenda|reservar|reserva|separar|turnos?|horarios?|disponibilidad|atenderme|evaluaci[oó]n)\b/i;
 const CANCEL_INTENT = /^\s*cancelar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\bcancel\w*\b[^.?!]*\bcita\b|\bcita\b[^.?!]*\bcancel\w*\b|\bya no (?:voy a )?(?:ir|asistir|podr[eé] ir)\b/i;
 const RESCHEDULE_INTENT = /^\s*reprogramar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\b(?:cambiar|reprogramar|mover|postergar|cambio de)\b[^.?!]*\b(?:cita|hora|horario|d[ií]a)\b/i;
@@ -371,6 +406,38 @@ const DATA_DELETION_REPLY = 'Listo ✅ Eliminamos tu conversación y tus datos d
 const REMINDER_CONFIRM = /^\s*(?:1|1️⃣|confirmo|confirmar|confirmado|s[ií],?\s*confirmo)\s*[.!]*\s*$/i;
 const REMINDER_RESCHEDULE = /^\s*(?:2|2️⃣|reprogramar)\s*[.!]*\s*$/i;
 const RESCHEDULE_TTL_MS = 30 * 60 * 1000;
+// Cierra una frase sin duplicar el punto de "p. m.".
+const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
+// Consultas de precio o de un tratamiento: de noche se aprovechan para ofrecer horarios "en caliente".
+const PRICE_INTENT = /\b(?:precio|precios|cu[aá]nto|cuesta|costo|cuotas?|inicial|promo(?:ci[oó]n)?|campa[nñ]a|descuento)\b/i;
+// Solo un saludo: basta la bienvenida. Cualquier otra cosa en el primer mensaje se responde de inmediato.
+const GREETING_ONLY = /^[\s¡!¿?.,]*(?:hola+|holi|ola|buenas|buen[oa]s?\s+(?:noches|tardes|d[ií]as)|buen\s+d[ií]a|hi|hello|info|informaci[oó]n)[\s!?.,😊👋🙂]*$/iu;
+const UNSUPPORTED_REPLIES = {
+  audio: 'Disculpa 🙏 todavía no puedo escuchar audios. ¿Me lo escribes en un mensaje? Así te ayudo al toque con precios, fotos u horarios.',
+  video: 'Gracias por el video 🙏 por ahora no puedo verlo. ¿Me cuentas por escrito qué necesitas?',
+  document: 'Gracias 🙏 por aquí no puedo abrir archivos. ¿Me cuentas por escrito qué necesitas? Si es para tu evaluación, tráelo el día de tu cita.',
+  sticker: '😊 ¿En qué te ayudo? Puedo contarte precios, enviarte fotos de tratamientos o proponerte horarios para tu evaluación.',
+};
+
+// Modo nocturno: la asistente dice con naturalidad que la clínica está cerrada (una vez por noche)
+// y deja la solicitud de cita lista para que recepción la confirme al abrir.
+export const AFTER_HOURS_NOTICE = activeClinic.afterHoursNotice
+  || '🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo y te dejo la solicitud de cita lista; recepción te la confirma a primera hora.';
+const AFTER_HOURS_RENOTICE_MS = 10 * 60 * 60 * 1000;
+const afterHoursNoticeAt = new Map();
+
+// true si toca avisar ahora que la clínica está cerrada (fuera de horario y sin aviso en las últimas 10 h).
+export function takeAfterHoursNotice(phone, instant = clockNow()) {
+  if (isWithinWorkingHours(activeClinic, instant)) return false;
+  const last = afterHoursNoticeAt.get(phone);
+  if (last && instant - last < AFTER_HOURS_RENOTICE_MS) return false;
+  afterHoursNoticeAt.set(phone, instant);
+  return true;
+}
+
+export function buildWelcomeCaption({ afterHours = false } = {}) {
+  return [activeClinic.welcomeCaption, afterHours ? AFTER_HOURS_NOTICE : null, activeClinic.privacyNotice].filter(Boolean).join('\n\n');
+}
 const pendingReschedules = new Map();
 
 // "cancelar" / "cambiar mi cita": encuentra la próxima cita, ofrece horarios y actualiza el estado.
@@ -412,7 +479,7 @@ export async function handleAppointmentCommands(from, messageText, { appointment
       if (!appointment.reminder_24h_sent_at && !appointment.reminder_2h_sent_at) return null;
       if (reminderAnswer === 'confirm') {
         if (appointment.status !== 'confirmada') {
-          const confirmed = await appointments.updateStatus(appointment.id, 'confirmada');
+          const confirmed = await appointments.confirm(appointment.id);
           await appointments.notifyReception(confirmed, { event: 'confirmada' });
         }
         return `¡Gracias! Tu cita del ${current} quedó confirmada ✅. Te esperamos en ${activeClinic.address}.`;
@@ -423,16 +490,16 @@ export async function handleAppointmentCommands(from, messageText, { appointment
     if (wantsCancel) {
       await appointments.updateStatus(appointment.id, 'cancelada');
       await appointments.notifyReception(appointment, { event: 'cancelada' });
-      return `Listo, cancelamos tu cita del ${current}. Cuando quieras volver a agendar, escríbeme "quiero una cita" 😊`;
+      return `Listo, cancelamos tu cita del ${sentence(current)} Cuando quieras volver a agendar, escríbeme "quiero una cita" 😊`;
     }
 
     const slots = await appointments.findNextSlots(appointment.treatment);
     if (!slots.length) {
       await appointments.notifyReception(appointment, { event: 'reprogramada' });
-      return `Tu cita actual es el ${current}. No encuentro horarios libres en los próximos días; recepción te escribirá para coordinar.`;
+      return `Tu cita actual es el ${sentence(current)} No encuentro horarios libres en los próximos días; recepción te escribirá para coordinar.`;
     }
     pendingReschedules.set(from, { appointment, slots, at: Date.now() });
-    return `Claro 😊 Tu cita actual es el ${current}. Elige el nuevo horario:${formatSlotList(slots)}`;
+    return `Claro 😊 Tu cita actual es el ${sentence(current)} Elige el nuevo horario:${formatSlotList(slots)}`;
   } catch (error) {
     console.error('[Appointments] Error al cancelar o reprogramar:', error?.message || error);
     return null;
@@ -467,8 +534,7 @@ function enqueueUserWork(from, work) {
   return next;
 }
 
-// Bienvenida + aviso de privacidad (Ley 29733) en el primer contacto.
-const OFFICIAL_WELCOME_CAPTION = `${activeClinic.welcomeCaption}\n\n${activeClinic.privacyNotice}`;
+// Bienvenida + aviso de privacidad (Ley 29733) en el primer contacto; de noche, también el aviso de clínica cerrada.
 
 async function hasPreviousConversation(senderPhone) {
   const sessionId = String(senderPhone || '').replace(/\D/g, '');
@@ -502,37 +568,42 @@ async function hasPreviousConversation(senderPhone) {
   }
 }
 
-async function sendFirstContactWelcome(senderPhone, context, messageText) {
+async function sendFirstContactWelcome(senderPhone, context, messageText, { persistPatient = true } = {}) {
   const imageUrl = mediaUrl('logo');
-  const result = await whatsappService.sendImageMessage(senderPhone, imageUrl, OFFICIAL_WELCOME_CAPTION);
+  const caption = buildWelcomeCaption({ afterHours: takeAfterHoursNotice(senderPhone) });
+  const result = await whatsappService.sendImageMessage(senderPhone, imageUrl, caption);
   welcomeSentRecipients.add(String(senderPhone).replace(/\D/g, ''));
   const timestamp = new Date().toISOString();
-  await persistToSupabaseConversation({
-    conversationId: senderPhone,
-    contactNumber: senderPhone,
-    sender: 'user',
-    text: messageText || '[Imagen]',
-    timestamp,
-    whatsappMessageId: context.messageId || null,
-  });
+  if (persistPatient) {
+    await persistToSupabaseConversation({
+      conversationId: senderPhone,
+      contactNumber: senderPhone,
+      sender: 'user',
+      text: messageText || '[Imagen]',
+      timestamp,
+      whatsappMessageId: context.messageId || null,
+    });
+  }
   await persistToSupabaseConversation({
     conversationId: senderPhone,
     contactNumber: senderPhone,
     sender: 'bot',
-    text: OFFICIAL_WELCOME_CAPTION,
+    text: caption,
     mediaUrl: imageUrl,
     timestamp,
     whatsappMessageId: result?.messages?.[0]?.id || null,
   });
-  await persistToChatSessions(senderPhone, {
-    from: 'patient',
-    text: messageText || '[Imagen]',
-    phone: senderPhone,
-    timestamp,
-  });
+  if (persistPatient) {
+    await persistToChatSessions(senderPhone, {
+      from: 'patient',
+      text: messageText || '[Imagen]',
+      phone: senderPhone,
+      timestamp,
+    });
+  }
   await persistToChatSessions(senderPhone, {
     from: 'bot',
-    text: OFFICIAL_WELCOME_CAPTION,
+    text: caption,
     phone: senderPhone,
     timestamp,
   });
@@ -602,10 +673,16 @@ async function processBatch(from, buffer) {
   // Urgencia clínica o pedido de hablar con una persona: se pausa el bot y se avisa a recepción.
   const handoffReason = detectHandoff(messageText);
   if (handoffReason) {
-    const reply = patientHandoffReply(handoffReason);
+    const firstContactUrgent = Boolean(buffer.context?.firstContactUrgent);
+    const reply = firstContactUrgent
+      ? `${patientHandoffReply(handoffReason)}\n\n${activeClinic.privacyNotice}`
+      : patientHandoffReply(handoffReason);
     try {
       const sendResult = await whatsappService.sendTextMessage(from, reply);
       await recordBotReply(from, messageText, reply, null, sendResult);
+      if (firstContactUrgent) {
+        void conversationMetrics.recordFirstContact({ phone: from, firstMessageAt: buffer.context.sentAt, respondedAt: clockNow() });
+      }
     } catch (error) {
       console.error('webhookController: failed sending message to user', error);
     }
@@ -626,11 +703,17 @@ async function processBatch(from, buffer) {
   }
 
   // Si pide cita, se le ofrecen 3 horarios libres concretos en vez de preguntarle "¿qué día?".
+  // Fuera de horario también ante una consulta de precio o tratamiento: la cita se asegura en caliente.
+  const current = clockNow();
+  const afterHours = !isWithinWorkingHours(activeClinic, current);
   let offeredSlots = null;
   const alreadyChoosing = geminiService.pickOfferedSlot(messageText, geminiService.getOfferedSlots(jid));
-  if (BOOKING_INTENT.test(messageText) && !alreadyChoosing && !geminiService.isSessionBooked(jid)) {
+  const hotLead = afterHours && !geminiService.getOfferedSlots(jid)
+    && Boolean(findTreatment(messageText) || PRICE_INTENT.test(messageText));
+  if ((BOOKING_INTENT.test(messageText) || hotLead) && !alreadyChoosing && !geminiService.isSessionBooked(jid)) {
     try {
-      offeredSlots = await appointmentService.findNextSlots(findTreatment(messageText)?.key || null);
+      const fromDate = parseRequestedDay(messageText, localParts(activeClinic.timezone, current).date);
+      offeredSlots = await appointmentService.findNextSlots(findTreatment(messageText)?.key || null, fromDate ? { fromDate } : {});
     } catch (error) {
       console.error('[Appointments] No se pudieron calcular horarios libres:', error?.message || error);
     }
@@ -640,14 +723,23 @@ async function processBatch(from, buffer) {
   try {
     geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
       client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts, clinic,
-      availableSlots: offeredSlots,
+      availableSlots: offeredSlots, afterHours, welcomed: Boolean(buffer.context?.welcomed),
     });
   } catch (error) {
     console.error('[Gemini] Error al generar respuesta:', error);
-    return;
+    geminiResult = null;
   }
   if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) {
-    console.error('[Gemini] No se obtuvo una respuesta utilizable');
+    console.error('[Gemini] No se obtuvo una respuesta utilizable; se envía la respuesta de respaldo');
+    let fallback = aiFallbackReply(offeredSlots);
+    if (takeAfterHoursNotice(from, current)) fallback = `${AFTER_HOURS_NOTICE}\n\n${fallback}`;
+    try {
+      const sendResult = await whatsappService.sendTextMessage(from, fallback);
+      await recordBotReply(from, messageText, fallback, null, sendResult);
+    } catch (error) {
+      console.error('webhookController: failed sending message to user', error);
+    }
+    await alertReceptionNoAI(from, messageText);
     return;
   }
 
@@ -682,12 +774,19 @@ async function processBatch(from, buffer) {
     if (appointmentOutcome.status === 'slot_taken') {
       geminiService.releaseBooking(jid);
       geminiService.setOfferedSlots(jid, appointmentOutcome.alternatives);
+      const why = appointmentOutcome.reason === 'outside_hours'
+        ? `Ese horario está fuera de nuestra atención (${activeClinic.workingHoursText}).`
+        : '¡Uy! Ese horario se acaba de ocupar 😅.';
       textoParaWhatsApp = appointmentOutcome.alternatives.length
-        ? `¡Uy! Ese horario se acaba de ocupar 😅. Te propongo estos:${formatSlotList(appointmentOutcome.alternatives)}`
-        : '¡Uy! Ese horario se acaba de ocupar 😅. Recepción te escribirá para coordinar otro.';
+        ? `${why} Te propongo estos:${formatSlotList(appointmentOutcome.alternatives)}`
+        : `${why} Recepción te escribirá para coordinar otro.`;
     }
   } else if (offeredSlots?.length) {
     textoParaWhatsApp = `${textoParaWhatsApp}${formatSlotList(offeredSlots)}`.trim();
+  }
+
+  if (textoParaWhatsApp && takeAfterHoursNotice(from, current)) {
+    textoParaWhatsApp = `${AFTER_HOURS_NOTICE}\n\n${textoParaWhatsApp}`;
   }
 
   let sendResult;
@@ -762,6 +861,18 @@ async function addMessageToBuffer(from, part, context) {
   messageBuffers.set(from, current);
 }
 
+// Espera a que termine todo lo pendiente de un paciente (recepción, debounce y respuesta).
+// Lo usan scripts/simulate-conversations.js y los tests; el flujo normal no lo necesita.
+export async function waitForIdle(from) {
+  const id = String(from || '').replace(/\D/g, '');
+  for (;;) {
+    const pending = intakeQueues.get(id) || (messageBuffers.has(id) ? new Promise((r) => setTimeout(r, 50)) : null)
+      || userProcessingQueues.get(id);
+    if (!pending) return;
+    await pending.catch(() => {});
+  }
+}
+
 // Buffering combines rapid text/image messages while the per-user queue prevents overlapping Gemini calls.
 export default async function webhookController(req, res, next) {
   res.status(200).send('EVENT_RECEIVED');
@@ -799,10 +910,14 @@ export default async function webhookController(req, res, next) {
       void leadService.saveLeadAdReferral(from, referral)
         .catch((error) => console.error('[Leads] No se pudo guardar el anuncio de origen:', error?.message || error));
     }
+    const receivedAt = clockNow();
+    const sentAt = Number(message.timestamp) > 0 ? new Date(Number(message.timestamp) * 1000) : receivedAt;
     const context = {
       contactName: value?.contacts?.[0]?.profile?.name || from,
       phoneNumberId: value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || null,
       messageId: message.id || null,
+      // Meta puede entregar tarde si Render estaba dormido: se mide desde la hora real del mensaje.
+      sentAt: sentAt > receivedAt ? receivedAt : sentAt,
     };
     const intake = intakeQueues.get(from) || Promise.resolve();
     const next = intake.then(async () => {
@@ -823,13 +938,36 @@ export default async function webhookController(req, res, next) {
           return;
         }
         if (!(await hasPreviousConversation(from))) {
-          try {
-            await sendFirstContactWelcome(from, context, text);
-          } catch (error) {
-            console.error('[WhatsApp] Error al enviar bienvenida inicial:', error);
+          const unsupported = Boolean(UNSUPPORTED_REPLIES[message.type]);
+          if (detectHandoff(text) === 'urgencia') {
+            // Con dolor o sangrado no se manda la promo: la derivación sale primero, con el aviso de privacidad.
+            context.firstContactUrgent = true;
+            welcomeSentRecipients.add(from);
+          } else {
+            // Un simple "hola" se queda con la bienvenida. Una pregunta ("¿cuánto cuestan los brackets?")
+            // se responde de inmediato, sin obligar al paciente a repetirla.
+            const onlyGreeting = !text || GREETING_ONLY.test(text);
+            const continues = !onlyGreeting && !unsupported;
+            try {
+              await sendFirstContactWelcome(from, context, unsupported ? `[${message.type}]` : text, { persistPatient: !continues });
+              void conversationMetrics.recordFirstContact({ phone: from, firstMessageAt: context.sentAt, respondedAt: clockNow() });
+            } catch (error) {
+              console.error('[WhatsApp] Error al enviar bienvenida inicial:', error);
+            }
+            if (!continues && !unsupported) return;
+            context.welcomed = true;
           }
-          // Una urgencia en el primer mensaje no se queda solo con la bienvenida: se procesa igual.
-          if (!detectHandoff(text)) return;
+        }
+        if (UNSUPPORTED_REPLIES[message.type]) {
+          if (await handoffService.isPaused(from)) return;
+          try {
+            const reply = UNSUPPORTED_REPLIES[message.type];
+            const sendResult = await whatsappService.sendTextMessage(from, reply);
+            await recordBotReply(from, `[${message.type}]`, reply, null, sendResult);
+          } catch (error) {
+            console.error('[WhatsApp] No se pudo responder a un mensaje no soportado:', error);
+          }
+          return;
         }
         if (message.type === 'image') {
           try {

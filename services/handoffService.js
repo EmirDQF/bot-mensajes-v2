@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import config from '../config/env.js';
 import activeClinic, { getReceptionPhone } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
+import { isWithinWorkingHours } from './appointmentService.js';
 
 // Pase a humano: pausa el bot en una conversación y avisa a recepción.
 // El estado vive en conversations.status ('human' = bot pausado), así sobrevive a reinicios de Render
@@ -38,7 +39,9 @@ function getDefaultClient() {
 const CACHE_MS = 60 * 1000;
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 
-export function createHandoffService({ getClient = getDefaultClient, whatsapp = whatsappService, now = () => Date.now() } = {}) {
+export function createHandoffService({
+  getClient = getDefaultClient, whatsapp = whatsappService, clinic = activeClinic, now = () => Date.now(),
+} = {}) {
   const cache = new Map();
 
   async function isPaused(phone) {
@@ -82,9 +85,25 @@ export function createHandoffService({ getClient = getDefaultClient, whatsapp = 
     return setPaused(phone, !(await isPaused(phone)));
   }
 
+  // Registro para el reporte semanal ("urgencias derivadas"). Sin la tabla handoffs solo queda en el log.
+  async function logHandoff(phone, reason) {
+    try {
+      const client = await getClient();
+      if (!client) return;
+      const { error } = await client.from('handoffs').insert([{
+        clinic_id: clinic.id, phone: digits(phone), reason,
+        after_hours: !isWithinWorkingHours(clinic, new Date(now())),
+      }]);
+      if (error) throw error;
+    } catch (error) {
+      console.error('[Handoff] No se pudo registrar el pase a humano (¿falta migrations/20260927_after_hours_metrics.sql?):', error?.message || error);
+    }
+  }
+
   // Pausa el bot y avisa a RECEPTION_ALERT_PHONE. Nunca lanza.
   async function handoff({ phone, reason, message = '', contactName = null }) {
     await setPaused(phone, true);
+    await logHandoff(phone, reason);
     const to = getReceptionPhone();
     if (!to) {
       console.warn('[Handoff] RECEPTION_ALERT_PHONE no está definida; no se avisó a recepción.');
@@ -93,7 +112,7 @@ export function createHandoffService({ getClient = getDefaultClient, whatsapp = 
     const id = digits(phone);
     const title = reason === 'urgencia' ? '🚨 URGENCIA — responder de inmediato' : '🙋 Un paciente pide hablar con una persona';
     const text = [
-      `${title} (${activeClinic.name})`,
+      `${title} (${clinic.name})`,
       `👤 ${contactName || 'Paciente'} · +${id} (wa.me/${id})`,
       `💬 "${String(message).slice(0, 300)}"`,
       '',

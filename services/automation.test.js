@@ -199,6 +199,7 @@ describe('WhatsApp templates, referral and reminder replies', () => {
       calls,
       async findUpcomingByPhone() { return apt; },
       async updateStatus(id, status) { calls.push(['updateStatus', id, status]); return { ...apt, status }; },
+      async confirm(id) { calls.push(['confirm', id]); return { ...apt, status: 'confirmada' }; },
       async notifyReception(a, o) { calls.push(['notifyReception', o?.event]); return { sent: true }; },
       async findNextSlots() { return [{ date: '2026-10-03', time: '09:00', label: 'sábado, 3 de octubre a las 9:00 a. m.' }]; },
     };
@@ -208,7 +209,7 @@ describe('WhatsApp templates, referral and reminder replies', () => {
     const appointments = fakeAppointments(upcoming({ reminder_24h_sent_at: hoursAgo(1) }));
     const reply = await handleAppointmentCommands('51977777777', '1', { appointments, gemini });
     assert.match(reply, /quedó confirmada ✅/);
-    assert.deepEqual(appointments.calls, [['updateStatus', 'apt-9', 'confirmada'], ['notifyReception', 'confirmada']]);
+    assert.deepEqual(appointments.calls, [['confirm', 'apt-9'], ['notifyReception', 'confirmada']]);
   });
 
   it('"2" after a reminder offers new slots; "1" without a reminder is left to Gemini', async () => {

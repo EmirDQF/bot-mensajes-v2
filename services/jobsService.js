@@ -4,8 +4,9 @@ import activeClinic, { getOwnerPhone, getReceptionPhone } from '../config/clinic
 import TEMPLATES from '../config/whatsappTemplates.js';
 import whatsappService from './whatsappService.js';
 import appointmentService, {
-  ACTIVE_STATUSES, addDays, formatDateEs, formatTimeEs, localParts, toInstant, toMinutes,
+  ACTIVE_STATUSES, addDays, formatDateEs, formatTimeEs, isWithinWorkingHours, localParts, toInstant,
 } from './appointmentService.js';
+import { now as clockNow } from './clock.js';
 import handoffService from './handoffService.js';
 import { fetchAllRows } from './supabasePaging.js';
 
@@ -27,10 +28,8 @@ function getDefaultClient() {
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
 
-export function isWithinWorkingHours(clinic, instant) {
-  const { weekday, minutes } = localParts(clinic.timezone, instant);
-  return (clinic.workingHours[weekday] || []).some(([from, to]) => minutes >= toMinutes(from) && minutes < toMinutes(to));
-}
+// Vive en appointmentService (lo usa también la conversación); se reexporta por compatibilidad.
+export { isWithinWorkingHours };
 
 export function createJobs({
   getClient = getDefaultClient,
@@ -38,7 +37,7 @@ export function createJobs({
   appointments = appointmentService,
   handoff = handoffService,
   clinic = activeClinic,
-  now = () => new Date(),
+  now = clockNow,
 } = {}) {
   async function db() {
     const client = await getClient();

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import config from '../config/env.js';
 import activeClinic, { findTreatment, getReceptionPhone } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
+import { now as clockNow } from './clock.js';
 
 // Agenda real con disponibilidad. Fechas y horas se guardan en la hora local de la clínica.
 
@@ -9,6 +10,8 @@ export const ACTIVE_STATUSES = ['pendiente', 'confirmada', 'reprogramada'];
 export const STATUSES = [...ACTIVE_STATUSES, 'cancelada', 'asistio', 'no_asistio'];
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const MIN_LEAD_MINUTES = Number(process.env.APPOINTMENT_MIN_LEAD_MINUTES || 60);
+// Columnas de migrations/20260927_after_hours_metrics.sql (opcionales hasta que se ejecute).
+const METRIC_COLUMNS = ['confirmed_at', 'rescheduled_at'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -16,6 +19,15 @@ export class SlotTakenError extends Error {
   constructor(message = 'El horario ya está ocupado') {
     super(message);
     this.code = 'SLOT_TAKEN';
+  }
+}
+
+// Horario fuera de la atención de la clínica (p. ej. "a las 11 p. m." o un domingo) o ya pasado.
+// Hereda de SlotTakenError para que el flujo ofrezca horarios alternativos igual que con un choque.
+export class OutsideHoursError extends SlotTakenError {
+  constructor(message = 'El horario está fuera de la atención de la clínica') {
+    super(message);
+    this.code = 'OUTSIDE_HOURS';
   }
 }
 
@@ -67,7 +79,35 @@ export function slotLabel({ date, time }) {
   return `${formatDateEs(date)} a las ${formatTimeEs(time)}`;
 }
 
+// PostgREST responde PGRST204 cuando se envía una columna que la tabla no tiene.
+export const isMissingColumn = (error, column) => error?.code === 'PGRST204' || (error?.code === '42703' && String(error?.message || '').includes(column));
+
 const overlaps = (startA, durA, startB, durB) => startA < startB + durB && startB < startA + durA;
+
+// ¿La clínica atiende en este instante? Se calcula con la zona horaria de la clínica.
+export function isWithinWorkingHours(clinic, instant = clockNow()) {
+  const { weekday, minutes } = localParts(clinic.timezone, instant);
+  return (clinic.workingHours[weekday] || []).some(([from, to]) => minutes >= toMinutes(from) && minutes < toMinutes(to));
+}
+
+const WEEKDAY_WORDS = {
+  domingo: 'sun', lunes: 'mon', martes: 'tue', miercoles: 'wed', jueves: 'thu', viernes: 'fri', sabado: 'sat',
+};
+
+// Día que pide el paciente ("hoy", "mañana", "pasado mañana", "el sábado") → 'YYYY-MM-DD', o null.
+export function parseRequestedDay(text, today) {
+  const value = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/\bpasado manana\b/.test(value)) return addDays(today, 2);
+  // "por la mañana" es un turno, no el día siguiente.
+  if (/\bmanana\b/.test(value.replace(/\b(?:en|por|de) la manana\b/g, ''))) return addDays(today, 1);
+  if (/\bhoy\b/.test(value)) return today;
+  const word = Object.keys(WEEKDAY_WORDS).find((name) => new RegExp(`\\b${name}\\b`).test(value));
+  if (!word) return null;
+  for (let i = 0; i < 7; i += 1) {
+    if (weekdayKey(addDays(today, i)) === WEEKDAY_WORDS[word]) return addDays(today, i);
+  }
+  return null;
+}
 
 // ---------- Servicio ----------
 
@@ -85,7 +125,7 @@ export function createAppointmentService({
   getClient = getDefaultClient,
   clinic = activeClinic,
   whatsapp = whatsappService,
-  now = () => new Date(),
+  now = clockNow,
 } = {}) {
   async function db() {
     const client = await getClient();
@@ -164,11 +204,12 @@ export function createAppointmentService({
     if (!TIME_RE.test(time)) throw new Error(`appointmentTime inválida: ${appointmentTime}`);
     const duration = durationMin || durationFor(treatment);
 
+    if (!isBookable(appointmentDate, time, duration)) throw new OutsideHoursError();
     const existing = await listActiveOn(appointmentDate);
     if (hasConflict(existing, time, duration)) throw new SlotTakenError();
 
     const client = await db();
-    const { data, error } = await client.from('appointments').insert([{
+    const row = {
       clinic_id: clinicId,
       sender_phone: phone,
       patient_name: patientName,
@@ -180,7 +221,16 @@ export function createAppointmentService({
       source,
       ad_referral: adReferral,
       notes,
-    }]).select().single();
+      // Solicitud hecha con la clínica cerrada (se mide en el reporte semanal).
+      after_hours: !isWithinWorkingHours(clinic, now()),
+    };
+    let { data, error } = await client.from('appointments').insert([row]).select().single();
+    if (error && isMissingColumn(error, 'after_hours')) {
+      // La migración 20260927_after_hours_metrics.sql aún no se ejecutó: la cita se guarda igual.
+      console.warn('[Appointments] Falta la columna appointments.after_hours; ejecuta migrations/20260927_after_hours_metrics.sql');
+      const { after_hours: _omitted, ...legacyRow } = row;
+      ({ data, error } = await client.from('appointments').insert([legacyRow]).select().single());
+    }
     if (error) {
       if (error.code === '23505') throw new SlotTakenError();
       throw error;
@@ -188,26 +238,53 @@ export function createAppointmentService({
     return data;
   }
 
+  // Dentro del horario de atención, sin pasarse del cierre y no en el pasado (con la anticipación mínima).
+  function isBookable(date, time, duration) {
+    const ranges = clinic.workingHours[weekdayKey(date)] || [];
+    const start = toMinutes(time);
+    const inRange = ranges.some(([from, to]) => start >= toMinutes(from) && start + duration <= toMinutes(to));
+    if (!inRange) return false;
+    const today = localParts(clinic.timezone, now());
+    if (date < today.date) return false;
+    return date > today.date || start >= today.minutes + MIN_LEAD_MINUTES;
+  }
+
   async function updateStatus(id, status, changes = {}) {
     if (!STATUSES.includes(status)) throw new Error(`Estado inválido: ${status}`);
-    const allowed = ['appointment_date', 'appointment_time', 'notes', 'reminder_24h_sent_at', 'reminder_2h_sent_at'];
+    const allowed = [
+      'appointment_date', 'appointment_time', 'notes', 'reminder_24h_sent_at', 'reminder_2h_sent_at',
+      ...METRIC_COLUMNS,
+    ];
     const patch = { status };
     for (const key of allowed) if (changes[key] !== undefined) patch[key] = changes[key];
     const client = await db();
-    const { data, error } = await client.from('appointments')
-      .update(patch).eq('id', id).eq('clinic_id', clinic.id).select().single();
+    const run = (values) => client.from('appointments')
+      .update(values).eq('id', id).eq('clinic_id', clinic.id).select().single();
+    let { data, error } = await run(patch);
+    if (error && METRIC_COLUMNS.some((column) => column in patch && isMissingColumn(error, column))) {
+      // Sin la migración de métricas el cambio de estado se guarda igual, sin la marca de tiempo.
+      console.warn('[Appointments] Faltan columnas de métricas; ejecuta migrations/20260927_after_hours_metrics.sql');
+      ({ data, error } = await run(Object.fromEntries(Object.entries(patch).filter(([key]) => !METRIC_COLUMNS.includes(key)))));
+    }
     if (error) throw error;
     return data;
   }
 
+  // Recepción (panel) o el paciente (respuesta al recordatorio) confirman la cita. Cuenta para la garantía.
+  async function confirm(id) {
+    return updateStatus(id, 'confirmada', { confirmed_at: now().toISOString() });
+  }
+
   async function reschedule(id, { appointmentDate, appointmentTime, durationMin }) {
     const time = String(appointmentTime).slice(0, 5);
+    if (!isBookable(appointmentDate, time, durationMin || clinic.slotMinutes)) throw new OutsideHoursError();
     const existing = await listActiveOn(appointmentDate, { excludeId: id });
     if (hasConflict(existing, time, durationMin || clinic.slotMinutes)) throw new SlotTakenError();
     try {
       // Nueva fecha → los recordatorios de la fecha anterior ya no cuentan.
       return await updateStatus(id, 'reprogramada', {
         appointment_date: appointmentDate, appointment_time: time, reminder_24h_sent_at: null, reminder_2h_sent_at: null,
+        rescheduled_at: now().toISOString(),
       });
     } catch (error) {
       if (error?.code === '23505') throw new SlotTakenError();
@@ -277,10 +354,12 @@ export function createAppointmentService({
     findNextSlots,
     saveAppointment,
     updateStatus,
+    confirm,
     reschedule,
     findUpcomingByPhone,
     notifyReception,
     durationFor,
+    isBookable,
   };
 }
 

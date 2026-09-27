@@ -2,6 +2,7 @@ import config from '../config/env.js';
 import { CATALOGO, obtenerImagen } from '../config/catalogo.js';
 import clinic, { findTreatment } from '../config/clinic.config.js';
 import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
+import { now as clockNow } from './clock.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -43,7 +44,14 @@ Si pide hablar con una persona o un doctor, o tiene dudas clínicas complejas, r
 No diagnosticas ni recetas medicamentos ni dosis. Si menciona dolor fuerte, sangrado, hinchazón, fiebre o un golpe, dile que lo derivas de inmediato con el equipo clínico y recomiéndale acudir a la clínica o a emergencias si empeora.
 
 ### REGLA 6: NO INVENTES
-Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación.
+Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación. No inventes descuentos, promociones ni medios de pago: menciona solo la campaña vigente y lo que dicen las preguntas frecuentes.
+
+### REGLA 7: TONO
+Hablas como una asesora peruana amable y resolutiva: tuteas, frases cortas, "con gusto", "claro que sí". Máximo 2 emojis por mensaje. Cierra con una pregunta o un paso concreto (por ejemplo, elegir un horario).
+Eres la asistente virtual de la clínica: si te preguntan si eres una persona, dilo con honestidad. Nunca finjas ser humana.
+
+### REGLA 8: TEMAS AJENOS E INSULTOS
+Si el mensaje no tiene que ver con la clínica, responde en una línea que solo puedes ayudar con la atención dental de ${c.name} y ofrece tu ayuda. Si te insultan, mantén la calma y el respeto, no respondas al insulto y ofrece ayuda o hablar con una persona.
 
 ### DATOS DE LA CLÍNICA
 - Horario: ${c.workingHoursText}
@@ -300,7 +308,7 @@ function limaNow() {
   return new Intl.DateTimeFormat('es-PE', {
     timeZone: LIMA_TIME_ZONE, weekday: 'long', year: 'numeric', month: 'long',
     day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
-  }).format(new Date());
+  }).format(clockNow());
 }
 
 export function buildSystemPromptWithContext(jid, session = null, clinicOverride = null) {
@@ -314,12 +322,19 @@ export function buildSystemPromptWithContext(jid, session = null, clinicOverride
     ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Invítalo a responder 1, 2 o 3 y pide solo el nombre o tratamiento que falten.`
     : '';
   const clinicName = profile.name || clinic.name;
-  return `${SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}`;
+  // Modo nocturno: el sistema ya le avisó que la clínica está cerrada; Gemini no debe prometer atención inmediata.
+  const closed = session?.afterHours
+    ? '\nESTADO: la clínica está CERRADA en este momento. Tú sí respondes y dejas la solicitud de cita lista; recepción la confirma cuando abra. No repitas que está cerrada (el sistema ya lo dijo) ni prometas llamadas o atención inmediata de una persona.'
+    : '';
+  const welcomed = session?.welcomed
+    ? '\nYa se le envió la bienvenida con la campaña: no saludes ni te presentes; responde directo a su consulta.'
+    : '';
+  return `${SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}${closed}${welcomed}`;
 }
 
 export function parseTextToLimaDate(text) {
   if (typeof text !== 'string') return null;
-  const now = new Date(Date.now());
+  const now = clockNow();
   const base = new Date(Date.UTC(Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, year: 'numeric' }).format(now)), Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, month: 'numeric' }).format(now)) - 1, Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, day: 'numeric' }).format(now))));
   const value = text.toLowerCase();
   if (value.includes('pasado mañana')) base.setUTCDate(base.getUTCDate() + 2);
@@ -336,8 +351,10 @@ export function parseTextToLimaDate(text) {
   let hour = Number(time[1]);
   if (time[3]?.toLowerCase() === 'pm' && hour < 12) hour += 12;
   if (time[3]?.toLowerCase() === 'am' && hour === 12) hour = 0;
-  base.setUTCHours(hour + 5, Number(time[2] || 0), 0, 0);
-  return base.toISOString().replace('.000Z', '+00:00');
+  // Hora local de la clínica → instante UTC (sirve para cualquier zona horaria, no solo Lima).
+  const localDate = base.toISOString().slice(0, 10);
+  const localTime = `${String(hour).padStart(2, '0')}:${String(Number(time[2] || 0)).padStart(2, '0')}`;
+  return toInstant(localDate, localTime, LIMA_TIME_ZONE).toISOString().replace('.000Z', '+00:00');
 }
 
 export function parseTextToLimaISO(text) {
@@ -537,6 +554,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     return { texto: null, leadData: null, skipResponse: true };
   }
   session.lastUserMessageAt = now;
+  session.afterHours = Boolean(options.afterHours);
+  session.welcomed = Boolean(options.welcomed);
   if (Array.isArray(options.availableSlots) && options.availableSlots.length && !session.booked) {
     session.offeredSlots = options.availableSlots;
   }
