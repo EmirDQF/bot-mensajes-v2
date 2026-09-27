@@ -142,7 +142,7 @@ export function createJobs({
     const contacted = new Set(inbound.map((m) => digits(m.phone)));
     const afterHours = new Set(inbound.filter((m) => !isWithinWorkingHours(clinic, new Date(m.created_at))).map((m) => digits(m.phone)));
 
-    const created = await query(client.from('appointments').select('id')
+    const created = await query(client.from('appointments').select('id, created_at')
       .eq('clinic_id', clinic.id).gte('created_at', from).lt('created_at', to));
     const todays = await query(client.from('appointments').select('id')
       .eq('clinic_id', clinic.id).eq('appointment_date', today).in('status', ACTIVE_STATUSES));
@@ -169,6 +169,8 @@ export function createJobs({
       date: formatDateEs(yesterday),
       afterHours: afterHours.size,
       created: created.length,
+      // Solicitudes hechas con la clínica cerrada (hora de creación en la zona horaria de la clínica).
+      afterHoursAppointments: created.filter((a) => a.created_at && !isWithinWorkingHours(clinic, new Date(a.created_at))).length,
       today: todays.length,
       unbooked,
       topAd,
@@ -188,6 +190,7 @@ export function createJobs({
       '',
       `🌙 Consultas fuera de horario: ${summary.afterHours}`,
       `📅 Citas creadas: ${summary.created}`,
+      `🌙 Citas solicitadas mientras la clínica estaba cerrada: ${summary.afterHoursAppointments}`,
       `🦷 Citas para hoy: ${summary.today}`,
       `⏳ Leads sin agendar: ${summary.unbooked}`,
       `📣 Anuncio con más citas (7 días): ${summary.topAd}`,

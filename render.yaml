@@ -66,3 +66,7 @@ services:
         sync: false
       - key: WA_TEMPLATE_DAILY_SUMMARY
         sync: false
+      - key: WA_TEMPLATE_WEEKLY_REPORT
+        sync: false
+      - key: GUARANTEE_MIN_CONFIRMED
+        sync: false

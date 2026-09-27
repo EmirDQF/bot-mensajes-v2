@@ -40,7 +40,20 @@
           <button type="button" class="view-tab is-active" data-view="chat" role="tab" aria-selected="true">💬 Conversaciones</button>
           <button type="button" class="view-tab" data-view="agenda" role="tab" aria-selected="false">📅 Agenda</button>
           <button type="button" class="view-tab" data-view="metrics" role="tab" aria-selected="false">📊 Métricas</button>
+          <button type="button" class="view-tab" data-view="report" role="tab" aria-selected="false">📈 Reporte</button>
         </nav>
+
+        <section id="reportView" class="view view--scroll" hidden>
+          <div class="view-toolbar no-print">
+            <label for="reportFrom" class="view-toolbar__label">Desde</label>
+            <input type="date" id="reportFrom" class="date-input">
+            <label for="reportTo" class="view-toolbar__label">Hasta</label>
+            <input type="date" id="reportTo" class="date-input">
+            <button type="button" id="reportRun" class="status-btn">Generar</button>
+            <button type="button" id="reportPrint" class="status-btn">🖨️ Imprimir / PDF</button>
+          </div>
+          <article id="reportSheet" class="report-sheet" aria-live="polite"></article>
+        </section>
 
         <section id="agendaView" class="view view--scroll" hidden>
           <div class="view-toolbar">
@@ -212,6 +225,28 @@
       .ad-row__bar{height:10px;background:#202c33;border-radius:999px;overflow:hidden}
       .ad-row__bar span{display:block;height:100%;background:var(--accent);border-radius:999px}
       .ad-row strong{text-align:right;font-variant-numeric:tabular-nums}
+      .date-input{background:#202c33;color:#e9edef;border:1px solid #2a3942;border-radius:8px;padding:7px 10px;font:inherit;color-scheme:dark}
+      .report-sheet{max-width:860px}
+      .report-sheet h2{margin:0 0 2px;font-size:20px}
+      .report-guarantee{margin:16px 0 20px;padding:16px 18px;border-radius:12px;font-size:17px;font-weight:700;border:1px solid #2a3942;background:#111b21}
+      .report-guarantee.is-met{border-color:#15803d;background:rgba(21,128,61,.18)}
+      .report-guarantee.is-pending{border-color:#b45309;background:rgba(180,83,9,.16)}
+      .report-table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px}
+      .report-table th,.report-table td{padding:8px 10px;border-bottom:1px solid #202c33;text-align:left}
+      .report-table td.num,.report-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+      .report-note{font-size:12px;color:var(--muted);line-height:1.5}
+      @media print{
+        body{background:#fff !important;color:#111 !important}
+        .sidebar,.view-tabs,.no-print,#chatView,#agendaView,#metricsView,.login-modal{display:none !important}
+        .app-shell,.chat-panel{display:block !important;height:auto !important;background:#fff !important}
+        #reportView{display:block !important;overflow:visible;padding:0}
+        .report-sheet{max-width:none;color:#111}
+        .report-sheet .metric-tile{background:#fff;border-color:#ccc}
+        .report-sheet .metric-tile__value{color:#111}
+        .report-sheet .metric-tile__label,.report-sheet .metric-tile__hint,.report-note,.muted{color:#444 !important}
+        .report-guarantee{background:#fff !important;color:#111}
+        .report-table th,.report-table td{border-bottom-color:#ccc}
+      }
       @media (max-width: 800px){
         .app-shell{flex-direction:column}
         .sidebar{width:100%;max-height:40vh}

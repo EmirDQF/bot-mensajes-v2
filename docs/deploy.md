@@ -83,7 +83,7 @@ solo copiar y pegar valores. Tiempo total: 60–90 minutos la primera vez.
    - URL de devolución de llamada: `TU-URL/webhook`
    - Token de verificación: el mismo texto que pusiste en `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
    - **Verificar y guardar**. Luego, en "Campos del webhook", **Suscribirse** a **`messages`**.
-7. **Plantillas** (recordatorios, retoma, reseña, resumen): WhatsApp → **Plantillas de mensajes** → crea las 5 de
+7. **Plantillas** (recordatorios, retoma, reseña, resumen diario y reporte semanal): WhatsApp → **Plantillas de mensajes** → crea las 6 de
    `docs/whatsapp-templates.md` con el mismo nombre, idioma **Español** y categoría **Utilidad**. Meta las aprueba en minutos u horas.
 8. **Método de pago**: Configuración del negocio → **Pagos** → agrega la tarjeta **de la clínica** (las plantillas se cobran por conversación).
 
@@ -115,7 +115,7 @@ despierto y disparan los recordatorios y reportes.
 
 - [ ] En tu computadora: `npm run preflight` → todo en ✅ (usa las mismas variables que Render).
 - [ ] `TU-URL/health` responde `{"status":"ok"}`.
-- [ ] Meta: webhook **verificado** y suscrito a `messages`; las 5 plantillas en estado **Aprobada**.
+- [ ] Meta: webhook **verificado** y suscrito a `messages`; las 6 plantillas en estado **Aprobada**.
 - [ ] Desde un celular que no sea el de la clínica, escribe "hola" al WhatsApp de la clínica → llega la bienvenida con el logo.
 - [ ] Pide una cita ("quiero una cita de limpieza") → llegan 3 horarios → responde "1" y tu nombre → recepción recibe la alerta
       "🦷 Nueva solicitud de cita".

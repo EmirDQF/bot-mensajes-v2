@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  getConversations, getMessages, toggleBot, getAgenda, setAppointmentStatus, getMetrics,
+  getConversations, getMessages, toggleBot, getAgenda, setAppointmentStatus, getMetrics, getReport,
 } from '../controllers/panelController.js';
 import { sendMessage } from '../controllers/panelSend.js';
 
@@ -51,5 +51,6 @@ router.post('/send-message', requirePanelAuth, sendMessage);
 router.get('/agenda', requirePanelAuth, getAgenda);
 router.post('/appointments/:id/status', requirePanelAuth, setAppointmentStatus);
 router.get('/metrics', requirePanelAuth, getMetrics);
+router.get('/report', requirePanelAuth, getReport);
 
 export default router;

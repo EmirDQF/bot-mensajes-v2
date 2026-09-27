@@ -7,6 +7,7 @@ import { mediaPath } from '../config/clinic.config.js';
 import { extractPhotoTags } from '../services/mediaTags.js';
 import handoffService from '../services/handoffService.js';
 import panelData from '../services/panelDataService.js';
+import reportService from '../services/reportService.js';
 
 // Flexible timestamp formatter: accepts seconds, milliseconds, or ISO strings
 function formatTime(value) {
@@ -349,6 +350,16 @@ export async function setAppointmentStatus(req, res) {
 }
 
 // GET /api/panel/metrics?days=30
+// GET /api/panel/report?from=AAAA-MM-DD&to=AAAA-MM-DD — reporte imprimible (semana de garantía).
+export async function getReport(req, res) {
+  try {
+    return res.json(await reportService.buildReport({ from: req.query.from, to: req.query.to }));
+  } catch (e) {
+    if (e?.status === 400) return res.status(400).json({ error: e.message });
+    return sendPanelError(res, e, 'No se pudo generar el reporte');
+  }
+}
+
 export async function getMetrics(req, res) {
   try {
     return res.json(await panelData.getMetrics(req.query.days));

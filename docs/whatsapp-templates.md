@@ -89,10 +89,28 @@ Resumen de las 8:00 a. m. para el dueño (`OWNER_ALERT_PHONE`) cuando no le ha e
 **Cuerpo:**
 
 ```
-📊 Resumen del {{1}}. Consultas fuera de horario: {{2}}. Citas creadas: {{3}}. Citas para hoy: {{4}}. Leads sin agendar: {{5}}. Anuncio con más citas: {{6}}. Revisa el detalle en tu panel.
+📊 Resumen del {{1}}. Consultas fuera de horario: {{2}}. Citas creadas: {{3}}. Citas para hoy: {{4}}. Leads sin agendar: {{5}}. Anuncio con más citas: {{6}}. Citas solicitadas con la clínica cerrada: {{7}}. Revisa el detalle en tu panel.
 ```
 
-**Ejemplos:** {{1}} lunes, 28 de setiembre · {{2}} 7 · {{3}} 4 · {{4}} 6 · {{5}} 3 · {{6}} Brackets S/ 0 (2 citas)
+**Ejemplos:** {{1}} lunes, 28 de setiembre · {{2}} 7 · {{3}} 4 · {{4}} 6 · {{5}} 3 · {{6}} Brackets S/ 0 (2 citas) · {{7}} 2
+
+---
+
+## 6. `reporte_semanal` — Categoría: **Utilidad**
+
+Variable de entorno para otro nombre: `WA_TEMPLATE_WEEKLY_REPORT`
+
+Reporte del lunes a las 8:00 a. m. para el dueño (`OWNER_ALERT_PHONE`), con la línea de la garantía de 7 días.
+Si el dueño le escribió al bot en las últimas 24 h, llega como texto con todo el detalle (urgencias, reprogramaciones,
+valor potencial y anuncio con más citas).
+
+**Cuerpo:**
+
+```
+📈 Reporte semanal del {{1}}. Conversaciones: {{2}} ({{3}} fuera de horario). Citas solicitadas: {{4}}. Confirmadas: {{5}}. Garantía: {{6}}. Revisa el detalle e imprime el reporte en tu panel, pestaña Reporte.
+```
+
+**Ejemplos:** {{1}} lunes, 21 de setiembre al domingo, 27 de setiembre · {{2}} 34 · {{3}} 14 · {{4}} 9 · {{5}} 5 · {{6}} Citas de evaluación confirmadas: 5 / meta 2 → ✅ cumplido
 
 ---
 
@@ -102,15 +120,17 @@ Mientras las plantillas están en revisión, escríbele al bot desde tu número 
 `RECEPTION_ALERT_PHONE` / `OWNER_ALERT_PHONE`): así quedas dentro de la ventana de 24 h y los recordatorios,
 el resumen y el seguimiento llegan como texto libre.
 
-## Cron jobs (Render → New → Cron Job, o cron-job.org)
+## Cron jobs (cron-job.org)
 
-Todas las llamadas son `POST` con el header `x-cron-secret: <CRON_SECRET>`. Horas en UTC (Lima = UTC−5).
+La tabla completa, con método, URL, header y horario de cada tarea, está en `docs/deploy.md` (paso 4).
+Todas las tareas `/jobs/*` son `POST` con el header `x-cron-secret: <CRON_SECRET>`. Horas en UTC (Lima = UTC−5).
 
 | Job | URL | Frecuencia | Cron (UTC) |
 |---|---|---|---|
 | Recordatorios 24 h / 2 h | `/jobs/reminders` | cada 15 min | `*/15 * * * *` |
 | Resumen diario 8:00 a. m. Lima | `/jobs/daily-summary` | diario | `0 13 * * *` |
 | Seguimiento a las 20 h | `/jobs/follow-ups` | cada hora | `0 * * * *` |
+| Reporte semanal (lunes 8:00 a. m. Lima) | `/jobs/weekly-report` | lunes | `0 13 * * 1` |
 
 Comando de ejemplo para un Render Cron Job:
 

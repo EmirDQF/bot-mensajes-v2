@@ -482,8 +482,67 @@ function showView(view) {
   document.getElementById('chatView').hidden = view !== 'chat';
   document.getElementById('agendaView').hidden = view !== 'agenda';
   document.getElementById('metricsView').hidden = view !== 'metrics';
+  document.getElementById('reportView').hidden = view !== 'report';
   if (view === 'agenda') loadAgenda();
   if (view === 'metrics') loadMetrics();
+  if (view === 'report') loadReport();
+}
+
+// ---------- Reporte (semana de garantía / resultados para el dueño) ----------
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function defaultReportRange() {
+  const to = new Date();
+  to.setDate(to.getDate() - 1);
+  const from = new Date(to);
+  from.setDate(from.getDate() - 6);
+  return { from: isoDate(from), to: isoDate(to) };
+}
+
+function formatMs(ms) {
+  if (ms === null || ms === undefined) return 'sin datos';
+  if (ms < 60000) return `${Math.max(1, Math.round(ms / 1000))} s`;
+  if (ms < 3600000) return `${Math.round(ms / 60000)} min`;
+  return `${(ms / 3600000).toFixed(1)} h`;
+}
+
+async function loadReport() {
+  const sheet = document.getElementById('reportSheet');
+  const fromEl = document.getElementById('reportFrom');
+  const toEl = document.getElementById('reportTo');
+  if (!fromEl.value || !toEl.value) {
+    const range = defaultReportRange();
+    fromEl.value = range.from;
+    toEl.value = range.to;
+  }
+  sheet.innerHTML = '<p class="muted">Generando reporte…</p>';
+  try {
+    const r = await panelFetch(`/api/panel/report?from=${encodeURIComponent(fromEl.value)}&to=${encodeURIComponent(toEl.value)}`);
+    const soles = (n) => `S/ ${Math.round(n).toLocaleString('es-PE')}`;
+    const tiles = [
+      ['Conversaciones', r.conversations, `🌙 ${r.conversationsAfterHours} fuera de horario`],
+      ['Primera respuesta', formatMs(r.avgFirstResponseMs), r.firstResponseSamples ? `promedio de ${r.firstResponseSamples} conversaciones nuevas` : 'se mide desde la migración 20260927'],
+      ['Citas solicitadas', r.requested, `🌙 ${r.requestedAfterHours} con la clínica cerrada`],
+      ['Confirmadas', r.confirmed, 'por recepción o por el paciente'],
+      ['Asistieron', r.attended, `🚫 ${r.noShows} no asistieron`],
+      ['Reprogramadas', r.rescheduled, `en vez de cancelarse · ❌ ${r.cancelled} canceladas`],
+      ['Urgencias derivadas', r.urgencies ?? 'sin datos', 'pasadas a recepción de inmediato'],
+      ['Valor potencial', soles(r.potentialValue), 'precio "desde" × citas no canceladas'],
+    ];
+    sheet.innerHTML = `
+      <h2>${escapeHtml(r.clinic.name)}</h2>
+      <p class="muted">Reporte del ${escapeHtml(r.label)}</p>
+      <div class="report-guarantee ${r.guarantee.met ? 'is-met' : 'is-pending'}">🎯 ${escapeHtml(r.guarantee.line)}</div>
+      <div class="metrics-tiles">${tiles.map(([label, value, hint]) => `
+        <div class="metric-tile"><span class="metric-tile__label">${label}</span><strong class="metric-tile__value">${escapeHtml(String(value))}</strong><span class="metric-tile__hint">${escapeHtml(hint)}</span></div>`).join('')}</div>
+      <h3 class="section-title">Citas por anuncio</h3>
+      ${r.byAd.length ? `<table class="report-table"><thead><tr><th>Anuncio</th><th class="num">Solicitadas</th><th class="num">Confirmadas</th></tr></thead><tbody>
+        ${r.byAd.map((row) => `<tr><td>${escapeHtml(row.ad)}</td><td class="num">${row.requested}</td><td class="num">${row.confirmed}</td></tr>`).join('')}
+      </tbody></table>` : '<p class="muted">Aún no hay citas en este periodo.</p>'}
+      <p class="report-note">Datos medidos por el asistente en la base de datos de la clínica. "Confirmadas" cuenta las citas que recepción
+        marcó como confirmadas o asistidas, o que el paciente confirmó al recordatorio. "Fuera de horario" usa el horario de atención configurado.</p>`;
+  } catch (error) {
+    sheet.innerHTML = `<p class="muted">⚠️ ${escapeHtml(error.message)}</p>`;
+  }
 }
 
 async function loadAgenda() {
@@ -547,6 +606,8 @@ document.querySelectorAll('.day-btn').forEach((btn) => btn.addEventListener('cli
   document.querySelectorAll('.day-btn').forEach((b) => b.classList.toggle('is-active', b === btn));
   loadAgenda();
 }));
+document.getElementById('reportRun').addEventListener('click', loadReport);
+document.getElementById('reportPrint').addEventListener('click', () => window.print());
 document.getElementById('metricsDays').addEventListener('change', (event) => {
   metricsDays = Number(event.target.value) || 30;
   loadMetrics();

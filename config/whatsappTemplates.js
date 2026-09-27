@@ -33,7 +33,18 @@ export const TEMPLATES = {
     name: env('WA_TEMPLATE_DAILY_SUMMARY', 'resumen_diario'),
     language: 'es',
     // {{1}} fecha · {{2}} fuera de horario · {{3}} citas creadas · {{4}} citas hoy · {{5}} leads sin agendar · {{6}} mejor anuncio
-    params: ({ date, afterHours, created, today, unbooked, topAd }) => [date, afterHours, created, today, unbooked, topAd],
+    // {{7}} citas solicitadas con la clínica cerrada
+    params: ({ date, afterHours, created, today, unbooked, topAd, afterHoursAppointments }) => [
+      date, afterHours, created, today, unbooked, topAd, afterHoursAppointments,
+    ],
+  },
+  weeklyReport: {
+    name: env('WA_TEMPLATE_WEEKLY_REPORT', 'reporte_semanal'),
+    language: 'es',
+    // {{1}} rango · {{2}} conversaciones · {{3}} fuera de horario · {{4}} citas solicitadas · {{5}} confirmadas · {{6}} línea de garantía
+    params: ({ range, conversations, afterHours, requested, confirmed, guarantee }) => [
+      range, conversations, afterHours, requested, confirmed, guarantee,
+    ],
   },
 };
 
