@@ -16,3 +16,16 @@ leads.test.json
 "tests_output_services_recent.txt"
 .DS_Store
 npm-debug.log
+!.env.example
+
+# Paneles archivados y copias locales que no forman parte del producto
+archive/
+/DASHBOARD/
+/PANEL*/
+
+# Temporales
+*.tmp
+leads.json.tmp
+leads.test.json.tmp
+Thumbs.db
+coverage/

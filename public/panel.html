@@ -15,10 +15,10 @@
         <div class="sidebar-header">
           <div class="brand-block">
             <div class="brand-logo-wrap">
-              <img src="/LUMINZU/logo.jpeg" alt="Luminzu" class="brand-logo" />
+              <img id="brandLogo" src="" alt="" class="brand-logo" />
             </div>
             <div class="brand-text">
-              <h1>CLÍNICA LUMINZU</h1>
+              <h1 id="brandName">Panel de recepción</h1>
             </div>
           </div>
           <span class="status-pill"><span class="live-dot"></span> En vivo</span>
@@ -36,6 +36,51 @@
       </aside>
 
       <main class="chat-panel">
+        <nav class="view-tabs" role="tablist" aria-label="Secciones del panel">
+          <button type="button" class="view-tab is-active" data-view="chat" role="tab" aria-selected="true">💬 Conversaciones</button>
+          <button type="button" class="view-tab" data-view="agenda" role="tab" aria-selected="false">📅 Agenda</button>
+          <button type="button" class="view-tab" data-view="metrics" role="tab" aria-selected="false">📊 Métricas</button>
+          <button type="button" class="view-tab" data-view="report" role="tab" aria-selected="false">📈 Reporte</button>
+        </nav>
+
+        <section id="reportView" class="view view--scroll" hidden>
+          <div class="view-toolbar no-print">
+            <label for="reportFrom" class="view-toolbar__label">Desde</label>
+            <input type="date" id="reportFrom" class="date-input">
+            <label for="reportTo" class="view-toolbar__label">Hasta</label>
+            <input type="date" id="reportTo" class="date-input">
+            <button type="button" id="reportRun" class="status-btn">Generar</button>
+            <button type="button" id="reportPrint" class="status-btn">🖨️ Imprimir / PDF</button>
+          </div>
+          <article id="reportSheet" class="report-sheet" aria-live="polite"></article>
+        </section>
+
+        <section id="agendaView" class="view view--scroll" hidden>
+          <div class="view-toolbar">
+            <div class="segmented" role="group" aria-label="Día">
+              <button type="button" class="day-btn is-active" data-day="today">Hoy</button>
+              <button type="button" class="day-btn" data-day="tomorrow">Mañana</button>
+            </div>
+            <span id="agendaLabel" class="view-toolbar__label"></span>
+          </div>
+          <div id="agendaList" class="agenda-list" aria-live="polite"></div>
+        </section>
+
+        <section id="metricsView" class="view view--scroll" hidden>
+          <div class="view-toolbar">
+            <label for="metricsDays" class="view-toolbar__label">Periodo</label>
+            <select id="metricsDays">
+              <option value="7">Últimos 7 días</option>
+              <option value="30" selected>Últimos 30 días</option>
+              <option value="90">Últimos 90 días</option>
+            </select>
+          </div>
+          <div id="metricsTiles" class="metrics-tiles"></div>
+          <h3 class="section-title">Citas por anuncio</h3>
+          <div id="metricsByAd" class="ad-list"></div>
+        </section>
+
+        <div id="chatView" class="view view--chat">
         <header class="chat-header">
           <div class="chat-header__identity">
             <div class="avatar avatar--header" id="headerAvatar">E</div>
@@ -55,6 +100,7 @@
         <div class="chat-footer" id="chatFooter">
           <input id="messageInput" class="message-input" placeholder="Escribe un mensaje aquí..." aria-label="Mensaje" />
           <button id="sendBtn" class="send-btn" title="Enviar">✈</button>
+        </div>
         </div>
       </main>
     </div>
@@ -130,6 +176,84 @@
       .login-modal__content{width:360px;padding:20px;border-radius:12px;background:linear-gradient(180deg,#071025,#06111a);box-shadow:0 10px 40px rgba(2,6,23,0.6);color:#e6eef8}
       .login-modal__content h3{margin:0 0 6px 0}
       .login-modal__content p{margin:0;color:#94a3b8}
+
+      /* vistas: conversaciones / agenda / métricas */
+      .chat-panel{min-width:0}
+      .view-tabs{display:flex;gap:4px;padding:8px 12px;background:var(--sidebar);border-bottom:1px solid #202c33}
+      .view-tab{background:transparent;border:none;color:var(--muted);padding:8px 14px;border-radius:8px;cursor:pointer;font:inherit;font-weight:600}
+      .view-tab:hover{background:#2a3942;color:#e9edef}
+      .view-tab.is-active{background:#2a3942;color:#e9edef;box-shadow:inset 0 -2px 0 var(--accent)}
+      .view[hidden]{display:none !important}
+      .view--chat{flex:1;display:flex;flex-direction:column;min-height:0}
+      .view--scroll{flex:1;overflow-y:auto;padding:20px 28px}
+      .view-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+      .view-toolbar__label{color:var(--muted);text-transform:capitalize}
+      .view-toolbar select{background:#202c33;color:#e9edef;border:1px solid #2a3942;border-radius:8px;padding:8px 10px;font:inherit}
+      .segmented{display:inline-flex;background:#202c33;border-radius:10px;padding:3px}
+      .day-btn{background:transparent;border:none;color:var(--muted);padding:7px 16px;border-radius:8px;cursor:pointer;font:inherit;font-weight:600}
+      .day-btn.is-active{background:var(--accent);color:#001}
+      .muted{color:var(--muted)}
+      .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;background:#2a3942;color:#e9edef}
+      .badge--human{background:#f59e0b;color:#1a1200}
+      .badge--pendiente{background:#374151}
+      .badge--confirmada{background:#0e7490}
+      .badge--reprogramada{background:#6d28d9}
+      .badge--cancelada{background:#7f1d1d}
+      .badge--asistio{background:#15803d}
+      .badge--no_asistio{background:#b45309}
+      .agenda-list{display:flex;flex-direction:column;gap:10px}
+      .agenda-card{display:grid;grid-template-columns:96px 1fr auto;gap:14px;align-items:center;background:#111b21;border:1px solid #202c33;border-radius:12px;padding:14px 16px}
+      .agenda-card.status--cancelada{opacity:.6}
+      .agenda-card__time{font-size:18px;font-weight:800;color:#e9edef}
+      .agenda-card__main h3{margin:0 0 4px;font-size:15px}
+      .agenda-card__main p{margin:2px 0;font-size:13px}
+      .agenda-card__main a{color:var(--accent);text-decoration:none}
+      .agenda-card__actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+      .status-btn{border:1px solid #2a3942;background:#202c33;color:#e9edef;border-radius:8px;padding:7px 10px;cursor:pointer;font:inherit;font-size:13px}
+      .status-btn:hover:not(:disabled){border-color:var(--accent)}
+      .status-btn:disabled{opacity:.45;cursor:default}
+      .status-btn--cancelada:hover:not(:disabled){border-color:#ef4444}
+      .metrics-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:24px}
+      .metric-tile{background:#111b21;border:1px solid #202c33;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:4px}
+      .metric-tile__label{color:var(--muted);font-size:13px}
+      .metric-tile__value{font-size:30px;color:#e9edef;font-variant-numeric:tabular-nums}
+      .metric-tile__hint{color:var(--muted);font-size:12px}
+      .section-title{margin:0 0 12px;font-size:15px}
+      .ad-list{display:flex;flex-direction:column;gap:8px}
+      .ad-row{display:grid;grid-template-columns:minmax(120px,240px) 1fr 40px;gap:12px;align-items:center}
+      .ad-row__name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .ad-row__bar{height:10px;background:#202c33;border-radius:999px;overflow:hidden}
+      .ad-row__bar span{display:block;height:100%;background:var(--accent);border-radius:999px}
+      .ad-row strong{text-align:right;font-variant-numeric:tabular-nums}
+      .date-input{background:#202c33;color:#e9edef;border:1px solid #2a3942;border-radius:8px;padding:7px 10px;font:inherit;color-scheme:dark}
+      .report-sheet{max-width:860px}
+      .report-sheet h2{margin:0 0 2px;font-size:20px}
+      .report-guarantee{margin:16px 0 20px;padding:16px 18px;border-radius:12px;font-size:17px;font-weight:700;border:1px solid #2a3942;background:#111b21}
+      .report-guarantee.is-met{border-color:#15803d;background:rgba(21,128,61,.18)}
+      .report-guarantee.is-pending{border-color:#b45309;background:rgba(180,83,9,.16)}
+      .report-table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px}
+      .report-table th,.report-table td{padding:8px 10px;border-bottom:1px solid #202c33;text-align:left}
+      .report-table td.num,.report-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+      .report-note{font-size:12px;color:var(--muted);line-height:1.5}
+      @media print{
+        body{background:#fff !important;color:#111 !important}
+        .sidebar,.view-tabs,.no-print,#chatView,#agendaView,#metricsView,.login-modal{display:none !important}
+        .app-shell,.chat-panel{display:block !important;height:auto !important;background:#fff !important}
+        #reportView{display:block !important;overflow:visible;padding:0}
+        .report-sheet{max-width:none;color:#111}
+        .report-sheet .metric-tile{background:#fff;border-color:#ccc}
+        .report-sheet .metric-tile__value{color:#111}
+        .report-sheet .metric-tile__label,.report-sheet .metric-tile__hint,.report-note,.muted{color:#444 !important}
+        .report-guarantee{background:#fff !important;color:#111}
+        .report-table th,.report-table td{border-bottom-color:#ccc}
+      }
+      @media (max-width: 800px){
+        .app-shell{flex-direction:column}
+        .sidebar{width:100%;max-height:40vh}
+        .view--scroll{padding:16px}
+        .agenda-card{grid-template-columns:1fr}
+        .agenda-card__actions{justify-content:flex-start}
+      }
     </style>
 
     <script src="/panel.js"></script>

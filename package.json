@@ -7,8 +7,11 @@
     "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:smoke": "node scripts/smoke-test.js",
-    "test:unit": "set \"NODE_ENV=test\"&& node --test ./services/*.test.js",
-    "prospect": "node scripts/runProspector.js"
+    "test:unit": "node --import ./scripts/test-env.js --test \"services/*.test.js\"",
+    "prospect": "node scripts/runProspector.js",
+    "simulate": "node --experimental-test-module-mocks --no-warnings=ExperimentalWarning scripts/simulate-conversations.js",
+    "preflight": "node scripts/preflight.js",
+    "new-clinic": "node scripts/new-clinic.js"
   },
   "keywords": [],
   "author": "",
@@ -19,5 +22,8 @@
     "@supabase/supabase-js": "^2.30.0",
     "cors": "^2.8.6",
     "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

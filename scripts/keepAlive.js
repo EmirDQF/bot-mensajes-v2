@@ -4,7 +4,11 @@
 
 import fetch from 'node-fetch';
 
-const url = process.env.KEEPALIVE_URL || `https://bot-mensajes-dental.onrender.com/health`;
+const url = process.env.KEEPALIVE_URL;
+if (!url) {
+  console.error('keepAlive: define KEEPALIVE_URL (por ejemplo https://<tu-servicio>.onrender.com/health)');
+  process.exit(1);
+}
 const intervalMs = Number(process.env.KEEPALIVE_INTERVAL_MS || 10 * 60 * 1000);
 
 async function ping() {

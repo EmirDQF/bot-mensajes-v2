@@ -3,6 +3,11 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import config from '../config/env.js';
 import { sendPanelMessage } from './panelMessaging.js';
+import { mediaPath } from '../config/clinic.config.js';
+import { extractPhotoTags } from '../services/mediaTags.js';
+import handoffService from '../services/handoffService.js';
+import panelData from '../services/panelDataService.js';
+import reportService from '../services/reportService.js';
 
 // Flexible timestamp formatter: accepts seconds, milliseconds, or ISO strings
 function formatTime(value) {
@@ -101,7 +106,7 @@ export async function getConversations(req, res) {
 
           out.push({ phone, name, lastMessage: lastMessageText, timestamp: lastTs, timeLabel: lastTs ? formatTime(lastTs) : null, status: null });
         }
-        return res.json(out);
+        return res.json(await prioritizeWaitingHuman(client, out));
       }
 
       // Try a dedicated inbox_entries table
@@ -115,7 +120,7 @@ export async function getConversations(req, res) {
           timeLabel: c.timeLabel,
           status: c.status,
         }));
-        return res.json(out);
+        return res.json(await prioritizeWaitingHuman(client, out));
       }
 
       // Fallback: try a generic messages table and aggregate by phone
@@ -130,7 +135,7 @@ export async function getConversations(req, res) {
           }
         }
         const out = Array.from(byPhone.values()).map(mapRowToConversation);
-        return res.json(out);
+        return res.json(await prioritizeWaitingHuman(client, out));
       }
     } catch (e) {
       console.warn('panelController.getConversations: supabase query failed:', e && e.message ? e.message : e);
@@ -199,18 +204,17 @@ export async function getMessages(req, res) {
 
         const out = messages.map((m)=>{
           const text = m.text || m.body || m.message || null;
-          const imgFromTag = text && (text.match(/\[ENVIAR_IMAGEN:\s*([^\]]+)\]/i) || [])[1];
-          const rawImgName = imgFromTag || m.image || m.media_url || m.attachment || null;
-          let img = null;
-          if (rawImgName) {
-            // Extract only filename portion
-            const fname = String(rawImgName).split(/[\\/]/).pop();
-            img = fname.startsWith('/media/') ? fname : `/media/${fname}`;
+          const { keys: tagKeys, cleaned } = extractPhotoTags(text || '');
+          const rawImg = m.image || m.media_url || m.attachment || null;
+          let img = tagKeys.length ? mediaPath(tagKeys[0]) : null;
+          if (!img && rawImg) {
+            const value = String(rawImg);
+            img = /^https?:\/\//i.test(value) || value.startsWith('/media/') ? value : `/media/${value.split(/[\\/]/).pop()}`;
           }
 
           return {
             from: m.from || m.sender || (m.direction === 'outbound' ? 'bot' : 'patient'),
-            text: text && String(text).replace(/\[ENVIAR_IMAGEN:[^\]]+\]/gi, '').trim() || null,
+            text: cleaned || null,
             image: img,
             timestamp: m.created_at || m.timestamp || m.ts || null,
             timeLabel: formatTime(m.created_at || m.timestamp || m.ts || null),
@@ -275,26 +279,91 @@ export async function getMessages(req, res) {
 }
 
 // POST /api/panel/toggle-bot/:phone
+// POST /api/panel/toggle-bot/:phone — pausa o reactiva el bot en una conversación (pase a humano).
+// El estado vive en conversations.status ('human' = pausado) vía handoffService, el mismo que usa el webhook.
+// Body opcional { paused: true|false } para fijarlo en vez de alternarlo.
 export async function toggleBot(req, res) {
-  const { phone } = req.params;
-  const dataDir = path.join(process.cwd(), 'data');
-  await fs.mkdir(dataDir, { recursive: true });
-  const statePath = path.join(dataDir, 'bot_state.json');
-  const state = (await readJsonIfExists(statePath)) || {};
-
-  const current = !!state[phone];
-  state[phone] = !current;
-
+  const phone = String(req.params.phone || '').replace(/\D/g, '');
+  if (!phone) return res.status(400).json({ error: 'Teléfono inválido' });
   try {
-    await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf8');
-    res.json({ phone, botEnabled: state[phone] });
+    const paused = typeof req.body?.paused === 'boolean'
+      ? await handoffService.setPaused(phone, req.body.paused)
+      : await handoffService.toggle(phone);
+    return res.json({ phone, botEnabled: !paused });
   } catch (e) {
-    console.error('Failed to write bot state', e && e.message ? e.message : e);
-    res.status(500).json({ error: 'No se pudo cambiar el estado' });
+    console.error('Failed to toggle bot state', e && e.message ? e.message : e);
+    return res.status(500).json({ error: 'No se pudo cambiar el estado' });
   }
 }
 
 // POST /api/panel/send-message
 export async function sendMessage(req, res) {
   return sendPanelMessage(req, res);
+}
+
+// Marca las conversaciones con el bot en pausa (conversations.status = 'human') y las pone primero.
+export async function prioritizeWaitingHuman(client, list) {
+  let waiting = new Set();
+  try {
+    const { data, error } = await client.from('conversations').select('conversation_id').eq('status', 'human');
+    if (error) throw error;
+    waiting = new Set((data || []).map((row) => String(row.conversation_id || '').replace(/\D/g, '')));
+  } catch (e) {
+    console.warn('panelController: no se pudo leer el estado de pase a humano:', e && e.message ? e.message : e);
+  }
+  return list
+    .map((c) => ({ ...c, waitingHuman: waiting.has(String(c.phone || '').replace(/\D/g, '')) }))
+    .sort((a, b) => Number(b.waitingHuman) - Number(a.waitingHuman));
+}
+
+const sendPanelError = (res, e, fallback) => {
+  console.error(`[Panel] ${fallback}:`, e && e.message ? e.message : e);
+  if (e?.status === 400) return res.status(400).json({ error: e.message });
+  const message = String(e?.message || '');
+  const missingTable = message.match(/table '?public\.(\w+)'?|relation "?(?:public\.)?(\w+)"? does not exist/i);
+  if (missingTable) {
+    const table = missingTable[1] || missingTable[2];
+    const migration = table === 'follow_ups' ? '20260926_create_follow_ups.sql' : '20260925_create_appointments.sql';
+    return res.status(503).json({ error: `${fallback}: falta la tabla "${table}". Ejecuta migrations/${migration} en Supabase.` });
+  }
+  if (/Supabase no configurado/i.test(message)) return res.status(503).json({ error: `${fallback}: ${message}` });
+  return res.status(500).json({ error: fallback });
+};
+
+// GET /api/panel/agenda?day=today|tomorrow|YYYY-MM-DD
+export async function getAgenda(req, res) {
+  try {
+    return res.json(await panelData.getAgenda(String(req.query.day || 'today')));
+  } catch (e) {
+    return sendPanelError(res, e, 'No se pudo cargar la agenda');
+  }
+}
+
+// POST /api/panel/appointments/:id/status  { status: 'confirmada'|'asistio'|'no_asistio'|'cancelada' }
+export async function setAppointmentStatus(req, res) {
+  try {
+    const updated = await panelData.setAppointmentStatus(String(req.params.id), String(req.body?.status || ''));
+    return res.json({ id: updated?.id || req.params.id, status: updated?.status || req.body?.status });
+  } catch (e) {
+    return sendPanelError(res, e, 'No se pudo actualizar la cita');
+  }
+}
+
+// GET /api/panel/metrics?days=30
+// GET /api/panel/report?from=AAAA-MM-DD&to=AAAA-MM-DD — reporte imprimible (semana de garantía).
+export async function getReport(req, res) {
+  try {
+    return res.json(await reportService.buildReport({ from: req.query.from, to: req.query.to }));
+  } catch (e) {
+    if (e?.status === 400) return res.status(400).json({ error: e.message });
+    return sendPanelError(res, e, 'No se pudo generar el reporte');
+  }
+}
+
+export async function getMetrics(req, res) {
+  try {
+    return res.json(await panelData.getMetrics(req.query.days));
+  } catch (e) {
+    return sendPanelError(res, e, 'No se pudieron calcular las métricas');
+  }
 }

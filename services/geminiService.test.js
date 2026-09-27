@@ -37,13 +37,13 @@ describe('geminiService current contract', () => {
     const result = await service.obtenerRespuestaIA(jid(2), '¿Dónde queda?', {
       client: {
         async generateContent(request) {
-          assert.equal(request.systemInstruction.includes('LUMINZU'), true);
-          return { response: { text: () => 'Estamos en Huánuco.' } };
+          assert.equal(request.systemInstruction.includes('Clínica Dental Denvari'), true);
+          return { response: { text: () => 'Estamos en San Isidro.' } };
         },
       },
     });
 
-    assert.equal(result.texto, 'Estamos en Huánuco.');
+    assert.equal(result.texto, 'Estamos en San Isidro.');
   });
 
   it('does not duplicate system prompt or history in the current user turn', async () => {

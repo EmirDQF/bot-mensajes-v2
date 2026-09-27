@@ -1,4 +1,5 @@
 import { CLINIC_NAME } from './catalogo.js';
+import clinic from './clinic.config.js';
 
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID || null;
 const webhookVerifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
@@ -16,15 +17,13 @@ export default {
     model: geminiModel,
     maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 100),
   },
-  clinicNameFallback: process.env.CLINIC_NAME_FALLBACK || 'nuestra clínica dental',
+  clinicNameFallback: 'nuestra clínica dental',
+  // Datos de la clínica activa: vienen de config/clinics/<ACTIVE_CLINIC>.js
   clinicProfile: {
-    name: process.env.CLINIC_NAME || process.env.CLINIC_NAME_FALLBACK || CLINIC_NAME,
-    address: process.env.CLINIC_ADDRESS
-      || process.env.DIRECCION_O_SEDES
-      || '📍 Av. Alameda de la República N° 261 - Huánuco',
-    hours: process.env.CLINIC_HOURS
-      || process.env.HORARIOS
-      || 'Lunes a sábado de 9:00 a. m. a 8:00 p. m.',
+    id: clinic.id,
+    name: CLINIC_NAME,
+    address: clinic.address,
+    hours: clinic.workingHoursText,
   },
   whatsapp: {
     token: process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN || null,
@@ -33,13 +32,16 @@ export default {
     webhookVerifyToken,
   },
   supabase: {
-    url: process.env.SUPABASE_URL || null,
+    // supabase-js agrega /rest/v1 por su cuenta: si la URL ya lo trae, todas las consultas fallan
+    // con "Invalid path specified in request URL". Se normaliza a https://<proyecto>.supabase.co
+    url: (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '').replace(/\/rest\/v1$/i, '') || null,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY
       || process.env.SUPABASE_SERVICE_ROLE
       || null,
   },
   admin: {
-    phone: process.env.ADMIN_WHATSAPP_NUMBER || null,
+    // Legacy: ADMIN_WHATSAPP_NUMBER se acepta si aún no se define RECEPTION_ALERT_PHONE.
+    phone: process.env.RECEPTION_ALERT_PHONE || process.env.ADMIN_WHATSAPP_NUMBER || null,
   },
   server: {
     port: Number(process.env.PORT || 3000),

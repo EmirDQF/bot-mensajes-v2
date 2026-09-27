@@ -1,47 +1,71 @@
 import config from '../config/env.js';
-import { CATALOGO_LUMINZU } from '../config/catalogo.js';
+import { CATALOGO, obtenerImagen } from '../config/catalogo.js';
+import clinic, { findTreatment } from '../config/clinic.config.js';
+import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
+import { now as clockNow } from './clock.js';
 
-const LIMA_TIME_ZONE = 'America/Lima';
+const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
 const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
 const CLEANUP_MS = Number(process.env.GEMINI_CLEANUP_MS || 60 * 1000);
-export const SYSTEM_PROMPT = `Eres Camila, la asesora dental experta y coordinadora de citas de Clínica Dental LUMINZU, ubicada en Alameda de la República N° 286, Huánuco, Perú. Tu tono es profesional, cálido, resolutivo y cercano.
+const formatSoles = (value) => `S/ ${Number(value).toLocaleString('es-PE')}`;
+
+// Construye el prompt de la asistente a partir de config/clinics/<id>.js. Sin datos fijos de ninguna clínica.
+export function buildSystemPrompt(c = clinic) {
+  const treatments = c.treatments
+    .map((t) => `- ${t.name}: desde ${formatSoles(t.priceFrom)} (${t.financing}). Etiqueta de foto: [ENVIAR_FOTO: ${t.key}]`)
+    .join('\n');
+  const placeTags = ['fachada', 'ubicacion'].filter((key) => c.media?.[key]).map((key) => `[ENVIAR_FOTO: ${key}]`).join(' o ');
+  const campaign = Object.values(c.campaign || {}).filter(Boolean).join(' · ');
+  const faq = (c.faq || []).map((item) => `- ${item.q} ${item.a}`).join('\n');
+  return `Eres ${c.botName}, la asesora dental y coordinadora de citas de ${c.name}, ubicada en ${c.address}. Tu tono es profesional, cálido, resolutivo y cercano. Respondes con mensajes cortos de WhatsApp.
 
 ### REGLA 1: CERO SALUDOS REPETIDOS
 Si ya hay mensajes previos, jamás digas "¡Hola!", "Buenos días", "¿En qué puedo ayudarte?" ni vuelvas a presentarte.
 
 ### REGLA 2: ENVÍO PROACTIVO DE FOTOS
-Cuando consulte sobre tratamientos o pida fotos, resultados, ubicación o fachada, responde breve y termina con las etiquetas correspondientes:
-- Ortodoncia o brackets: [ENVIAR_FOTO: ortodoncia]
-- Blanqueamiento: [ENVIAR_FOTO: blanqueamiento]
-- Carillas o diseño: [ENVIAR_FOTO: carillas]
-- Implantes o prótesis: [ENVIAR_FOTO: implantes]
-- Ubicación o fachada: [ENVIAR_FOTO: fachada]
-- Niños: [ENVIAR_FOTO: odontopediatria]
-- Dolor o endodoncia: [ENVIAR_FOTO: endodoncia]
-Puedes incluir varias etiquetas o categorías separadas por comas cuando corresponda.
+Cuando consulte sobre un tratamiento o pida fotos o resultados, responde breve y termina con la etiqueta de foto del tratamiento (lista abajo). Para ubicación o local usa ${placeTags || 'solo texto'}. Puedes poner varias etiquetas.
 
 ### REGLA 3: AGENDAMIENTO EN DOS FASES
-FASE A: si faltan nombre completo, tratamiento o fecha/turno, solicita:
+FASE A: si faltan nombre completo, tratamiento o día y hora, pide solo lo que falte:
 "¡Con mucho gusto coordinamos tu cita! Por favor indícanos:
-📌 Nombre y Apellido:
+📌 Nombre y apellido:
 📌 Tratamiento que deseas realizarte:
-📌 Día y turno de preferencia (Mañana o Tarde):"
-El paciente puede enviar los datos juntos o separados; recopila lo recibido y pide solo lo que falte.
+📌 Día y hora de preferencia:"
+FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. Di que su SOLICITUD de cita quedó registrada y que recepción se la confirmará. Nunca digas que el horario quedó bloqueado o confirmado.
 
-FASE B: si ya dio nombre, tratamiento y día/hora, está prohibido repetir la plantilla. Confirma inmediatamente:
-"¡Excelente, [Nombre]! Tu cita ha quedado registrada con éxito:
-📅 Tratamiento: [Tratamiento]
-🗓 Día y Hora: [Día y hora]
-📍 Sede: Alameda de la República N° 286, Huánuco
-Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨"
+### REGLA 4: PASE A HUMANO
+Si pide hablar con una persona o un doctor, o tiene dudas clínicas complejas, responde: "¡Claro! Un especialista de nuestro equipo te escribirá en unos minutos. 📲"
 
-### REGLA 4: CIERRE CON ESPECIALISTA
-Si indica "necesito más información", solicita un doctor o tiene dudas clínicas complejas, responde exactamente:
-"¡Comprendo perfectamente! Para brindarte una asesoría clínica detallada y resolver todas tus dudas, un especialista de nuestro equipo se comunicará contigo por llamada en unos minutos. 📲👨‍⚕️"`;
+### REGLA 5: SEGURIDAD CLÍNICA
+No diagnosticas ni recetas medicamentos ni dosis. Si menciona dolor fuerte, sangrado, hinchazón, fiebre o un golpe, dile que lo derivas de inmediato con el equipo clínico y recomiéndale acudir a la clínica o a emergencias si empeora.
+
+### REGLA 6: NO INVENTES
+Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación. No inventes descuentos, promociones ni medios de pago: menciona solo la campaña vigente y lo que dicen las preguntas frecuentes.
+
+### REGLA 7: TONO
+Hablas como una asesora peruana amable y resolutiva: tuteas, frases cortas, "con gusto", "claro que sí". Máximo 2 emojis por mensaje. Cierra con una pregunta o un paso concreto (por ejemplo, elegir un horario).
+Eres la asistente virtual de la clínica: si te preguntan si eres una persona, dilo con honestidad. Nunca finjas ser humana.
+
+### REGLA 8: TEMAS AJENOS E INSULTOS
+Si el mensaje no tiene que ver con la clínica, responde en una línea que solo puedes ayudar con la atención dental de ${c.name} y ofrece tu ayuda. Si te insultan, mantén la calma y el respeto, no respondas al insulto y ofrece ayuda o hablar con una persona.
+
+### DATOS DE LA CLÍNICA
+- Horario: ${c.workingHoursText}
+- Dirección: ${c.address} (mapa: ${c.mapsUrl})
+- Campaña vigente: ${campaign}
+
+### TRATAMIENTOS
+${treatments}
+
+### PREGUNTAS FRECUENTES
+${faq}`;
+}
+
+export const SYSTEM_PROMPT = buildSystemPrompt(clinic);
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -121,6 +145,33 @@ export function resumeSessionById(jid) {
 
 export function isSessionPaused(jid) {
   return Boolean(chatSessions.get(sessionId(jid))?.paused);
+}
+
+// Horarios concretos ofrecidos al paciente (appointmentService.findNextSlots); se eligen con "1", "2" o "3".
+export function setOfferedSlots(jid, slots) {
+  const session = getOrCreateSession(jid);
+  session.offeredSlots = Array.isArray(slots) && slots.length ? slots : null;
+  return session.offeredSlots;
+}
+
+export function getOfferedSlots(jid) {
+  return chatSessions.get(sessionId(jid))?.offeredSlots || null;
+}
+
+// Deshace la Fase B cuando la cita no pudo guardarse (p. ej. el horario se ocupó).
+export function releaseBooking(jid) {
+  const session = chatSessions.get(sessionId(jid));
+  if (!session) return false;
+  session.booked = false;
+  session.chosenSlot = null;
+  if (session.leadSnapshot) {
+    session.leadSnapshot = { ...session.leadSnapshot, fecha_hora_texto: null, fecha_hora_iso: null, confirmedAt: null };
+  }
+  return true;
+}
+
+export function isSessionBooked(jid) {
+  return Boolean(chatSessions.get(sessionId(jid))?.booked);
 }
 
 export function resetSession(jid) {
@@ -257,23 +308,33 @@ function limaNow() {
   return new Intl.DateTimeFormat('es-PE', {
     timeZone: LIMA_TIME_ZONE, weekday: 'long', year: 'numeric', month: 'long',
     day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
-  }).format(new Date());
+  }).format(clockNow());
 }
 
-export function buildSystemPromptWithContext(jid, session = null, clinic = null) {
-  const profile = clinic || config.clinicProfile || {};
-  const address = profile.address || 'Centro de Huánuco, a media cuadra de la Plaza de Armas, Huánuco, Perú';
-  const hours = profile.schedule || profile.hours || 'Lunes a sábado de 9:00 am a 8:00 pm';
+export function buildSystemPromptWithContext(jid, session = null, clinicOverride = null) {
+  const profile = clinicOverride || config.clinicProfile || {};
+  const address = profile.address || clinic.address;
+  const hours = profile.schedule || profile.hours || clinic.workingHoursText;
   const snapshot = session?.leadSnapshot;
   const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
-  const systemPrompt = SYSTEM_PROMPT.replaceAll('[NOMBRE DE TU CLÍNICA]', profile.name || 'LUMINZU Clínica Dental');
-  return `${systemPrompt}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${profile.name || 'LUMINZU Clínica Dental'}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual en Lima: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}`;
+  const slots = !session?.booked && session?.offeredSlots?.length
+    ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Invítalo a responder 1, 2 o 3 y pide solo el nombre o tratamiento que falten.`
+    : '';
+  const clinicName = profile.name || clinic.name;
+  // Modo nocturno: el sistema ya le avisó que la clínica está cerrada; Gemini no debe prometer atención inmediata.
+  const closed = session?.afterHours
+    ? '\nESTADO: la clínica está CERRADA en este momento. Tú sí respondes y dejas la solicitud de cita lista; recepción la confirma cuando abra. No repitas que está cerrada (el sistema ya lo dijo) ni prometas llamadas o atención inmediata de una persona.'
+    : '';
+  const welcomed = session?.welcomed
+    ? '\nYa se le envió la bienvenida con la campaña: no saludes ni te presentes; responde directo a su consulta.'
+    : '';
+  return `${SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}${closed}${welcomed}`;
 }
 
 export function parseTextToLimaDate(text) {
   if (typeof text !== 'string') return null;
-  const now = new Date(Date.now());
+  const now = clockNow();
   const base = new Date(Date.UTC(Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, year: 'numeric' }).format(now)), Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, month: 'numeric' }).format(now)) - 1, Number(new Intl.DateTimeFormat('en', { timeZone: LIMA_TIME_ZONE, day: 'numeric' }).format(now))));
   const value = text.toLowerCase();
   if (value.includes('pasado mañana')) base.setUTCDate(base.getUTCDate() + 2);
@@ -290,8 +351,10 @@ export function parseTextToLimaDate(text) {
   let hour = Number(time[1]);
   if (time[3]?.toLowerCase() === 'pm' && hour < 12) hour += 12;
   if (time[3]?.toLowerCase() === 'am' && hour === 12) hour = 0;
-  base.setUTCHours(hour + 5, Number(time[2] || 0), 0, 0);
-  return base.toISOString().replace('.000Z', '+00:00');
+  // Hora local de la clínica → instante UTC (sirve para cualquier zona horaria, no solo Lima).
+  const localDate = base.toISOString().slice(0, 10);
+  const localTime = `${String(hour).padStart(2, '0')}:${String(Number(time[2] || 0)).padStart(2, '0')}`;
+  return toInstant(localDate, localTime, LIMA_TIME_ZONE).toISOString().replace('.000Z', '+00:00');
 }
 
 export function parseTextToLimaISO(text) {
@@ -378,21 +441,54 @@ async function callGemini(client, request, options) {
   throw lastError;
 }
 
+// "2" o "2, me llamo Ana" (número al inicio) · "…, la 2" / "opción 3" (en cualquier parte).
+// Excluye fechas y horas: "el 2 de octubre", "a las 2 pm", "la 1:30".
+const NOT_DATE_OR_TIME = String.raw`(?!\d)(?!\s*(?:de\b|:|a\.?\s*m|p\.?\s*m|am\b|pm\b|hrs?\b|horas?\b))`;
+const SLOT_CHOICE_START = new RegExp(String.raw`^\s*(?:opci[oó]n\s*)?([1-3])${NOT_DATE_OR_TIME}(?:\s*[).,!-]|\s|$)`, 'i');
+const SLOT_CHOICE_INLINE = new RegExp(String.raw`\b(?:la|el|opci[oó]n|n[uú]mero|horario)\s+(?:n[uú]mero\s+)?([1-3])${NOT_DATE_OR_TIME}`, 'i');
+const SLOT_CHOICE_ORDINAL = /\b(primer[ao]?|segund[ao]|tercer[ao]?)\b/i;
+const ORDINALS = { primer: 1, primera: 1, primero: 1, segunda: 2, segundo: 2, tercer: 3, tercera: 3, tercero: 3 };
+
+// Devuelve el horario ofrecido que eligió el paciente ("1", "la 2", "opción 3", "la primera"), o null.
+export function pickOfferedSlot(message, offeredSlots) {
+  if (!Array.isArray(offeredSlots) || !offeredSlots.length) return null;
+  const text = String(message || '').trim();
+  const numeric = text.match(SLOT_CHOICE_START) || text.match(SLOT_CHOICE_INLINE);
+  if (numeric) return offeredSlots[Number(numeric[1]) - 1] || null;
+  const ordinal = text.match(SLOT_CHOICE_ORDINAL);
+  if (ordinal) return offeredSlots[(ORDINALS[ordinal[1].toLowerCase()] || 0) - 1] || null;
+  return null;
+}
+
 function collectLead(session, message, senderPhone = null) {
   const current = extractLeadDataFromText(textFromHistory(session.history), senderPhone);
   const incoming = extractLeadDataFromText(message, senderPhone);
+  const chosen = pickOfferedSlot(message, session.offeredSlots);
+  if (chosen) session.chosenSlot = chosen;
+  const treatment = findTreatment(message) || findTreatment(textFromHistory(session.history));
   const lead = {
     nombre: incoming?.nombre || current?.nombre || session.leadSnapshot?.nombre || null,
     telefono: incoming?.telefono || current?.telefono || session.leadSnapshot?.telefono || null,
-    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || null,
+    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || treatment?.name || null,
     fechaHora: incoming?.fechaHora || current?.fechaHora || session.leadSnapshot?.fecha_hora_texto || null,
   };
-  if (lead.fechaHora) {
+  if (session.chosenSlot) {
+    // Un horario elegido de la lista ofrecida manda sobre fechas escritas a mano.
+    const { date, time, label } = session.chosenSlot;
+    lead.slot = { date, time };
+    lead.fechaHoraISO = toInstant(date, time, clinic.timezone).toISOString().replace('.000Z', '+00:00');
+    lead.fechaHora = label;
+  } else if (lead.fechaHora) {
     lead.fechaHoraISO = parseTextToLimaISO(lead.fechaHora);
-    if (lead.fechaHoraISO) lead.fechaHora = formatLimaFechaHoraText(lead.fechaHoraISO);
+    if (lead.fechaHoraISO) {
+      lead.fechaHora = formatLimaFechaHoraText(lead.fechaHoraISO);
+      const local = localParts(clinic.timezone, new Date(lead.fechaHoraISO));
+      lead.slot = { date: local.date, time: toHHMM(local.minutes) };
+    }
   }
   lead.ready_to_notify = Boolean(isValidName(lead.nombre) && /^9\d{8}$/.test(lead.telefono || '') && lead.motivo && lead.fechaHoraISO);
-  lead.ready_for_confirmation = Boolean(isValidName(lead.nombre) && lead.motivo && (lead.fechaHora || lead.fechaHoraISO));
+  // Fase B exige día Y hora concretos: con "mañana en la tarde" se ofrecen horarios en vez de confirmar.
+  lead.ready_for_confirmation = Boolean(isValidName(lead.nombre) && lead.motivo && lead.slot);
   return Object.values(lead).some(Boolean) ? lead : null;
 }
 
@@ -440,7 +536,7 @@ export function determinarCategoriaImagen(mensaje, respuestaIA) {
 
 export function getImagenCategoria(categoria) {
   if (!categoria) return null;
-  const valor = CATALOGO_LUMINZU[categoria] || CATALOGO_LUMINZU.default || CATALOGO_LUMINZU.tratamientos || null;
+  const valor = obtenerImagen(categoria) || CATALOGO.default || null;
   // Si la categoría tiene varias fotos (ej. casos antes/después), elige una al azar
   // en vez de mandar siempre la primera — así no se repite la misma imagen cada vez.
   if (Array.isArray(valor)) {
@@ -458,6 +554,11 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     return { texto: null, leadData: null, skipResponse: true };
   }
   session.lastUserMessageAt = now;
+  session.afterHours = Boolean(options.afterHours);
+  session.welcomed = Boolean(options.welcomed);
+  if (Array.isArray(options.availableSlots) && options.availableSlots.length && !session.booked) {
+    session.offeredSlots = options.availableSlots;
+  }
   const messageParts = Array.isArray(options.messageParts) && options.messageParts.length
     ? options.messageParts
     : [{ type: 'text', content: String(mensaje || '') }];
@@ -473,13 +574,19 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     const rawText = responseText.trim();
     const leadData = collectLead(session, messageText, sid);
     let texto = sanitizeModelTextOutput(rawText);
+    let appointmentRequest = null;
     if (leadData?.ready_for_confirmation && !session.booked) {
-      texto = `¡Excelente, ${leadData.nombre}! Tu cita ha quedado registrada con éxito:
-📅 Tratamiento: ${leadData.motivo}
-🗓 Día y Hora: ${leadData.fechaHora || 'por confirmar con recepción'}
-📍 Sede: Alameda de la República N° 286, Huánuco
-Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨`;
+      const treatmentName = findTreatment(leadData.motivo)?.name || leadData.motivo;
+      texto = `¡Listo, ${leadData.nombre}! Tu solicitud de cita para ${treatmentName} el ${formatDateEs(leadData.slot.date)} a las ${formatTimeEs(leadData.slot.time)} quedó registrada en ${clinic.address}. Recepción te la confirmará.`;
+      // El controlador guarda la cita (appointmentService) y avisa a recepción.
+      appointmentRequest = {
+        nombre: leadData.nombre,
+        tratamiento: treatmentName,
+        fecha: leadData.slot.date,
+        hora: leadData.slot.time,
+      };
       session.booked = true;
+      session.offeredSlots = null;
       session.leadSnapshot = {
         ...leadData,
         fecha_hora_texto: leadData.fechaHora,
@@ -508,7 +615,10 @@ Recepción se comunicará para reconfirmar los detalles. ¡Te esperamos! 🦷✨
       scheduleCleanup(sid, session);
     }
 
-    return { texto, leadData, imagenURL, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
+    // rawTexto conserva las etiquetas [ENVIAR_FOTO: x] que sanitizeModelTextOutput elimina o deforma.
+    return {
+      texto, rawTexto: rawText, leadData, imagenURL, appointmentRequest, skipLeadPersistence: Boolean(options.skipLeadPersistence),
+    };
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;
     failureCounts.set(sid, failures);
@@ -545,4 +655,9 @@ export default {
   isValidName,
   determinarCategoriaImagen,
   getImagenCategoria,
+  setOfferedSlots,
+  getOfferedSlots,
+  releaseBooking,
+  isSessionBooked,
+  pickOfferedSlot,
 };

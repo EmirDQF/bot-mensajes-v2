@@ -27,7 +27,21 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   if (!fetchImpl) throw new Error('No fetch implementation provided');
 
   const url = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
-  const body = mediaType === 'image' && media && media.link
+  const template = options.template || null;
+  const body = template
+    ? {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'template',
+        template: {
+          name: template.name,
+          language: { code: template.language || 'es' },
+          components: template.bodyParams?.length
+            ? [{ type: 'body', parameters: template.bodyParams.map((value) => ({ type: 'text', text: String(value) })) }]
+            : [],
+        },
+      }
+    : mediaType === 'image' && media && media.link
     ? {
         messaging_product: 'whatsapp',
         to: toPhone,
@@ -142,6 +156,13 @@ export function sendImageMessage(toPhone, imageUrl, caption = '', options = {}) 
   });
 }
 
+// Plantilla aprobada por Meta (obligatoria para escribir fuera de la ventana de 24 h).
+// Ver docs/whatsapp-templates.md. Los parámetros del cuerpo no pueden llevar saltos de línea.
+export function sendTemplateMessage(toPhone, name, bodyParams = [], { language = 'es', ...options } = {}) {
+  const params = bodyParams.map((value) => String(value ?? '').replace(/\s+/g, ' ').trim() || '-');
+  return sendWhatsAppMessage(toPhone, `[plantilla ${name}]`, { ...options, template: { name, language, bodyParams: params } });
+}
+
 export function sendMedia(toPhone, type, mediaUrl, caption = '', options = {}) {
   if (type !== 'image') throw new Error(`Unsupported WhatsApp media type: ${type}`);
   return sendImageMessage(toPhone, mediaUrl, caption, options);
@@ -179,6 +200,7 @@ export default {
   sendWhatsAppMessage,
   sendTextMessage,
   sendImageMessage,
+  sendTemplateMessage,
   sendMedia,
   markMessageAsRead,
   sendTypingIndicator,
