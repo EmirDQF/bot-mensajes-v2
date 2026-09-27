@@ -7,7 +7,7 @@ Hora simulada: jueves 1 de octubre de 2026, 10:30 p. m. (clínica cerrada) o 10:
 
 **Resultado: 6/17 escenarios correctos · 11 pendientes · 0 llamadas a Gemini en esta corrida.**
 
-> ⚠️ **Corrida incompleta.** Gemini rechazó GEMINI_API_KEY (ACCESS_TOKEN_TYPE_UNSUPPORTED). Usa una clave de Google AI Studio (empieza con "AIza") y vuelve a correr npm run simulate.
+> ⚠️ **Corrida incompleta.** Gemini rechazó GEMINI_API_KEY (ACCESS_TOKEN_TYPE_UNSUPPORTED). Crea otra clave en Google AI Studio y vuelve a correr npm run simulate.
 
 Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos y tuteo), sin precios inventados
 (todo monto "S/" debe existir en config/clinics) y sin prometer que el horario quedó bloqueado.

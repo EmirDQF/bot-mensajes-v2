@@ -5,9 +5,10 @@ process.env.NODE_ENV = 'test';
 
 const {
   checkEnv, parseMigrationSchema, readMigrations, checkSupabase, checkWhatsApp, checkGemini, checkClinic, printSection,
+  isValidPhone, pendingMigrationFiles, formatPasteBlocks,
 } = await import('../scripts/preflight.js');
 
-const SECRET = 'AIzaSECRETO-que-no-debe-imprimirse-123';
+const SECRET = 'AQ.SECRETO-que-no-debe-imprimirse-123';
 const jsonResponse = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 
 function printed(results) {
@@ -26,6 +27,14 @@ describe('preflight: variables de entorno', () => {
     assert.equal(byLabel('RECEPTION_ALERT_PHONE').status, 'fail');
     assert.equal(byLabel('CRON_SECRET es muy corto').status, 'fail');
     assert.ok(!printed(results).includes(SECRET));
+  });
+
+  it('accepts international E.164 numbers such as the Meta test number', () => {
+    const results = checkEnv({ CLINIC_PHONE: '15556676862', RECEPTION_ALERT_PHONE: '+1 (555) 667-6862', OWNER_ALERT_PHONE: '5491123456789' });
+    for (const name of ['CLINIC_PHONE', 'RECEPTION_ALERT_PHONE', 'OWNER_ALERT_PHONE']) {
+      assert.equal(results.find((r) => r.label.startsWith(name)).status, 'ok', name);
+    }
+    for (const bad of ['12345', '51123456789', '0123456789', '1234567890123456']) assert.equal(isValidPhone(bad), false, bad);
   });
 
   it('accepts Peruvian mobiles with or without 51', () => {
@@ -81,6 +90,16 @@ describe('preflight: esquema de las migraciones', () => {
     assert.match(results[0].fix, /a\.sql/);
     assert.match(results[1].label, /Falta la tabla handoffs/);
     assert.match(results[1].fix, /b\.sql/);
+    assert.deepEqual(pendingMigrationFiles(results), ['a.sql', 'b.sql']);
+  });
+
+  it('prints only the missing SQL as numbered "PEGA N° X" blocks and reloads the API cache', () => {
+    const text = formatPasteBlocks(['a.sql', 'b.sql'], (f) => `-- ${f}
+CREATE TABLE x ();`);
+    assert.match(text, /PEGA N° 1 de 2 — migrations\/a\.sql/);
+    assert.match(text, /PEGA N° 2 de 2 — migrations\/b\.sql/);
+    assert.equal((text.match(/NOTIFY pgrst/g) || []).length, 1);
+    assert.equal(formatPasteBlocks([]), '');
   });
 });
 
@@ -94,9 +113,21 @@ describe('preflight: WhatsApp, Gemini y clínica', () => {
     assert.ok(!printed(expired).includes(SECRET));
   });
 
-  it('checks the Gemini key and model', async () => {
-    const ok = await checkGemini({ GEMINI_API_KEY: SECRET, GEMINI_MODEL: 'gemini-3.5-flash-lite' }, async () => jsonResponse(200, {}));
+  it('warns that the Meta test number only writes to authorized recipients', async () => {
+    const results = await checkWhatsApp({ WHATSAPP_TOKEN: SECRET, WHATSAPP_PHONE_NUMBER_ID: '123' }, async () => jsonResponse(200, { verified_name: 'Test Number', display_phone_number: '+1 555-667-6862', quality_rating: 'GREEN' }));
+    assert.equal(results[0].status, 'ok');
+    assert.equal(results[1].status, 'warn');
+    assert.match(results[1].fix, /autorizados/);
+  });
+
+  it('checks the Gemini key with a real generateContent call, whatever its prefix', async () => {
+    const calls = [];
+    const ok = await checkGemini({ GEMINI_API_KEY: SECRET, GEMINI_MODEL: 'gemini-3.5-flash-lite' }, async (url, init) => { calls.push({ url, init }); return jsonResponse(200, {}); });
     assert.equal(ok[0].status, 'ok');
+    assert.match(calls[0].url, /gemini-3\.5-flash-lite:generateContent$/);
+    assert.equal(calls[0].init.method, 'POST');
+    assert.equal((await checkGemini({ GEMINI_API_KEY: SECRET }, async () => jsonResponse(503, {})))[0].status, 'warn');
+    assert.equal((await checkGemini({ GEMINI_API_KEY: SECRET }, async () => jsonResponse(429, {})))[0].status, 'warn');
     const bad = await checkGemini({ GEMINI_API_KEY: SECRET }, async () => jsonResponse(401, { error: { details: [{ reason: 'API_KEY_INVALID' }] } }));
     assert.match(bad[0].label, /API_KEY_INVALID/);
     assert.match(bad[0].fix, /aistudio/);

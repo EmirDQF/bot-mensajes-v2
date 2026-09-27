@@ -133,7 +133,7 @@ try {
   await model.countTokens('hola');
 } catch (error) {
   const reason = error?.errorDetails?.[0]?.reason || error?.status || error?.message;
-  geminiBlocked = `Gemini rechazó GEMINI_API_KEY (${reason}). Usa una clave de Google AI Studio (empieza con "AIza") y vuelve a correr npm run simulate.`;
+  geminiBlocked = `Gemini rechazó GEMINI_API_KEY (${reason}). Crea otra clave en Google AI Studio (https://aistudio.google.com/apikey), pégala en .env y vuelve a correr npm run simulate.`;
   console.error(`\n❌ ${geminiBlocked}\n   Solo se correrán los escenarios que no usan Gemini.\n`);
 }
 

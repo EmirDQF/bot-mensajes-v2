@@ -26,7 +26,7 @@ solo copiar y pegar valores. Tiempo total: 60–90 minutos la primera vez.
    |---|---|
    | `ACTIVE_CLINIC` | El id de la clínica (ej. `denvari`, o el que creaste con `node scripts/new-clinic.js`) |
    | `CLINIC_PHONE`, `RECEPTION_ALERT_PHONE`, `OWNER_ALERT_PHONE` | Celulares en formato `519XXXXXXXX` (clínica, recepción y dueño) |
-   | `GEMINI_API_KEY` | Clave de <https://aistudio.google.com/apikey> (empieza con `AIza`) |
+   | `GEMINI_API_KEY` | Clave de <https://aistudio.google.com/apikey> (el preflight la valida con una llamada real) |
    | `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
    | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Del paso 3 (Meta) |
    | `ENFORCE_WHATSAPP_SIGNATURE` | `true` |

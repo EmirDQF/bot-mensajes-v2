@@ -9,7 +9,7 @@ const ROOT = process.cwd();
 
 // ---------- Variables de entorno ----------
 export const REQUIRED_ENV = [
-  ['GEMINI_API_KEY', 'Crea una clave en https://aistudio.google.com/apikey (empieza con "AIza").'],
+  ['GEMINI_API_KEY', 'Google AI Studio → https://aistudio.google.com/apikey → "Crear clave de API". Se valida con una llamada real.'],
   ['WHATSAPP_TOKEN', 'Meta → Configuración del negocio → Usuarios del sistema → Generar token (permisos whatsapp_business_messaging y whatsapp_business_management).'],
   ['WHATSAPP_PHONE_NUMBER_ID', 'Meta for Developers → tu app → WhatsApp → Configuración de la API → "Identificador del número de teléfono".'],
   ['WHATSAPP_APP_SECRET', 'Meta for Developers → tu app → Configuración → Básica → "Clave secreta de la app".'],
@@ -19,12 +19,21 @@ export const REQUIRED_ENV = [
   ['PANEL_USER', 'Usuario del panel de recepción (/panel).'],
   ['PANEL_PASSWORD', 'Contraseña del panel de recepción (mínimo 12 caracteres).'],
   ['CRON_SECRET', 'Genera uno: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'],
-  ['CLINIC_PHONE', 'Teléfono de la clínica que se muestra al paciente (51XXXXXXXXX).'],
+  ['CLINIC_PHONE', 'Número de WhatsApp del bot, solo dígitos con código de país (Perú: 51XXXXXXXXX; número de prueba de Meta: 1555XXXXXXX).'],
   ['RECEPTION_ALERT_PHONE', 'WhatsApp de recepción: recibe citas nuevas, urgencias y pases a humano.'],
   ['OWNER_ALERT_PHONE', 'WhatsApp del dueño: recibe el resumen diario y el reporte semanal.'],
 ];
 
 const PHONE_VARS = ['CLINIC_PHONE', 'RECEPTION_ALERT_PHONE', 'OWNER_ALERT_PHONE'];
+
+// Celular peruano (9 dígitos, con o sin 51) o cualquier número E.164 internacional (10-15 dígitos),
+// como el número de prueba de Meta (+1 555…).
+export function isValidPhone(value) {
+  const d = String(value || '').replace(/\D/g, '');
+  if (/^9\d{8}$/.test(d)) return true;
+  if (d.startsWith('51') && d.length === 11) return /^519\d{8}$/.test(d);
+  return /^[1-9]\d{9,14}$/.test(d);
+}
 
 export function checkEnv(env) {
   const results = [];
@@ -34,8 +43,8 @@ export function checkEnv(env) {
       results.push(fail(`${name} no está definida`, fix));
       continue;
     }
-    if (PHONE_VARS.includes(name) && !/^(?:51)?9\d{8}$/.test(value.replace(/\D/g, ''))) {
-      results.push(fail(`${name} no parece un celular peruano`, 'Formato: 51 + 9 dígitos (ej. 519XXXXXXXX), sin espacios ni +.'));
+    if (PHONE_VARS.includes(name) && !isValidPhone(value)) {
+      results.push(fail(`${name} no parece un número de WhatsApp válido`, 'Solo dígitos con código de país: 51 + 9 dígitos en Perú (519XXXXXXXX) o el E.164 completo (10-15 dígitos), sin + ni espacios.'));
       continue;
     }
     results.push(pass(`${name} definida`));
@@ -135,7 +144,7 @@ export async function checkSupabase(client, schema) {
     }
     if (TABLE_MISSING.has(error.code) || /does not exist|could not find the table/i.test(error.message || '') && !/column/i.test(error.message || '')) {
       const file = [...info.columns.values()][0];
-      results.push(fail(`Falta la tabla ${name}`, `Ejecuta migrations/${file} en Supabase → SQL Editor.`));
+      results.push({ ...fail(`Falta la tabla ${name}`, `Ejecuta migrations/${file} en Supabase → SQL Editor.`), files: [file] });
       continue;
     }
     if (COLUMN_MISSING.has(error.code) || /column/i.test(error.message || '')) {
@@ -146,12 +155,29 @@ export async function checkSupabase(client, schema) {
         if (colError) missing.push(column);
       }
       const files = [...new Set(missing.map((c) => info.columns.get(c)))];
-      results.push(fail(`Tabla ${name}: faltan columnas (${missing.join(', ') || 'desconocidas'})`, `Ejecuta en Supabase → SQL Editor: ${files.map((f) => `migrations/${f}`).join(', ')}`));
+      results.push({ ...fail(`Tabla ${name}: faltan columnas (${missing.join(', ') || 'desconocidas'})`, `Ejecuta en Supabase → SQL Editor: ${files.map((f) => `migrations/${f}`).join(', ')}`), files });
       continue;
     }
     results.push(fail(`Tabla ${name}: ${error.message || error.code}`, 'Revisa SUPABASE_URL y que el proyecto no esté pausado (Supabase → Restore).'));
   }
   return results;
+}
+
+// Migraciones que faltan (en orden de fecha) según los ❌ de checkSupabase. Todas son idempotentes:
+// volver a pegar una que ya estaba no rompe nada.
+export function pendingMigrationFiles(results) {
+  return [...new Set(results.flatMap((r) => r.files || []))].filter(Boolean).sort();
+}
+
+// Bloques "PEGA N° X" para el SQL Editor de Supabase. Al final se recarga la caché de PostgREST
+// (si no, la API puede seguir diciendo que la tabla no existe aunque ya se creó).
+export function formatPasteBlocks(files, readSql = (f) => fs.readFileSync(path.join(ROOT, 'migrations', f), 'utf8')) {
+  if (!files.length) return '';
+  const blocks = files.map((file, i) => {
+    const reload = i === files.length - 1 ? "\n\n-- Recarga la caché de la API de Supabase\nNOTIFY pgrst, 'reload schema';" : '';
+    return `===== PEGA N° ${i + 1} de ${files.length} — migrations/${file} =====\n${readSql(file).trim()}${reload}\n`;
+  });
+  return `\nSupabase → SQL Editor → New query: pega cada bloque, pulsa Run y espera "Success" antes del siguiente.\n\n${blocks.join('\n')}`;
 }
 
 // ---------- WhatsApp y Gemini ----------
@@ -165,7 +191,12 @@ export async function checkWhatsApp(env, fetchImpl) {
     const body = await res.json().catch(() => ({}));
     if (res.ok) {
       const last4 = String(body.display_phone_number || '').replace(/\D/g, '').slice(-4);
-      return [pass(`WhatsApp: número "${body.verified_name || 'sin nombre'}" (…${last4 || '????'}), calidad ${body.quality_rating || 'sin dato'}`)];
+      const results = [pass(`WhatsApp: número "${body.verified_name || 'sin nombre'}" (…${last4 || '????'}), calidad ${body.quality_rating || 'sin dato'}`)];
+      if (isTestNumber(body)) {
+        results.push(warn('WhatsApp: es el NÚMERO DE PRUEBA de Meta',
+          'Solo escribe a los destinatarios autorizados en Meta for Developers → WhatsApp → Configuración de la API (campo "Para", máximo 5). Sirve para la demo, no para pacientes reales: registra el número propio de la clínica (docs/go-live.md).'));
+      }
+      return results;
     }
     const code = body.error?.code;
     if (code === 190) return [fail('WhatsApp: el token venció o no es válido', 'Genera un token PERMANENTE de usuario del sistema en Meta Business y cámbialo en Render.')];
@@ -176,18 +207,25 @@ export async function checkWhatsApp(env, fetchImpl) {
   }
 }
 
+export const isTestNumber = (phone) => /^test number$/i.test(String(phone?.verified_name || '').trim());
+
+// Se valida con una llamada real (generateContent de pocos tokens): funciona con cualquier formato de clave.
 export async function checkGemini(env, fetchImpl) {
   if (!env.GEMINI_API_KEY) return [fail('Gemini sin probar', 'Define GEMINI_API_KEY.')];
   const model = env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   try {
-    const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, {
-      headers: { 'x-goog-api-key': env.GEMINI_API_KEY },
+    const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Responde solo: ok' }] }], generationConfig: { maxOutputTokens: 5 } }),
     });
     const body = await res.json().catch(() => ({}));
-    if (res.ok) return [pass(`Gemini: clave válida y modelo ${model} disponible`)];
+    if (res.ok) return [pass(`Gemini: la clave responde con el modelo ${model}`)];
     const reason = body.error?.details?.find((d) => d.reason)?.reason || body.error?.status || res.status;
-    if (res.status === 404) return [fail(`Gemini: el modelo ${model} no existe para esta clave`, 'Usa GEMINI_MODEL=gemini-3.5-flash-lite (o el que liste Google AI Studio).')];
-    return [fail(`Gemini rechazó la clave (${reason})`, 'Crea una clave en https://aistudio.google.com/apikey (empieza con "AIza") y pégala en GEMINI_API_KEY.')];
+    if (res.status === 404) return [fail(`Gemini: el modelo ${model} no existe para esta clave`, 'Usa GEMINI_MODEL=gemini-3.5-flash-lite (o uno que liste Google AI Studio).')];
+    if (res.status === 429) return [warn(`Gemini: cuota agotada por ahora (${reason})`, 'La clave es válida; espera o revisa la cuota en Google AI Studio → Uso.')];
+    if (res.status >= 500) return [warn(`Gemini respondió ${res.status} (servicio saturado)`, 'Vuelve a correr el preflight en unos minutos; mientras tanto el bot usa su respuesta de respaldo.')];
+    return [fail(`Gemini rechazó la clave (${reason})`, 'Crea una clave en Google AI Studio → https://aistudio.google.com/apikey y pégala en GEMINI_API_KEY.')];
   } catch (error) {
     return [fail('No se pudo contactar a Gemini', `Revisa tu conexión (${error.message}).`)];
   }
@@ -238,11 +276,14 @@ async function main() {
     client = createClient(config.supabase.url, config.supabase.serviceRoleKey);
   }
   const migrations = readMigrations();
-  sections.push([`Supabase (tablas y columnas de ${migrations.length} migraciones)`, await checkSupabase(client, parseMigrationSchema(migrations))]);
+  const supabaseResults = await checkSupabase(client, parseMigrationSchema(migrations));
+  sections.push([`Supabase (tablas y columnas de ${migrations.length} migraciones)`, supabaseResults]);
   sections.push(['WhatsApp Cloud API', await checkWhatsApp(env, fetch)]);
   sections.push(['Gemini', await checkGemini(env, fetch)]);
 
   for (const [title, results] of sections) printSection(title, results);
+  const paste = formatPasteBlocks(pendingMigrationFiles(supabaseResults));
+  if (paste) console.log(`\n🗄️  SQL pendiente en Supabase (proyecto …${new URL(config.supabase.url).host.split('.')[0].slice(-4)}):${paste}`);
   const all = sections.flatMap(([, results]) => results);
   const count = (status) => all.filter((r) => r.status === status).length;
   console.log(`\nResumen: ${count('ok')} ✅ · ${count('warn')} ⚠️  · ${count('fail')} ❌`);
