@@ -1,10 +1,21 @@
-# Genera las imágenes de relleno de la clínica demo (media/denvari/*.png).
-# Uso (Windows, PowerShell 7+):  pwsh scripts/generate-demo-media.ps1
+# Genera ilustraciones de relleno (logo, fachada, ubicación y una por tratamiento) en media/<ClinicId>/.
+# Uso (Windows, PowerShell 7+):
+#   pwsh scripts/generate-demo-media.ps1                      # clínica demo (media/denvari)
+#   pwsh scripts/generate-demo-media.ps1 -ClinicId sonrisa -ClinicName "Clínica Sonrisa" -ShortName "SONRISA" `
+#        -AddressLine "Av. Primavera 123, Surco" -AddressNote "" -Footnote "Imagen referencial"
 # Son ilustraciones propias de marca; ninguna es foto de pacientes reales.
+param(
+  [string]$ClinicId = 'denvari',
+  [string]$ClinicName = 'Clínica Dental Denvari',
+  [string]$ShortName = 'DENVARI',
+  [string]$AddressLine = 'Calle Las Orquídeas 450, San Isidro',
+  [string]$AddressNote = '(dirección de demostración)',
+  [string]$Footnote = 'Imagen referencial · demostración'
+)
 
 Add-Type -AssemblyName System.Drawing
 
-$outDir = Join-Path $PSScriptRoot '..\media\denvari'
+$outDir = Join-Path $PSScriptRoot "..\media\$ClinicId"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 $brandDark = [System.Drawing.Color]::FromArgb(255, 14, 58, 74)
@@ -45,8 +56,8 @@ function Draw-Tooth($g, $cx, $cy, $scale, $color) {
 }
 
 function Draw-Footer($g) {
-  Draw-Centered $g 'Clínica Dental Denvari' 34 690 $white 'Bold'
-  Draw-Centered $g 'Imagen referencial · demostración' 22 735 $accent
+  Draw-Centered $g $ClinicName 34 690 $white 'Bold'
+  Draw-Centered $g $Footnote 22 735 $accent
 }
 
 function Save($canvas, $name) {
@@ -60,7 +71,7 @@ function Save($canvas, $name) {
 $c = New-Canvas
 $c.Graphics.FillEllipse((New-Object System.Drawing.SolidBrush $white), 200, 120, 400, 400)
 Draw-Tooth $c.Graphics 400 330 1.9 $brand
-Draw-Centered $c.Graphics 'DENVARI' 96 540 $white 'Bold'
+Draw-Centered $c.Graphics $ShortName 96 540 $white 'Bold'
 Draw-Centered $c.Graphics 'CLÍNICA DENTAL' 30 660 $accent 'Bold'
 Save $c 'logo.png'
 
@@ -68,7 +79,7 @@ Save $c 'logo.png'
 $c = New-Canvas; $g = $c.Graphics
 $g.FillRectangle((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 236, 242, 244))), 130, 170, 540, 440)
 $g.FillRectangle((New-Object System.Drawing.SolidBrush $brandDark), 130, 170, 540, 90)
-Draw-Centered $g 'DENVARI · Clínica Dental' 40 195 $white 'Bold'
+Draw-Centered $g "$ShortName · Clínica Dental" 40 195 $white 'Bold'
 foreach ($x in 170, 330, 490) { $g.FillRectangle((New-Object System.Drawing.SolidBrush $accent), $x, 300, 140, 120) }
 $g.FillRectangle((New-Object System.Drawing.SolidBrush $brand), 340, 460, 120, 150)
 Draw-Footer $g
@@ -81,8 +92,8 @@ foreach ($i in 0..4) { $g.DrawLine($pen, 0, (120 + $i*120), $size, (80 + $i*120)
 $g.FillEllipse((New-Object System.Drawing.SolidBrush $white), 330, 220, 140, 140)
 $g.FillPolygon((New-Object System.Drawing.SolidBrush $white), [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF 345, 320), (New-Object System.Drawing.PointF 455, 320), (New-Object System.Drawing.PointF 400, 440)))
 $g.FillEllipse((New-Object System.Drawing.SolidBrush $brand), 370, 260, 60, 60)
-Draw-Centered $g 'Calle Las Orquídeas 450, San Isidro' 30 480 $white 'Bold'
-Draw-Centered $g '(dirección de demostración)' 24 525 $accent
+Draw-Centered $g $AddressLine 30 480 $white 'Bold'
+if ($AddressNote) { Draw-Centered $g $AddressNote 24 525 $accent }
 Draw-Footer $g
 Save $c 'ubicacion.png'
 

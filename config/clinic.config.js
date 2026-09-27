@@ -7,9 +7,23 @@ const REQUIRED_STRINGS = ['id', 'name', 'botName', 'city', 'address', 'mapsUrl',
 const PHONE_VARS = ['CLINIC_PHONE', 'RECEPTION_ALERT_PHONE', 'OWNER_ALERT_PHONE'];
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+// Rutas de los textos que todavía dicen "TODO" (los deja scripts/new-clinic.js para completar).
+export function findTodos(value, path = '') {
+  if (typeof value === 'string') return /\bTODO\b/.test(value) ? [path || '(raíz)'] : [];
+  if (Array.isArray(value)) return value.flatMap((item, i) => findTodos(item, `${path}[${i}]`));
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, item]) => findTodos(item, path ? `${path}.${key}` : key));
+  }
+  return [];
+}
+
 export function validateClinic(clinic) {
   const errors = [];
   if (!clinic || typeof clinic !== 'object') return ['la configuración no es un objeto'];
+  const todos = findTodos(clinic);
+  if (todos.length) {
+    errors.push(`quedan ${todos.length} datos por completar (busca "TODO" en el archivo): ${todos.slice(0, 10).join(', ')}${todos.length > 10 ? ', …' : ''}`);
+  }
   for (const field of REQUIRED_STRINGS) {
     if (typeof clinic[field] !== 'string' || !clinic[field].trim()) errors.push(`falta "${field}"`);
   }

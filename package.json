@@ -10,7 +10,8 @@
     "test:unit": "node --import ./scripts/test-env.js --test \"services/*.test.js\"",
     "prospect": "node scripts/runProspector.js",
     "simulate": "node --experimental-test-module-mocks --no-warnings=ExperimentalWarning scripts/simulate-conversations.js",
-    "preflight": "node scripts/preflight.js"
+    "preflight": "node scripts/preflight.js",
+    "new-clinic": "node scripts/new-clinic.js"
   },
   "keywords": [],
   "author": "",

@@ -31,11 +31,14 @@ function weekDb({ withMetrics = true } = {}) {
     appointments: [
       { id: '1', clinic_id: 'denvari', treatment: 'Ortodoncia (brackets metálicos y estéticos)', status: 'confirmada', created_at: '2026-09-22T03:40:00Z', ad_referral: AD },
       { id: '2', clinic_id: 'denvari', treatment: 'Limpieza dental (profilaxis)', status: 'asistio', after_hours: false, created_at: '2026-09-23T15:00:00Z', ad_referral: AD },
-      { id: '3', clinic_id: 'denvari', treatment: 'Implantes dentales', status: 'cancelada', created_at: '2026-09-24T15:00:00Z' },
+      // Confirmada y después cancelada: no cuenta para la garantía.
+      { id: '3', clinic_id: 'denvari', treatment: 'Implantes dentales', status: 'cancelada', confirmed_at: '2026-09-24T16:00:00Z', created_at: '2026-09-24T15:00:00Z' },
       { id: '4', clinic_id: 'denvari', treatment: 'Limpieza dental (profilaxis)', status: 'reprogramada', after_hours: true, rescheduled_at: '2026-09-25T15:00:00Z', created_at: '2026-09-25T02:00:00Z' },
       { id: '5', clinic_id: 'denvari', treatment: 'Limpieza dental (profilaxis)', status: 'no_asistio', created_at: '2026-09-26T15:00:00Z' },
       { id: '6', clinic_id: 'denvari', treatment: 'Limpieza dental (profilaxis)', status: 'confirmada', created_at: '2026-09-10T15:00:00Z' },
       { id: '7', clinic_id: 'otra', treatment: 'Limpieza dental (profilaxis)', status: 'confirmada', created_at: '2026-09-22T15:00:00Z' },
+      // Prueba de recepción: no cuenta.
+      { id: '8', clinic_id: 'denvari', sender_phone: '51988000111', treatment: 'Limpieza dental (profilaxis)', status: 'confirmada', created_at: '2026-09-22T15:00:00Z' },
     ],
     handoffs: withMetrics ? [
       { clinic_id: 'denvari', reason: 'urgencia', created_at: '2026-09-23T04:00:00Z' },

@@ -101,11 +101,14 @@ export function createReport({
       .map((c) => c.first_response_ms).filter((ms) => typeof ms === 'number'), []);
     const avgFirstResponseMs = firstResponses.length ? firstResponses.reduce((a, b) => a + b, 0) / firstResponses.length : null;
 
-    // Citas solicitadas en el rango (por fecha de creación).
-    const appointments = await fetchAllRows(() => client.from('appointments').select('*')
-      .eq('clinic_id', clinic.id).gte('created_at', fromIso).lt('created_at', toIso).order('created_at', { ascending: true }));
+    // Citas solicitadas en el rango (por fecha de creación). Las pruebas desde los teléfonos de
+    // recepción o del dueño no cuentan: el reporte sustenta la garantía.
+    const appointments = (await fetchAllRows(() => client.from('appointments').select('*')
+      .eq('clinic_id', clinic.id).gte('created_at', fromIso).lt('created_at', toIso).order('created_at', { ascending: true })))
+      .filter((a) => !internal.has(digits(a.sender_phone)));
     const afterHoursOf = (a) => (typeof a.after_hours === 'boolean' ? a.after_hours : !isWithinWorkingHours(clinic, new Date(a.created_at)));
-    const isConfirmed = (a) => Boolean(a.confirmed_at) || CONFIRMED.includes(a.status);
+    // Confirmada = recepción la confirmó (o el paciente respondió al recordatorio) o asistió; una cita cancelada no cuenta.
+    const isConfirmed = (a) => a.status !== 'cancelada' && (Boolean(a.confirmed_at) || CONFIRMED.includes(a.status));
     const count = (fn) => appointments.filter(fn).length;
     const confirmed = count(isConfirmed);
 
