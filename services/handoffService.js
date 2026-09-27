@@ -8,18 +8,34 @@ import liveEvents from './liveEvents.js';
 // El estado vive en conversations.status ('human' = bot pausado), así sobrevive a reinicios de Render
 // y el panel puede listar primero las conversaciones que esperan a una persona.
 
-const URGENCY = /\b(?:dolor\s+(?:muy\s+)?(?:fuerte|intenso|insoportable|terrible|horrible)|mucho\s+dolor|me\s+duele\s+(?:much[oí]simo|mucho|demasiado|horrible)|no\s+aguanto\s+el\s+dolor|sangr\w*|hinch\w*|inflamad\w*|absceso|pus|fiebre|golpe|traumatismo|accidente|se\s+me\s+(?:cay[oó]|rompi[oó]|parti[oó])\s+(?:un|el|mi)?\s*diente|emergencia|urgencia|urgente)\b/i;
+// Señales de alarma: siempre urgencia, antes que cualquier recomendación.
+const RED_FLAGS = /\b(?:dolor\s+(?:muy\s+)?(?:fuerte|intenso|insoportable|terrible|horrible)|mucho\s+dolor|me\s+duele\s+(?:much[oí]simo|mucho|demasiado|horrible)|no\s+aguanto\s+el\s+dolor|hinch\w*|inflamad\w*|absceso|pus|fiebre|golpe|traumatismo|accidente|se\s+me\s+(?:cay[oó]|rompi[oó]|parti[oó])\s+(?:un|el|mi)?\s*diente|emergencia|urgencia|urgente)\b/i;
+// Sangrado (regla 8 de CLAUDE.md): también pasa a una persona de inmediato.
+const BLEEDING = /\bsangr\w*/i;
 const HUMAN = /\b(?:hablar|comunicarme|conversar|atender(?:me)?)\s+(?:con\s+)?(?:una\s+|un\s+|alguien|la\s+|el\s+)?(?:persona|humano|asesor[a]?|recepci[oó]n|doctor[a]?|odont[oó]log[oa]|especialista|alguien)\b|\b(?:persona\s+real|un\s+humano|agente\s+humano)\b|^\s*(?:asesor|humano|recepci[oó]n)\s*[.!?]*\s*$/i;
 
 // 'urgencia' | 'humano' | null
 export function detectHandoff(text) {
   const value = String(text || '');
-  if (URGENCY.test(value)) return 'urgencia';
+  if (RED_FLAGS.test(value) || BLEEDING.test(value)) return 'urgencia';
   if (HUMAN.test(value)) return 'humano';
   return null;
 }
 
-export function patientHandoffReply(reason) {
+// Sangrado sin dolor fuerte, hinchazón, fiebre ni golpe (p. ej. encías que sangran al cepillarse).
+export function isBleedingOnly(text) {
+  const value = String(text || '');
+  return BLEEDING.test(value) && !RED_FLAGS.test(value);
+}
+
+// recommendation: la regla de la clínica para el sangrado de encías (evaluación periodontal), si existe.
+export function patientHandoffReply(reason, { text = '', recommendation = null } = {}) {
+  if (reason === 'urgencia' && isBleedingOnly(text)) {
+    const evaluation = recommendation?.rule?.evaluation || 'encías (periodontal)';
+    return `Gracias por contarme 🙏. Por lo que me cuentas, lo indicado es una evaluación ${/^de\b/i.test(evaluation) ? '' : 'de '}${evaluation}; el doctor confirma el mejor tratamiento. `
+      + 'Ya avisé a nuestro equipo clínico y te escribirán de inmediato por este chat. '
+      + `Si el sangrado es abundante o no se detiene, acude a la clínica (${activeClinic.address}) o a emergencias.`;
+  }
   if (reason === 'urgencia') {
     return 'Lamento que estés con esa molestia 🙏. Ya avisé a nuestro equipo clínico y te escribirán de inmediato por este chat. '
       + 'Por aquí no puedo darte diagnóstico ni indicarte medicamentos. Si el dolor, el sangrado o la hinchazón aumentan, '

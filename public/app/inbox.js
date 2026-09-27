@@ -12,10 +12,11 @@ const FILTERS = [
 const SCORE = { caliente: '🔥', tibio: '🌤️', frio: '❄️' };
 const SENDER_LABEL = { patient: 'Paciente', bot: '🤖 Asistente', reception: '👤 Recepción' };
 const TICKS = { sent: '✓', delivered: '✓✓', read: '✓✓' };
+const TAG_LABEL = { en_tratamiento: 'En tratamiento', vip: 'VIP', precio_sensible: 'Sensible al precio', no_contactar: 'No contactar' };
 
 const state = {
   list: [], filter: 'all', q: '', selected: null, messages: [], window: null, paused: false,
-  templates: [], typing: new Set(), quickReplies: [], loadingList: false,
+  templates: [], typing: new Set(), quickReplies: [], loadingList: false, profileOpen: false, profile: null,
 };
 let ctx = {};
 let refreshTimer = null;
@@ -39,6 +40,7 @@ export function initInbox(context) {
   $('#btnIntervene').addEventListener('click', () => setBot(true));
   $('#btnBackToBot').addEventListener('click', () => setBot(false));
   $('#btnBackToList').addEventListener('click', () => document.body.classList.remove('show-chat'));
+  $('#btnProfile').addEventListener('click', () => toggleProfile(!state.profileOpen));
   document.addEventListener('visibilitychange', () => { if (!document.hidden && state.selected) markRead(state.selected); });
   renderQuickReplies();
   loadList();
@@ -113,6 +115,7 @@ export async function openChat(phone) {
   renderHeader();
   clear($('#chatMessages'), loading('Cargando mensajes…'));
   renderList();
+  if (state.profileOpen) loadProfile();
   await loadChat();
   markRead(phone);
   $('#composerText').focus({ preventScroll: true });
@@ -287,6 +290,83 @@ async function setBot(paused) {
   }
 }
 
+// ---------- Ficha del paciente ----------
+function toggleProfile(open) {
+  state.profileOpen = open;
+  $('#profile').hidden = !open;
+  $('#btnProfile').setAttribute('aria-expanded', String(open));
+  if (open) loadProfile();
+}
+
+async function loadProfile() {
+  const phone = state.selected;
+  const box = $('#profile');
+  if (!phone) return;
+  clear(box, loading('Cargando ficha…'));
+  try {
+    const data = await api(`/conversations/${phone}/profile`);
+    if (phone !== state.selected) return;
+    state.profile = data;
+    renderProfile();
+  } catch (error) {
+    clear(box, profileHead(), failure(error.message));
+  }
+}
+
+function profileHead() {
+  return h('div', { class: 'profile__head' }, h('h3', {}, 'Ficha del paciente'),
+    h('button', { type: 'button', class: 'btn btn--ghost btn--small', 'aria-label': 'Cerrar ficha', onclick: () => { toggleProfile(false); $('#btnProfile').focus(); } }, '✕'));
+}
+
+function renderProfile() {
+  const { profile: p, tags, treatments } = state.profile;
+  const field = (label, input, hint) => h('div', { class: 'field' }, h('label', { for: input.id }, label), input, hint ? h('p', { class: 'profile__hint' }, hint) : null);
+  const name = h('input', { type: 'text', id: 'profileName', maxlength: '80', value: p.nombre, autocomplete: 'off' });
+  const treatment = h('input', { type: 'text', id: 'profileTreatment', maxlength: '80', value: p.treatmentInterest, list: 'profileTreatments', autocomplete: 'off' });
+  const notes = h('textarea', { id: 'profileNotes', maxlength: '1000' }, p.notes);
+  const botNotes = h('textarea', { id: 'profileBotNotes', maxlength: '500' }, p.botNotes);
+  const form = h('form', { class: 'profile__form', onsubmit: (event) => { event.preventDefault(); saveProfile(form); } },
+    field('Nombre', name),
+    field('Tratamiento de interés', treatment),
+    h('datalist', { id: 'profileTreatments' }, treatments.map((t) => h('option', { value: t }))),
+    h('fieldset', { class: 'profile__tags' },
+      h('legend', { class: 'sr-only' }, 'Etiquetas'),
+      tags.map((tag) => h('label', {}, h('input', { type: 'checkbox', name: 'tag', value: tag, checked: p.tags.includes(tag) }), TAG_LABEL[tag] || tag))),
+    h('p', { class: 'profile__hint' }, '"No contactar" detiene los mensajes de seguimiento automáticos.'),
+    field('Notas internas', notes, 'Solo las ve el equipo.'),
+    field('Notas para el bot', botNotes, 'El asistente las usa como contexto (ej.: "prefiere citas en la tarde"). No escribas datos clínicos.'),
+    h('button', { type: 'submit', class: 'btn btn--primary btn--block' }, 'Guardar ficha'));
+  clear($('#profile'),
+    profileHead(),
+    p.leadScore ? h('p', { class: 'profile__hint' }, h('span', { class: `badge badge--score badge--${p.leadScore}` }, `${SCORE[p.leadScore] || ''} ${p.leadScore}`), ' ', p.leadScoreReason || '') : null,
+    form);
+}
+
+async function saveProfile(form) {
+  const button = $('button[type="submit"]', form);
+  button.disabled = true;
+  const body = {
+    nombre: $('#profileName', form).value,
+    treatmentInterest: $('#profileTreatment', form).value,
+    tags: $$('input[name="tag"]:checked', form).map((i) => i.value),
+    notes: $('#profileNotes', form).value,
+    botNotes: $('#profileBotNotes', form).value,
+  };
+  try {
+    const data = await api(`/conversations/${state.selected}/profile`, { method: 'PUT', body });
+    state.profile = { ...state.profile, profile: data.profile };
+    const item = state.list.find((c) => c.phone === state.selected);
+    if (item) { item.tags = data.profile.tags; if (data.profile.nombre) item.name = data.profile.nombre; }
+    renderProfile();
+    renderHeader();
+    renderList();
+    toast('Ficha guardada.', 'ok');
+  } catch (error) {
+    toast(error.message, 'error');
+    button.disabled = false;
+  }
+}
+
 function openLightbox(url) {
   const box = $('#lightbox');
   $('#lightboxImage').src = url;
@@ -335,6 +415,12 @@ export function handleLiveEvent(type, data) {
     if (phone === state.selected) { state.paused = data.paused; renderHeader(); }
     renderList();
   } else if (type === 'handoff' || type === 'appointment' || type === 'conversation') {
+    // Lead score nuevo en la ficha abierta.
+    if (type === 'conversation' && phone === state.selected && data.leadScore && state.profile?.profile) {
+      state.profile.profile.leadScore = data.leadScore;
+      state.profile.profile.leadScoreReason = data.leadScoreReason;
+      if (state.profileOpen) renderProfile();
+    }
     scheduleListRefresh();
   }
 }

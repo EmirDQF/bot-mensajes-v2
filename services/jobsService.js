@@ -227,13 +227,22 @@ export function createJobs({
       .eq('clinic_id', clinic.id).in('sender_phone', candidates).gte('created_at', monthAgo))).map((a) => digits(a.sender_phone)));
     const alreadyFollowed = new Set((await query(client.from('follow_ups').select('phone')
       .eq('clinic_id', clinic.id).in('phone', candidates))).map((f) => digits(f.phone)));
+    // Etiqueta "no contactar" de la ficha (migrations/20260930_lead_profile.sql). leads.telefono va sin el 51.
+    let doNotContact = new Set();
+    try {
+      const local = candidates.map((p) => p.slice(-9));
+      doNotContact = new Set((await query(client.from('leads').select('telefono, tags').in('telefono', [...candidates, ...local])))
+        .filter((l) => Array.isArray(l.tags) && l.tags.includes('no_contactar')).map((l) => digits(l.telefono).slice(-9)));
+    } catch (error) {
+      console.warn('[Jobs] No se pudieron leer las etiquetas de los leads:', error?.message || error);
+    }
 
     const campaign = [clinic.campaign?.evaluation, clinic.campaign?.initialFee].filter(Boolean).join(' y ');
     const text = `¡Hola! Soy ${clinic.botName} de ${clinic.name} 😊 ¿Pudiste pensarlo? Seguimos con ${campaign || 'nuestra campaña'}. `
       + 'Si quieres, te propongo 3 horarios para tu evaluación: solo responde "quiero una cita".';
 
     for (const phone of candidates) {
-      if (withAppointment.has(phone) || alreadyFollowed.has(phone) || await handoff.isPaused(phone)) {
+      if (withAppointment.has(phone) || alreadyFollowed.has(phone) || doNotContact.has(phone.slice(-9)) || await handoff.isPaused(phone)) {
         result.skipped += 1;
         continue;
       }

@@ -125,6 +125,57 @@ Cuéntame:
     extraccion: 'extraccion.png',
   },
 
+  // Tono de la asistente ('cercano' | 'formal' | 'juvenil') y emojis ('pocos' | 'ninguno' | 'normal').
+  tone: 'cercano',
+  emojiLevel: 'pocos',
+
+  // Venta consultiva sin diagnosticar: si el paciente cuenta algo así, se recomienda una EVALUACIÓN
+  // ("por lo que me cuentas, lo indicado es una evaluación de X; el doctor confirma el mejor tratamiento").
+  // Dolor fuerte, hinchazón, fiebre o golpe siempre pasan antes a urgencia. Editables en el panel.
+  recommendationRules: [
+    {
+      id: 'ortodoncia',
+      triggers: ['chuecos', 'chueco', 'chuecas', 'torcidos', 'torcido', 'apiñados', 'apiñado', 'amontonados', 'separados', 'separacion', 'dientes separados', 'mordida'],
+      evaluation: 'ortodoncia (brackets o alineadores)',
+      treatmentKey: 'ortodoncia',
+      question: '¿Lo buscas más por estética o por la mordida?',
+    },
+    {
+      id: 'implante',
+      triggers: ['me falta un diente', 'me falta una muela', 'me faltan dientes', 'perdi un diente', 'perdi una muela', 'sin un diente', 'me sacaron un diente', 'me sacaron una muela'],
+      evaluation: 'implante dental',
+      treatmentKey: 'implantes',
+    },
+    {
+      id: 'blanqueamiento',
+      triggers: ['amarillos', 'amarillo', 'amarillentos', 'manchas', 'manchados', 'manchado', 'oscuros', 'dientes blancos', 'sonrisa blanca'],
+      evaluation: 'blanqueamiento dental',
+      treatmentKey: 'blanqueamiento',
+    },
+    {
+      id: 'periodontal',
+      triggers: ['sangran las encias', 'sangrado de encias', 'me sangran', 'encias sangran', 'sangran al cepillarme', 'sangrado', 'sangran'],
+      evaluation: 'encías (periodontal)',
+      treatmentKey: 'limpieza',
+    },
+    {
+      id: 'evento',
+      triggers: ['boda', 'matrimonio', 'graduacion', 'quinceañero', 'evento', 'fiesta'],
+      evaluation: 'diseño de sonrisa o blanqueamiento',
+      treatmentKey: 'carillas',
+      question: '¿Para qué fecha es tu evento?',
+    },
+    {
+      id: 'ninos',
+      triggers: ['mi hijo', 'mi hija', 'mi niño', 'mi niña', 'mi bebe', 'para un niño', 'para una niña', 'niños'],
+      evaluation: 'odontopediatría',
+      treatmentKey: 'odontopediatria',
+      question: '¿Qué edad tiene?',
+    },
+  ],
+
+  paymentMethods: ['Tarjetas de crédito y débito', 'Yape y Plin', 'Efectivo'],
+
   // Colores del panel (hex). Opcional.
   colors: { primary: '#0f766e', accent: '#14b8a6' },
 

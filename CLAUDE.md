@@ -43,6 +43,7 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | Primer contacto: tiempo de primera respuesta y `after_hours` | `services/conversationMetrics.js` |
 | Reloj único (lo fija el simulador) | `services/clock.js` |
 | Pase a humano / urgencias | `services/handoffService.js` |
+| Recomendación de evaluación sin diagnosticar, lead score, notas para el bot | `services/recommendationService.js` (ficha: `PUT /api/panel/conversations/:phone/profile`) |
 | Recordatorios, resumen diario, seguimiento | `services/jobsService.js` + `routes/jobs.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
 | Panel de recepción | `public/panel.html`, `public/panel.js`, `controllers/panelController.js`, `services/panelDataService.js` |

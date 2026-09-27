@@ -39,6 +39,8 @@ router.get('/conversations/:phone/messages', panel, inbox.messages);
 router.post('/conversations/:phone/messages', panel, inbox.send);
 router.post('/conversations/:phone/read', panel, inbox.read);
 router.post('/conversations/:phone/bot', panel, inbox.setBot);
+router.get('/conversations/:phone/profile', panel, inbox.profile);
+router.put('/conversations/:phone/profile', panel, inbox.saveProfile);
 router.get('/media/:mediaId', panel, inbox.media);
 
 // Agenda, métricas y reporte

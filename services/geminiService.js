@@ -2,6 +2,7 @@ import config from '../config/env.js';
 import clinic, { activePromotions, activeTreatments, findTreatment } from '../config/clinic.config.js';
 import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
 import { now as clockNow } from './clock.js';
+import { botNotesBlock, recommendationSentence } from './recommendationService.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -34,6 +35,10 @@ export function buildSystemPrompt(c = clinic, { today = localParts(c.timezone, c
   const closedDays = (c.holidays || []).filter((h) => h.date >= today).slice(0, 8)
     .map((h) => `${formatDateEs(h.date)}${h.label ? ` (${h.label})` : ''}`).join('; ');
   const faq = (c.faq || []).map((item) => `- ${item.q} ${item.a}`).join('\n');
+  const rules = (c.recommendationRules || []).map((rule) => {
+    const treatment = rule.treatmentKey ? activeTreatments(c).find((t) => t.key === rule.treatmentKey) : null;
+    return `- Si dice ${rule.triggers.slice(0, 4).map((t) => `"${t}"`).join(', ')}… → evaluación de ${rule.evaluation}${treatment ? ` (${treatment.name}, desde ${formatSoles(treatment.priceFrom)})` : ''}${rule.question ? `. Pregunta: ${rule.question}` : ''}`;
+  }).join('\n');
   const forbidden = (c.forbiddenPhrases || []).length ? `\nNunca escribas estas frases ni variantes: ${c.forbiddenPhrases.map((p) => `"${p}"`).join(', ')}.` : '';
   return `Eres ${c.botName}, la asesora dental y coordinadora de citas de ${c.name}, ubicada en ${c.address}. Tu tono es profesional, cálido, resolutivo y cercano. Respondes con mensajes cortos de WhatsApp.
 
@@ -66,6 +71,17 @@ Eres la asistente virtual de la clínica: si te preguntan si eres una persona, d
 
 ### REGLA 8: TEMAS AJENOS E INSULTOS
 Si el mensaje no tiene que ver con la clínica, responde en una línea que solo puedes ayudar con la atención dental de ${c.name} y ofrece tu ayuda. Si te insultan, mantén la calma y el respeto, no respondas al insulto y ofrece ayuda o hablar con una persona.
+
+### REGLA 9: RECOMIENDA UNA EVALUACIÓN, NUNCA DIAGNOSTIQUES
+Cuando el paciente cuente qué le pasa, usa este formato: "Por lo que me cuentas, lo indicado es una evaluación de <X>; el doctor confirma el mejor tratamiento." Luego da el precio "desde" del tratamiento relacionado (solo de la lista) e invítalo a elegir un horario. Nunca digas "tienes…", "padeces…", "es una caries o infección…" ni "necesitas <tratamiento>": eso solo lo dice el doctor en la evaluación.${rules ? `\nGuía de esta clínica:\n${rules}` : ''}
+
+### REGLA 10: CALIFICA SIN INTERROGAR
+En toda la conversación haz como máximo 2 preguntas para conocerlo, una a la vez y solo si no lo dijo: qué busca lograr, para cuándo lo necesita o si prefiere pagar en cuotas.
+
+### REGLA 11: OBJECIONES, SOLO CON DATOS DE ESTA CLÍNICA
+- "Está caro": recuerda que es un precio "desde", que el costo exacto se ve en la evaluación y menciona las cuotas o formas de pago de la lista. No inventes descuentos.
+- Miedo o nervios: tranquilízalo con empatía y solo con lo que la clínica ofrece según esta información; no prometas "sin dolor".
+- "Lo voy a pensar": respeta su decisión y pregúntale si puedes escribirle mañana para resolver sus dudas.
 
 ### DATOS DE LA CLÍNICA
 - Horario: ${c.workingHoursText}${closedDays ? `\n- Días cerrados (feriados): ${closedDays}` : ''}
@@ -332,7 +348,12 @@ export function buildSystemPromptWithContext(jid, session = null, clinicOverride
   const welcomed = session?.welcomed
     ? '\nYa se le envió la bienvenida con la campaña: no saludes ni te presentes; responde directo a su consulta.'
     : '';
-  return `${buildSystemPrompt(clinic)}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}${closed}${welcomed}`;
+  // Regla de la clínica que aplica a este mensaje (la respuesta debe seguirla, sin diagnosticar).
+  const recommendation = session?.recommendation
+    ? `\nRECOMENDACIÓN PARA ESTE MENSAJE (úsala con estas palabras o muy parecidas): "${recommendationSentence(session.recommendation)}"${session.recommendation.rule.question ? ` Si aún no lo sabes, pregunta: ${session.recommendation.rule.question}` : ''}`
+    : '';
+  const notes = botNotesBlock(session?.botNotes);
+  return `${buildSystemPrompt(clinic)}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}${closed}${welcomed}${recommendation}${notes}`;
 }
 
 export function parseTextToLimaDate(text) {
@@ -506,6 +527,8 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.lastUserMessageAt = now;
   session.afterHours = Boolean(options.afterHours);
   session.welcomed = Boolean(options.welcomed);
+  session.recommendation = options.recommendation || null;
+  session.botNotes = options.botNotes || null;
   if (Array.isArray(options.availableSlots) && options.availableSlots.length && !session.booked) {
     session.offeredSlots = options.availableSlots;
   }

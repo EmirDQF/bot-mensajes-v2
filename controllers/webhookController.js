@@ -16,6 +16,7 @@ import inboxService from '../services/inboxService.js';
 import liveEvents from '../services/liveEvents.js';
 import { fetchMetaMedia } from '../services/metaMedia.js';
 import clinicSettings from '../services/clinicSettings.js';
+import leadInsights, { enforceNoDiagnosis, matchRecommendation, recommendationSentence } from '../services/recommendationService.js';
 
 // Origen del anuncio de Meta (click-to-WhatsApp). Solo llega en el primer mensaje: se guarda en memoria
 // y en leads.ad_referral para asociarlo después a la cita.
@@ -31,6 +32,16 @@ export function sanitizeReferral(referral) {
   if (!Object.keys(clean).length) return null;
   clean.received_at = new Date().toISOString();
   return clean;
+}
+
+// Notas "para el bot" que recepción escribe en la ficha (se sanean al armar el prompt).
+async function getBotNotes(phone) {
+  try {
+    return (await leadService.getByPhone(phone))?.bot_notes || null;
+  } catch (error) {
+    console.warn('[Leads] No se pudieron leer las notas para el bot:', error?.message || error);
+    return null;
+  }
 }
 
 async function getAdReferral(phone) {
@@ -259,7 +270,8 @@ export function formatSlotList(slots) {
 
 // Si Gemini falla (cuota agotada, caída o clave inválida) el paciente no se queda sin respuesta:
 // recibe los horarios ofrecidos o un aviso, y recepción recibe una alerta (máximo una por paciente por hora).
-export function aiFallbackReply(offeredSlots) {
+export function aiFallbackReply(offeredSlots, recommendation = null) {
+  if (recommendation) return `${recommendationSentence(recommendation)}${formatSlotList(offeredSlots) || ' Recepción te escribirá para coordinar tu evaluación.'}`;
   return offeredSlots?.length
     ? `¡Gracias por escribirnos! 😊 Te comparto los horarios más cercanos para tu evaluación:${formatSlotList(offeredSlots)}`
     : '¡Gracias por escribirnos! 🙏 Tuve un inconveniente para responderte en este momento; ya avisé al equipo de la clínica para que te escriba por aquí.';
@@ -512,9 +524,9 @@ async function processBatch(from, buffer) {
   const handoffReason = detectHandoff(messageText);
   if (handoffReason) {
     const firstContactUrgent = Boolean(buffer.context?.firstContactUrgent);
-    const reply = firstContactUrgent
-      ? `${patientHandoffReply(handoffReason)}\n\n${activeClinic.privacyNotice}`
-      : patientHandoffReply(handoffReason);
+    // Sangrado de encías sin señales de alarma: además de pasar a una persona, se recomienda la evaluación.
+    const handoffText = patientHandoffReply(handoffReason, { text: messageText, recommendation: matchRecommendation(messageText) });
+    const reply = firstContactUrgent ? `${handoffText}\n\n${activeClinic.privacyNotice}` : handoffText;
     try {
       const sendResult = await whatsappService.sendTextMessage(from, reply);
       await recordBotReply(from, messageText, reply, null, sendResult);
@@ -549,10 +561,13 @@ async function processBatch(from, buffer) {
   const alreadyChoosing = geminiService.pickOfferedSlot(messageText, geminiService.getOfferedSlots(jid));
   const hotLead = afterHours && !geminiService.getOfferedSlots(jid)
     && Boolean(findTreatment(messageText) || PRICE_INTENT.test(messageText));
-  if ((BOOKING_INTENT.test(messageText) || hotLead) && !alreadyChoosing && !geminiService.isSessionBooked(jid)) {
+  // Lo que cuenta el paciente ("tengo los dientes chuecos") → evaluación recomendada + precio "desde" + 3 horarios.
+  const recommendation = alreadyChoosing ? null : matchRecommendation(messageText);
+  if ((BOOKING_INTENT.test(messageText) || hotLead || recommendation) && !alreadyChoosing && !geminiService.isSessionBooked(jid)) {
     try {
       const fromDate = parseRequestedDay(messageText, localParts(activeClinic.timezone, current).date);
-      offeredSlots = await appointmentService.findNextSlots(findTreatment(messageText)?.key || null, fromDate ? { fromDate } : {});
+      const treatmentKey = findTreatment(messageText)?.key || recommendation?.treatment?.key || null;
+      offeredSlots = await appointmentService.findNextSlots(treatmentKey, fromDate ? { fromDate } : {});
     } catch (error) {
       console.error('[Appointments] No se pudieron calcular horarios libres:', error?.message || error);
     }
@@ -563,6 +578,7 @@ async function processBatch(from, buffer) {
     geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
       client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts,
       availableSlots: offeredSlots, afterHours, welcomed: Boolean(buffer.context?.welcomed),
+      recommendation, botNotes: await getBotNotes(from),
     });
   } catch (error) {
     console.error('[Gemini] Error al generar respuesta:', error);
@@ -570,7 +586,7 @@ async function processBatch(from, buffer) {
   }
   if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) {
     console.error('[Gemini] No se obtuvo una respuesta utilizable; se envía la respuesta de respaldo');
-    let fallback = aiFallbackReply(offeredSlots);
+    let fallback = aiFallbackReply(offeredSlots, recommendation);
     if (takeAfterHoursNotice(from, current)) fallback = `${afterHoursNotice()}\n\n${fallback}`;
     try {
       const sendResult = await whatsappService.sendTextMessage(from, fallback);
@@ -585,7 +601,10 @@ async function processBatch(from, buffer) {
   // Las etiquetas de foto se leen del texto crudo: sanitizeModelTextOutput borra los "_" y [ENVIAR_IMAGEN].
   const { keys: requestedMediaKeys } = extractPhotoTags(geminiResult.rawTexto || geminiResult.texto);
   const botReplyText = geminiService.sanitizeModelTextOutput(extractPlainText(extractPhotoTags(geminiResult.texto).cleaned));
-  let textoParaWhatsApp = stripInstructionTags(botReplyText);
+  // Freno final: si el modelo diagnostica o receta, se envía la recomendación segura de la clínica.
+  const safeReply = enforceNoDiagnosis(stripInstructionTags(botReplyText), recommendation);
+  if (safeReply.replaced) console.warn('[Gemini] Respuesta con diagnóstico reemplazada por la recomendación de evaluación');
+  let textoParaWhatsApp = safeReply.text;
   const inferredKey = inferPhotoKeyFromMessage(messageText);
   if (inferredKey && !requestedMediaKeys.includes(inferredKey)) requestedMediaKeys.push(inferredKey);
   const urlsToSend = requestedMediaKeys.map((key) => mediaUrl(key)).filter(Boolean);
@@ -680,6 +699,11 @@ async function processBatch(from, buffer) {
   }
 
   await recordBotReply(from, messageText, textoParaWhatsApp, finalMediaUrl, sendResult);
+  // Lead score de la bandeja (nunca lanza).
+  void leadInsights.observe(from, {
+    text: messageText, treatment: findTreatment(messageText)?.name || recommendation?.treatment?.name || null,
+    recommendation: recommendation?.rule?.id || null, requested: appointmentOutcome?.status === 'saved', choseSlot: Boolean(alreadyChoosing),
+  });
   // Si ya se avisó a recepción por la cita, no se duplica la alerta de lead.
   if (leadResult?.readyToNotify && leadResult.lead && appointmentOutcome?.status !== 'saved') {
     try { await notificationService.notifyAdminNewLead(leadResult.lead, { whatsappService, leadService }); }

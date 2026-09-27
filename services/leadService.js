@@ -450,6 +450,27 @@ export async function saveLeadAfterHours(telefono, afterHours) {
   return upsertLeadFields(telefono, { after_hours: Boolean(afterHours) }, 'saveLeadAfterHours');
 }
 
+// Lead score de la bandeja (🔥 caliente, 🌤️ tibio, ❄️ frío) con su motivo. Requiere migrations/20260930_lead_profile.sql.
+export async function saveLeadScore(telefono, score, reason, { treatmentInterest = null } = {}) {
+  if (!telefono) throw new Error('telefono is required to save the lead score');
+  return upsertLeadFields(telefono, {
+    lead_score: score, lead_score_reason: reason, lead_score_at: new Date().toISOString(),
+    ...(treatmentInterest ? { treatment_interest: treatmentInterest } : {}),
+  }, 'saveLeadScore');
+}
+
+// Ficha del paciente editada por recepción: nombre, tratamiento, etiquetas y notas.
+export async function saveLeadProfile(telefono, { nombre, treatmentInterest, tags, notes, botNotes }) {
+  if (!telefono) throw new Error('telefono is required to save the profile');
+  const fields = {};
+  if (nombre !== undefined) fields.nombre = nombre || null;
+  if (treatmentInterest !== undefined) fields.treatment_interest = treatmentInterest || null;
+  if (tags !== undefined) fields.tags = tags;
+  if (notes !== undefined) fields.notes = notes || null;
+  if (botNotes !== undefined) fields.bot_notes = botNotes || null;
+  return upsertLeadFields(telefono, fields, 'saveLeadProfile');
+}
+
 async function upsertLeadFields(telefono, fields, caller) {
   const client = getSupabaseClient();
   const normalized = normalizePhone(telefono);
@@ -541,5 +562,7 @@ export default {
   saveLeadSnapshot,
   saveLeadAdReferral,
   saveLeadAfterHours,
+  saveLeadScore,
+  saveLeadProfile,
   _internals: { normalizePhone },
 };

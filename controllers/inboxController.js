@@ -1,4 +1,4 @@
-import activeClinic from '../config/clinic.config.js';
+import activeClinic, { activeTreatments } from '../config/clinic.config.js';
 import TEMPLATES from '../config/whatsappTemplates.js';
 import defaultInbox, { INBOX_FILTERS } from '../services/inboxService.js';
 import defaultEvents from '../services/liveEvents.js';
@@ -7,6 +7,8 @@ import defaultJobs from '../services/jobsService.js';
 import { describeMetaError } from '../services/metaErrors.js';
 import { fetchMetaMedia, isInlineType } from '../services/metaMedia.js';
 import { getSupabase } from '../services/supabaseClient.js';
+import defaultLeads from '../services/leadService.js';
+import { PROFILE_TAGS, sanitizeBotNotes } from '../services/recommendationService.js';
 
 // Bandeja en vivo del panel: lista, chat, respuestas de recepción, stream SSE y proxy de media.
 
@@ -14,6 +16,41 @@ const HEARTBEAT_MS = 25 * 1000;
 const MAX_STREAMS = Number(process.env.PANEL_MAX_STREAMS || 20);
 const MAX_TEXT = 4096;
 const digits = (value) => String(value || '').replace(/\D/g, '');
+const PROFILE_LIMITS = { nombre: 80, treatmentInterest: 80, notes: 1000, botNotes: 500 };
+
+function toProfile(lead) {
+  return {
+    nombre: lead?.nombre || '',
+    treatmentInterest: lead?.treatment_interest || '',
+    tags: Array.isArray(lead?.tags) ? lead.tags.filter((t) => PROFILE_TAGS.includes(t)) : [],
+    notes: lead?.notes || '',
+    botNotes: lead?.bot_notes || '',
+    leadScore: lead?.lead_score || null,
+    leadScoreReason: lead?.lead_score_reason || null,
+  };
+}
+
+// Valida la ficha que envía recepción. Solo se guardan los campos presentes; devuelve { fields } o { error }.
+export function parseProfile(body = {}) {
+  const fields = {};
+  for (const key of ['nombre', 'treatmentInterest', 'notes', 'botNotes']) {
+    if (body[key] === undefined) continue;
+    if (body[key] !== null && typeof body[key] !== 'string') return { error: `"${key}" debe ser texto` };
+    const value = String(body[key] || '').trim();
+    if (value.length > PROFILE_LIMITS[key]) return { error: `"${key}": máximo ${PROFILE_LIMITS[key]} caracteres` };
+    fields[key] = value;
+  }
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags)) return { error: '"tags" debe ser una lista' };
+    const unknown = body.tags.find((t) => !PROFILE_TAGS.includes(t));
+    if (unknown !== undefined) return { error: `Etiqueta desconocida: ${String(unknown).slice(0, 30)}` };
+    fields.tags = [...new Set(body.tags)];
+  }
+  // Las notas para el bot se guardan ya saneadas: lo que ve recepción es lo que entra al prompt.
+  if (fields.botNotes !== undefined) fields.botNotes = sanitizeBotNotes(fields.botNotes, PROFILE_LIMITS.botNotes);
+  if (!Object.keys(fields).length) return { error: 'No hay cambios en la ficha' };
+  return { fields };
+}
 
 // Plantillas que recepción puede usar para retomar una conversación fuera de la ventana de 24 h.
 export function receptionTemplates(clinic = activeClinic) {
@@ -36,7 +73,7 @@ function sendError(res, error, fallback) {
 
 export function createInboxController({
   inbox = defaultInbox, events = defaultEvents, handoff = defaultHandoff, jobs = defaultJobs,
-  getClient = getSupabase, fetchMedia = fetchMetaMedia, heartbeatMs = HEARTBEAT_MS,
+  getClient = getSupabase, fetchMedia = fetchMetaMedia, heartbeatMs = HEARTBEAT_MS, leads = defaultLeads,
 } = {}) {
   let openStreams = 0;
 
@@ -131,6 +168,33 @@ export function createInboxController({
     }
   }
 
+  // Ficha del paciente: nombre, tratamiento de interés, etiquetas, notas internas y notas "para el bot".
+  async function profile(req, res) {
+    const phone = digits(req.params.phone);
+    if (!phone) return res.status(400).json({ error: 'Teléfono inválido' });
+    try {
+      const lead = await leads.getByPhone(phone);
+      return res.json({ phone, profile: toProfile(lead), tags: PROFILE_TAGS, treatments: activeTreatments(activeClinic).map((t) => t.name) });
+    } catch (error) {
+      return sendError(res, error, 'No se pudo cargar la ficha (¿falta migrations/20260930_lead_profile.sql?)');
+    }
+  }
+
+  async function saveProfile(req, res) {
+    const phone = digits(req.params.phone);
+    if (!phone) return res.status(400).json({ error: 'Teléfono inválido' });
+    const { fields, error } = parseProfile(req.body || {});
+    if (error) return res.status(400).json({ error });
+    try {
+      const lead = await leads.saveLeadProfile(phone, fields);
+      const saved = toProfile(lead);
+      events.publish('conversation', { phone, tags: saved.tags, name: saved.nombre || null });
+      return res.json({ phone, profile: saved });
+    } catch (err) {
+      return sendError(res, err, 'No se pudo guardar la ficha (¿falta migrations/20260930_lead_profile.sql?)');
+    }
+  }
+
   // Proxy autenticado: el navegador pide /api/panel/media/:id y el servidor descarga de Meta con el token.
   // Solo sirve media que llegó en una conversación de esta clínica.
   async function media(req, res) {
@@ -187,7 +251,7 @@ export function createInboxController({
     return undefined;
   }
 
-  return { list, messages, send, read, setBot, media, stream };
+  return { list, messages, send, read, setBot, media, stream, profile, saveProfile };
 }
 
 export default createInboxController();
