@@ -13,6 +13,7 @@ const importSource = async (source) => (await import(`data:text/javascript,${enc
 
 // Lo que haría el instalador: reemplazar cada TODO por el dato real.
 const fillTodos = (source) => source
+  .replace(/mapsUrl: 'TODO[^'\n]*'/, "mapsUrl: 'https://maps.google.com/?q=Clinica+Sonrisa'")
   .replace(/priceFrom: 'TODO'/g, 'priceFrom: 120')
   .replace(/TODO: campaña del mes[^\n]*/, 'Este mes la evaluación es sin costo.')
   .replace(/'TODO(?::[^'\n]*)?'/g, "'dato real'");

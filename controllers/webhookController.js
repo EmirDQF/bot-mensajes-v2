@@ -15,6 +15,7 @@ import { now as clockNow } from '../services/clock.js';
 import inboxService from '../services/inboxService.js';
 import liveEvents from '../services/liveEvents.js';
 import { fetchMetaMedia } from '../services/metaMedia.js';
+import clinicSettings from '../services/clinicSettings.js';
 
 // Origen del anuncio de Meta (click-to-WhatsApp). Solo llega en el primer mensaje: se guarda en memoria
 // y en leads.ad_referral para asociarlo después a la cita.
@@ -309,8 +310,9 @@ const UNSUPPORTED_REPLIES = {
 
 // Modo nocturno: la asistente dice con naturalidad que la clínica está cerrada (una vez por noche)
 // y deja la solicitud de cita lista para que recepción la confirme al abrir.
-export const AFTER_HOURS_NOTICE = activeClinic.afterHoursNotice
-  || '🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo y te dejo la solicitud de cita lista; recepción te la confirma a primera hora.';
+// El texto es editable en el panel (afterHoursNotice); se lee en cada uso.
+export const DEFAULT_AFTER_HOURS_NOTICE = '🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo y te dejo la solicitud de cita lista; recepción te la confirma a primera hora.';
+export const afterHoursNotice = () => activeClinic.afterHoursNotice || DEFAULT_AFTER_HOURS_NOTICE;
 const AFTER_HOURS_RENOTICE_MS = 10 * 60 * 60 * 1000;
 const afterHoursNoticeAt = new Map();
 
@@ -324,7 +326,7 @@ export function takeAfterHoursNotice(phone, instant = clockNow()) {
 }
 
 export function buildWelcomeCaption({ afterHours = false } = {}) {
-  return [activeClinic.welcomeCaption, afterHours ? AFTER_HOURS_NOTICE : null, activeClinic.privacyNotice].filter(Boolean).join('\n\n');
+  return [activeClinic.welcomeCaption, afterHours ? afterHoursNotice() : null, activeClinic.privacyNotice].filter(Boolean).join('\n\n');
 }
 const pendingReschedules = new Map();
 
@@ -488,6 +490,8 @@ async function recordBotReply(from, messageText, text, mediaUrlSent, sendResult)
 }
 
 async function processBatch(from, buffer) {
+  // Configuración del panel al día (sin consultas si se revisó hace menos de 5 min).
+  await clinicSettings.ensureFresh();
   const messageText = buffer.parts.filter((part) => part.type === 'text').map((part) => part.content).join('\n');
   const jid = `${from}@s.whatsapp.net`;
   // Give immediate visual feedback without making Meta or Gemini wait for it.
@@ -567,7 +571,7 @@ async function processBatch(from, buffer) {
   if (!geminiResult || geminiResult.skipResponse || !geminiResult.texto) {
     console.error('[Gemini] No se obtuvo una respuesta utilizable; se envía la respuesta de respaldo');
     let fallback = aiFallbackReply(offeredSlots);
-    if (takeAfterHoursNotice(from, current)) fallback = `${AFTER_HOURS_NOTICE}\n\n${fallback}`;
+    if (takeAfterHoursNotice(from, current)) fallback = `${afterHoursNotice()}\n\n${fallback}`;
     try {
       const sendResult = await whatsappService.sendTextMessage(from, fallback);
       await recordBotReply(from, messageText, fallback, null, sendResult);
@@ -621,7 +625,7 @@ async function processBatch(from, buffer) {
   }
 
   if (textoParaWhatsApp && takeAfterHoursNotice(from, current)) {
-    textoParaWhatsApp = `${AFTER_HOURS_NOTICE}\n\n${textoParaWhatsApp}`;
+    textoParaWhatsApp = `${afterHoursNotice()}\n\n${textoParaWhatsApp}`;
   }
 
   let sendResult;

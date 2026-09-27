@@ -2,6 +2,7 @@ import './src/envLoader.js';
 import createApp from './app.js';
 import { initializeGeminiClient } from './src/geminiClient.js';
 import clinic, { missingPhoneVars } from './config/clinic.config.js';
+import clinicSettings from './services/clinicSettings.js';
 
 const app = createApp();
 
@@ -11,6 +12,10 @@ const port = process.env.PORT || 3000;
 initializeGeminiClient();
 
 console.log(`[Clinic] Clínica activa: ${clinic.name} (ACTIVE_CLINIC=${clinic.id})`);
+// Cambios guardados desde el panel (⚙️ Configuración). Si Supabase no responde, se usa la base.
+clinicSettings.load().then(({ meta }) => {
+  if (meta.source === 'panel') console.log('[Config] Aplicados los cambios guardados desde el panel');
+});
 for (const name of missingPhoneVars()) {
   console.warn(`[Clinic] Advertencia: ${name} no está definida. El bot sigue funcionando, pero no se enviarán las alertas que dependen de ese número.`);
 }

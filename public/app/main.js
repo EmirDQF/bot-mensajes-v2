@@ -1,7 +1,7 @@
 import api from './api.js';
 import { $, $$, h, clear, toast } from './dom.js';
 import { connectLive } from './live.js';
-import { initInbox, handleLiveEvent, resync } from './inbox.js';
+import { initInbox, handleLiveEvent, resync, setQuickReplies } from './inbox.js';
 import { initViews, loadAgenda, loadMetrics, loadReport } from './views.js';
 
 // Panel de la clínica: inicio de sesión, pestañas según el rol, conexión en vivo y alertas.
@@ -135,6 +135,7 @@ function initAlerts() {
 
 function onLiveEvent(type, data) {
   handleLiveEvent(type, data);
+  if (type === 'settings') refreshClinic();
   if (type === 'handoff' && data.reason === 'urgencia') alertUser('🚨 Urgencia', `${data.contactName || data.phone}: ${data.message || 'requiere atención inmediata'}`, true);
   else if (type === 'handoff') alertUser('🙋 Pide hablar con una persona', data.contactName || data.phone);
   else if (type === 'appointment' && data.event === 'nueva') alertUser('📅 Nueva solicitud de cita', `${data.appointment?.patient_name || data.phone} · ${data.appointment?.treatment || 'evaluación'}`);
@@ -145,6 +146,16 @@ function setLiveStatus(status) {
   const pill = $('#liveStatus');
   pill.dataset.status = status;
   $('#liveStatusText').textContent = LIVE_LABEL[status] || status;
+}
+
+// La configuración cambió (en esta u otra pantalla): marca, colores y respuestas rápidas al día.
+async function refreshClinic() {
+  try {
+    const fresh = await api('/session');
+    session.clinic = fresh.clinic;
+    applyBranding(fresh.clinic);
+    setQuickReplies(fresh.clinic?.quickReplies);
+  } catch { /* se reintenta con el próximo cambio */ }
 }
 
 // ---------- Arranque ----------

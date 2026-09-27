@@ -1,5 +1,5 @@
 import { getSupabase as getDefaultClient } from './supabaseClient.js';
-import activeClinic, { findTreatment, getReceptionPhone } from '../config/clinic.config.js';
+import activeClinic, { findTreatment, getReceptionPhone, isHoliday } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
 import { now as clockNow } from './clock.js';
 import liveEvents from './liveEvents.js';
@@ -85,10 +85,16 @@ export const isMissingColumn = (error, column) => error?.code === 'PGRST204' || 
 
 const overlaps = (startA, durA, startB, durB) => startA < startB + durB && startB < startA + durA;
 
+// Rangos de atención de una fecha (AAAA-MM-DD): los feriados y días cerrados no tienen ninguno.
+export function rangesFor(clinic, date) {
+  if (isHoliday(date, clinic)) return [];
+  return clinic.workingHours[weekdayKey(date)] || [];
+}
+
 // ¿La clínica atiende en este instante? Se calcula con la zona horaria de la clínica.
 export function isWithinWorkingHours(clinic, instant = clockNow()) {
-  const { weekday, minutes } = localParts(clinic.timezone, instant);
-  return (clinic.workingHours[weekday] || []).some(([from, to]) => minutes >= toMinutes(from) && minutes < toMinutes(to));
+  const { date, minutes } = localParts(clinic.timezone, instant);
+  return rangesFor(clinic, date).some(([from, to]) => minutes >= toMinutes(from) && minutes < toMinutes(to));
 }
 
 const WEEKDAY_WORDS = {
@@ -152,7 +158,7 @@ export function createAppointmentService({
     if (!DATE_RE.test(String(date))) throw new Error(`Fecha inválida: ${date}`);
     const today = localParts(clinic.timezone, now());
     if (date < today.date) return [];
-    const ranges = clinic.workingHours[weekdayKey(date)] || [];
+    const ranges = rangesFor(clinic, date);
     if (!ranges.length) return [];
     const duration = durationFor(treatment);
     const busy = existing || await listActiveOn(date);
@@ -234,7 +240,7 @@ export function createAppointmentService({
 
   // Dentro del horario de atención, sin pasarse del cierre y no en el pasado (con la anticipación mínima).
   function isBookable(date, time, duration) {
-    const ranges = clinic.workingHours[weekdayKey(date)] || [];
+    const ranges = rangesFor(clinic, date);
     const start = toMinutes(time);
     const inRange = ranges.some(([from, to]) => start >= toMinutes(from) && start + duration <= toMinutes(to));
     if (!inRange) return false;

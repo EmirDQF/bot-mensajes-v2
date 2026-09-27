@@ -10,7 +10,7 @@ const {
 const { createConversationMetrics } = await import('./conversationMetrics.js');
 const { createHandoffService } = await import('./handoffService.js');
 const {
-  takeAfterHoursNotice, buildWelcomeCaption, AFTER_HOURS_NOTICE, aiFallbackReply, GREETING_ONLY,
+  takeAfterHoursNotice, buildWelcomeCaption, afterHoursNotice, aiFallbackReply, GREETING_ONLY,
 } = await import('../controllers/webhookController.js');
 const { default: clinic } = await import('../config/clinic.config.js');
 const { fakeDb } = await import('./testing/fakeSupabase.js');
@@ -57,10 +57,10 @@ describe('modo nocturno: horario de la clínica', () => {
     assert.equal(takeAfterHoursNotice('51900000001', NIGHT), true);
     assert.equal(takeAfterHoursNotice('51900000001', new Date(NIGHT.getTime() + 20 * 60e3)), false);
     assert.equal(takeAfterHoursNotice('51900000002', DAY), false);
-    assert.ok(buildWelcomeCaption({ afterHours: true }).includes(AFTER_HOURS_NOTICE));
-    assert.ok(!buildWelcomeCaption({ afterHours: false }).includes(AFTER_HOURS_NOTICE));
+    assert.ok(buildWelcomeCaption({ afterHours: true }).includes(afterHoursNotice()));
+    assert.ok(!buildWelcomeCaption({ afterHours: false }).includes(afterHoursNotice()));
     assert.ok(buildWelcomeCaption().includes(clinic.privacyNotice));
-    assert.match(AFTER_HOURS_NOTICE, /recepción te la confirma/);
+    assert.match(afterHoursNotice(), /recepción te la confirma/);
   });
 
   it('never leaves the patient without an answer when Gemini fails', () => {

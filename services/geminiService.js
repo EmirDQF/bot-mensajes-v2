@@ -1,5 +1,5 @@
 import config from '../config/env.js';
-import clinic, { findTreatment } from '../config/clinic.config.js';
+import clinic, { activePromotions, activeTreatments, findTreatment } from '../config/clinic.config.js';
 import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
 import { now as clockNow } from './clock.js';
 
@@ -11,14 +11,30 @@ const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
 const MAX_OUTPUT_TOKENS = 300;
 const formatSoles = (value) => `S/ ${Number(value).toLocaleString('es-PE')}`;
 
-// Construye el prompt de la asistente a partir de config/clinics/<id>.js. Sin datos fijos de ninguna clínica.
-export function buildSystemPrompt(c = clinic) {
-  const treatments = c.treatments
-    .map((t) => `- ${t.name}: desde ${formatSoles(t.priceFrom)} (${t.financing}). Etiqueta de foto: [ENVIAR_FOTO: ${t.key}]`)
+const TONE_RULES = {
+  cercano: 'Hablas como una asesora peruana amable y resolutiva: tuteas, frases cortas, "con gusto", "claro que sí".',
+  formal: 'Hablas como una asesora peruana cordial y profesional: tratas de "usted", frases cortas y claras.',
+  juvenil: 'Hablas como una asesora peruana joven y entusiasta: tuteas, frases cortas y cercanas, sin jergas vulgares.',
+};
+const EMOJI_RULES = { ninguno: 'No uses emojis.', pocos: 'Máximo 2 emojis por mensaje.', normal: 'Máximo 4 emojis por mensaje.' };
+
+// Construye el prompt con la clínica efectiva (config/clinics/<id>.js + cambios del panel). Se arma en
+// cada conversación: un precio o una promoción editados en el panel cambian la siguiente respuesta.
+export function buildSystemPrompt(c = clinic, { today = localParts(c.timezone, clockNow()).date } = {}) {
+  const treatments = activeTreatments(c)
+    .map((t) => `- ${t.name}: desde ${formatSoles(t.priceFrom)}${t.financing ? ` (${t.financing})` : ''}.${t.description ? ` ${t.description}` : ''} Etiqueta de foto: [ENVIAR_FOTO: ${t.key}]`)
     .join('\n');
   const placeTags = ['fachada', 'ubicacion'].filter((key) => c.media?.[key]).map((key) => `[ENVIAR_FOTO: ${key}]`).join(' o ');
-  const campaign = Object.values(c.campaign || {}).filter(Boolean).join(' · ');
+  // Promociones vencidas o desactivadas no llegan al prompt: nunca se mencionan.
+  const campaign = [
+    ...Object.values(c.campaign || {}).filter(Boolean),
+    ...activePromotions(today, c).map((p) => `${p.title}${p.description ? `: ${p.description}` : ''}${p.validUntil ? ` (hasta el ${formatDateEs(p.validUntil)})` : ''}`),
+  ].join(' · ') || 'Ninguna por ahora';
+  const payments = [...(c.paymentMethods || []), c.financingText].filter(Boolean).join(' · ');
+  const closedDays = (c.holidays || []).filter((h) => h.date >= today).slice(0, 8)
+    .map((h) => `${formatDateEs(h.date)}${h.label ? ` (${h.label})` : ''}`).join('; ');
   const faq = (c.faq || []).map((item) => `- ${item.q} ${item.a}`).join('\n');
+  const forbidden = (c.forbiddenPhrases || []).length ? `\nNunca escribas estas frases ni variantes: ${c.forbiddenPhrases.map((p) => `"${p}"`).join(', ')}.` : '';
   return `Eres ${c.botName}, la asesora dental y coordinadora de citas de ${c.name}, ubicada en ${c.address}. Tu tono es profesional, cálido, resolutivo y cercano. Respondes con mensajes cortos de WhatsApp.
 
 ### REGLA 1: CERO SALUDOS REPETIDOS
@@ -45,16 +61,16 @@ No diagnosticas ni recetas medicamentos ni dosis. Si menciona dolor fuerte, sang
 Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación. No inventes descuentos, promociones ni medios de pago: menciona solo la campaña vigente y lo que dicen las preguntas frecuentes.
 
 ### REGLA 7: TONO
-Hablas como una asesora peruana amable y resolutiva: tuteas, frases cortas, "con gusto", "claro que sí". Máximo 2 emojis por mensaje. Cierra con una pregunta o un paso concreto (por ejemplo, elegir un horario).
-Eres la asistente virtual de la clínica: si te preguntan si eres una persona, dilo con honestidad. Nunca finjas ser humana.
+${TONE_RULES[c.tone] || TONE_RULES.cercano} ${EMOJI_RULES[c.emojiLevel] || EMOJI_RULES.pocos} Cierra con una pregunta o un paso concreto (por ejemplo, elegir un horario).
+Eres la asistente virtual de la clínica: si te preguntan si eres una persona, dilo con honestidad. Nunca finjas ser humana.${forbidden}
 
 ### REGLA 8: TEMAS AJENOS E INSULTOS
 Si el mensaje no tiene que ver con la clínica, responde en una línea que solo puedes ayudar con la atención dental de ${c.name} y ofrece tu ayuda. Si te insultan, mantén la calma y el respeto, no respondas al insulto y ofrece ayuda o hablar con una persona.
 
 ### DATOS DE LA CLÍNICA
-- Horario: ${c.workingHoursText}
+- Horario: ${c.workingHoursText}${closedDays ? `\n- Días cerrados (feriados): ${closedDays}` : ''}
 - Dirección: ${c.address} (mapa: ${c.mapsUrl})
-- Campaña vigente: ${campaign}
+- Campaña y promociones vigentes: ${campaign}${payments ? `\n- Formas de pago y financiamiento: ${payments}` : ''}
 
 ### TRATAMIENTOS
 ${treatments}
@@ -63,7 +79,15 @@ ${treatments}
 ${faq}`;
 }
 
-export const SYSTEM_PROMPT = buildSystemPrompt(clinic);
+// Quita del texto las frases que el dueño prohibió (respaldo por si el modelo las usa igual).
+export function removeForbiddenPhrases(text, phrases = clinic.forbiddenPhrases || []) {
+  let out = String(text || '');
+  for (const phrase of phrases) {
+    const escaped = String(phrase).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (escaped) out = out.replace(new RegExp(escaped, 'gi'), '');
+  }
+  return out.replace(/\s{2,}/g, ' ').replace(/\s+([.,!?])/g, '$1').replace(/,\s*([.!?])/g, '$1').trim();
+}
 
 const chatSessions = new Map();
 const failureCounts = new Map();
@@ -308,7 +332,7 @@ export function buildSystemPromptWithContext(jid, session = null, clinicOverride
   const welcomed = session?.welcomed
     ? '\nYa se le envió la bienvenida con la campaña: no saludes ni te presentes; responde directo a su consulta.'
     : '';
-  return `${SYSTEM_PROMPT}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}${closed}${welcomed}`;
+  return `${buildSystemPrompt(clinic)}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}${closed}${welcomed}`;
 }
 
 export function parseTextToLimaDate(text) {
@@ -499,7 +523,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     }
     const rawText = responseText.trim();
     const leadData = collectLead(session, messageText, sid);
-    let texto = sanitizeModelTextOutput(rawText);
+    let texto = removeForbiddenPhrases(sanitizeModelTextOutput(rawText));
     let appointmentRequest = null;
     if (leadData?.ready_for_confirmation && !session.booked) {
       const treatmentName = findTreatment(leadData.motivo)?.name || leadData.motivo;

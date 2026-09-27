@@ -2,11 +2,13 @@ import { publicClinicInfo } from '../config/clinic.config.js';
 import panelData from '../services/panelDataService.js';
 import reportService from '../services/reportService.js';
 import { ownerConfigured } from '../middleware/panelAuth.js';
+import clinicSettings from '../services/clinicSettings.js';
 
 // Agenda, métricas, reporte y sesión del panel (la bandeja en vivo está en inboxController.js).
 
 // GET /api/panel/session — quién inició sesión y la marca de la clínica.
-export function getSession(req, res) {
+export async function getSession(req, res) {
+  await clinicSettings.ensureFresh();
   res.json({ ...req.panelSession, ownerAvailable: ownerConfigured(), clinic: publicClinicInfo() });
 }
 
