@@ -4,7 +4,11 @@ WhatsApp solo permite texto libre dentro de las **24 horas** siguientes al últi
 Fuera de esa ventana, el bot usa estas plantillas **por nombre** (ver `config/whatsappTemplates.js`).
 Si Meta aprueba un nombre distinto, cámbialo en ese archivo o con la variable `WA_TEMPLATE_*` indicada.
 
-**Dónde crearlas:** Meta Business Suite → WhatsApp Manager → Administrar plantillas → Crear plantilla.
+**Automático (recomendado):** `npm run meta:templates` muestra cuáles faltan y `npm run meta:templates -- --apply` las
+envía todas a aprobación por API (con ejemplos de la clínica activa; salta las que ya existen). `npm run meta:check`
+muestra el estado de cada una. Lo de abajo es el texto de referencia y el camino manual.
+
+**Dónde crearlas a mano:** Meta Business Suite → WhatsApp Manager → Administrar plantillas → Crear plantilla.
 Idioma: **Español (es)**. Copia el cuerpo tal cual: las variables `{{1}}`, `{{2}}`… deben quedar en el mismo orden.
 
 > Reglas de Meta que ya cumplen estos textos: las variables no van al inicio ni al final del cuerpo, no hay

@@ -1,6 +1,7 @@
 import config from '../config/env.js';
 import { testMode } from './testContext.js';
 import { isDemoMode } from './demo/demoFlag.js';
+import systemAlerts, { isTokenError } from './systemAlerts.js';
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.WHATSAPP_TIMEOUT_MS || 8000);
 const DEFAULT_MAX_RETRIES = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
@@ -94,6 +95,7 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
       clearTimeout(timeout);
 
       if (res && res.ok) {
+        systemAlerts.whatsappOk();
         try { const json = await res.json(); return json; } catch (e) { return null; }
       }
 
@@ -107,6 +109,8 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
         err.status = status;
         // Detalle de Meta (código y motivo) para mostrarlo en el panel; nunca incluye el token.
         try { err.meta = JSON.parse(txt || '{}')?.error || null; } catch { err.meta = null; }
+        // Token vencido o revocado: log "TOKEN DE WHATSAPP VENCIDO" + banner en el panel con los pasos.
+        if (isTokenError(err.meta)) systemAlerts.tokenExpired(err.meta);
         lastError = err;
         console.error(`WhatsApp send failed to ${masked}: ${status} ${txt}`);
         throw err;

@@ -6,7 +6,7 @@ services:
     name: asistente-dental
     runtime: node
     plan: free # un servicio 24/7 entra en las 750 h gratis al mes; desde el 2.º cliente conviene Starter
-    region: virginia
+    region: virginia # la más cercana a Lima que ofrece Render (menor latencia que Oregon)
     buildCommand: npm ci --omit=dev
     startCommand: node index.js
     healthCheckPath: /health
@@ -14,6 +14,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
+      - key: NODE_ENV
+        value: production # además bloquea DEMO_MODE: el arranque falla si alguien lo activa aquí
       - key: PUBLIC_BASE_URL
         sync: false
       - key: ACTIVE_CLINIC
@@ -34,10 +36,12 @@ services:
         sync: false
       - key: WHATSAPP_APP_SECRET
         sync: false
+      - key: WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
       - key: WHATSAPP_WEBHOOK_VERIFY_TOKEN
         sync: false
       - key: ENFORCE_WHATSAPP_SIGNATURE
-        sync: false
+        value: "true" # solo Meta (firma con WHATSAPP_APP_SECRET) puede enviar al webhook
       - key: WHATSAPP_API_VERSION
         sync: false
       - key: SUPABASE_URL
@@ -48,6 +52,12 @@ services:
         sync: false
       - key: PANEL_PASSWORD
         sync: false
+      - key: PANEL_OWNER_USER
+        sync: false
+      - key: PANEL_OWNER_PASSWORD
+        sync: false
+      - key: PANEL_SESSION_SECRET
+        generateValue: true # Render genera un valor aleatorio: firma las sesiones del panel
       - key: APPOINTMENT_MIN_LEAD_MINUTES
         sync: false
       - key: CRON_SECRET

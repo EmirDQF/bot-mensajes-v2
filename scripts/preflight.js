@@ -1,9 +1,10 @@
 // npm run preflight — revisa que todo esté listo para producción y dice cómo arreglar lo que falte.
-// Variables, Supabase (tablas y columnas de TODAS las migraciones), token de WhatsApp, clave de Gemini
-// y clínica activa. Nunca imprime secretos. No modifica nada (ni .env ni la base de datos).
+// Variables, Supabase (tablas y columnas de TODAS las migraciones), token de WhatsApp (tipo y vigencia),
+// WABA (número, app suscrita y plantillas), clave de Gemini y clínica activa. Nunca imprime secretos. No modifica nada (ni .env ni la base de datos).
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { TOKEN_STEPS } from '../services/systemAlerts.js';
 
 const ROOT = process.cwd();
 
@@ -22,6 +23,14 @@ export const REQUIRED_ENV = [
   ['CLINIC_PHONE', 'Número de WhatsApp del bot, solo dígitos con código de país (Perú: 51XXXXXXXXX; número de prueba de Meta: 1555XXXXXXX).'],
   ['RECEPTION_ALERT_PHONE', 'WhatsApp de recepción: recibe citas nuevas, urgencias y pases a humano.'],
   ['OWNER_ALERT_PHONE', 'WhatsApp del dueño: recibe el resumen diario y el reporte semanal.'],
+];
+
+// Si faltan, el bot funciona pero queda una parte del go-live a mano (⚠️, no ❌).
+export const RECOMMENDED_ENV = [
+  ['WHATSAPP_BUSINESS_ACCOUNT_ID', 'Meta for Developers → tu app → WhatsApp → Configuración de la API → "Identificador de la cuenta de WhatsApp Business". Lo usan meta:check, meta:subscribe y meta:templates.'],
+  ['PANEL_OWNER_USER', 'Usuario del dueño en el panel (⚙️ Configuración y 🧪 Probador). Distinto de PANEL_USER.'],
+  ['PANEL_OWNER_PASSWORD', 'Contraseña del dueño (mínimo 12 caracteres, distinta de PANEL_PASSWORD).'],
+  ['CRONJOB_API_KEY', 'Opcional: cron-job.org → Settings → API → Create API key. Con ella npm run crons:setup crea las 6 tareas solo.'],
 ];
 
 const PHONE_VARS = ['CLINIC_PHONE', 'RECEPTION_ALERT_PHONE', 'OWNER_ALERT_PHONE'];
@@ -48,6 +57,9 @@ export function checkEnv(env) {
       continue;
     }
     results.push(pass(`${name} definida`));
+  }
+  for (const [name, fix] of RECOMMENDED_ENV) {
+    if (!String(env[name] || '').trim()) results.push(warn(`${name} no está definida`, fix));
   }
   if (/\/rest\/v1\/?$/i.test(String(env.SUPABASE_URL || '').trim())) {
     results.push(warn('SUPABASE_URL termina en /rest/v1', 'Funciona (el bot lo corrige), pero déjala como https://xxxx.supabase.co.'));
@@ -199,7 +211,7 @@ export async function checkWhatsApp(env, fetchImpl) {
       return results;
     }
     const code = body.error?.code;
-    if (code === 190) return [fail('WhatsApp: el token venció o no es válido', 'Genera un token PERMANENTE de usuario del sistema en Meta Business y cámbialo en Render.')];
+    if (code === 190) return [fail('TOKEN DE WHATSAPP VENCIDO: el token venció o no es válido', TOKEN_STEPS)];
     if (code === 100) return [fail('WhatsApp: WHATSAPP_PHONE_NUMBER_ID no existe para este token', 'Copia el "Identificador del número de teléfono" (no el número) desde Meta for Developers → WhatsApp → Configuración de la API.')];
     return [fail(`WhatsApp respondió ${res.status}`, body.error?.message ? `Meta dice: ${body.error.message}` : 'Revisa el token y el phone number id.')];
   } catch (error) {
@@ -279,6 +291,11 @@ async function main() {
   const supabaseResults = await checkSupabase(client, parseMigrationSchema(migrations));
   sections.push([`Supabase (tablas y columnas de ${migrations.length} migraciones)`, supabaseResults]);
   sections.push(['WhatsApp Cloud API', await checkWhatsApp(env, fetch)]);
+  const meta = await import('./lib/meta.js');
+  const { TEMPLATES } = await import('../config/whatsappTemplates.js');
+  const token = await meta.checkTokenType(env);
+  sections.push(['Meta: tipo de token (debug_token)', token]);
+  if (!meta.isExpiredResult(token)) sections.push(['Meta: WABA (número, app suscrita y plantillas)', await meta.checkWaba(env, TEMPLATES)]);
   sections.push(['Gemini', await checkGemini(env, fetch)]);
 
   for (const [title, results] of sections) printSection(title, results);
@@ -288,12 +305,12 @@ async function main() {
   const count = (status) => all.filter((r) => r.status === status).length;
   console.log(`\nResumen: ${count('ok')} ✅ · ${count('warn')} ⚠️  · ${count('fail')} ❌`);
   console.log(count('fail') ? 'Corrige los ❌ y vuelve a correr npm run preflight.' : 'Listo para producción 🚀');
-  process.exit(count('fail') ? 1 : 0);
+  process.exitCode = count('fail') ? 1 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().catch((error) => {
     console.error('Preflight falló:', error?.message || error);
-    process.exit(1);
+    process.exitCode = 1;
   });
 }

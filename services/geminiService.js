@@ -442,24 +442,47 @@ Cliente: ${currentMessageText}`;
   return { structured: false, prompt };
 }
 
-async function callGemini(client, request, options) {
+// Gemini saturado (503/UNAVAILABLE/overloaded), error interno o sin respuesta a tiempo: vale un reintento corto.
+// Una clave inválida o la cuota agotada (4xx) no mejoran reintentando: se pasa directo al respaldo.
+export function isRetriableGeminiError(error) {
+  const text = `${error?.status || ''} ${error?.code || ''} ${error?.message || error || ''}`;
+  if (/\b4\d{2}\b|API_KEY|PERMISSION_DENIED|RESOURCE_EXHAUSTED|quota/i.test(text) && !/\b5\d{2}\b/.test(text)) return false;
+  return /timeout|timed out|network|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UNAVAILABLE|overloaded|INTERNAL|\b5\d{2}\b/i.test(text);
+}
+
+const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 12000);
+const GEMINI_BACKOFF_MS = [600, 1500];
+
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(`Gemini timeout: sin respuesta en ${ms} ms`), { code: 'ETIMEDOUT' })), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Reintento corto con backoff (600 ms, 1,5 s) y un tope de tiempo por intento. Si igual falla, lanza:
+// el webhook responde con su respaldo (horarios o aviso) y alerta a recepción. Nunca deja al paciente sin respuesta.
+export async function callGemini(client, request, options = {}) {
   const attempts = Math.max(1, Number(options.maxRetries ?? 1) + 1);
+  const timeoutMs = Number(options.timeoutMs || GEMINI_TIMEOUT_MS);
+  const backoff = options.backoffMs || GEMINI_BACKOFF_MS;
+  const model = config.gemini.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      if (request.structured)       return await client.generateContent(request.request, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' });
+      if (request.structured) return await withTimeout(client.generateContent(request.request, { model }), timeoutMs);
       if (typeof client?.generate === 'function') {
-        return await client.generate(request.prompt, { model: config.gemini.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS });
+        return await withTimeout(client.generate(request.prompt, { model, maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS }), timeoutMs);
       }
       throw new Error('Gemini client does not support generate or generateContent');
     } catch (error) {
       lastError = error;
-      console.error('[Gemini Error Detallado]:', error);
-      if (attempt + 1 < attempts && /timeout|network|ECONNRESET|ECONNREFUSED|5\d{2}/i.test(String(error?.message || error))) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      } else {
-        break;
-      }
+      const retriable = isRetriableGeminiError(error);
+      console.error(`[Gemini] Intento ${attempt + 1}/${attempts} falló${retriable ? ' (se reintenta)' : ''}:`, error?.message || error);
+      if (attempt + 1 >= attempts || !retriable) break;
+      await new Promise((resolve) => setTimeout(resolve, backoff[Math.min(attempt, backoff.length - 1)]));
     }
   }
   throw lastError;

@@ -10,7 +10,14 @@
     "simulate": "node --experimental-test-module-mocks --no-warnings=ExperimentalWarning scripts/simulate-conversations.js",
     "preflight": "node scripts/preflight.js",
     "new-clinic": "node scripts/new-clinic.js",
-    "demo": "node scripts/demo.js"
+    "demo": "node scripts/demo.js",
+    "meta:check": "node scripts/meta.js check",
+    "meta:subscribe": "node scripts/meta.js subscribe",
+    "meta:templates": "node scripts/meta.js templates",
+    "db:print": "node scripts/db.js print",
+    "db:migrate": "node scripts/db.js migrate",
+    "crons:setup": "node scripts/crons-setup.js",
+    "smoke:prod": "node scripts/smoke-prod.js"
   },
   "keywords": [],
   "author": "",
@@ -23,5 +30,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "pg": "^8.23.0"
   }
 }

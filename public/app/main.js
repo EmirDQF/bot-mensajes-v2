@@ -139,10 +139,29 @@ function onLiveEvent(type, data) {
   if (type === 'tester') return;
   handleLiveEvent(type, data);
   if (type === 'settings') refreshClinic();
+  if (type === 'alert') {
+    if (data.resolved) systemAlerts.delete(data.code); else systemAlerts.set(data.code, data);
+    renderSystemAlerts();
+  }
   if (type === 'handoff' && data.reason === 'urgencia') alertUser('🚨 Urgencia', `${data.contactName || data.phone}: ${data.message || 'requiere atención inmediata'}`, true);
   else if (type === 'handoff') alertUser('🙋 Pide hablar con una persona', data.contactName || data.phone);
   else if (type === 'appointment' && data.event === 'nueva') alertUser('📅 Nueva solicitud de cita', `${data.appointment?.patient_name || data.phone} · ${data.appointment?.treatment || 'evaluación'}`);
   if (type === 'appointment' && document.body.dataset.view === 'agenda') loadAgenda();
+}
+
+// Banner de alertas del sistema (p. ej. token de WhatsApp vencido): visible hasta que se resuelva.
+const systemAlerts = new Map();
+function renderSystemAlerts() {
+  const box = $('#systemAlert');
+  const list = [...systemAlerts.values()];
+  box.hidden = !list.length;
+  clear(box, list.map((a) => h('div', { class: 'system-alert__item' }, h('strong', {}, `⚠️ ${a.title}`), h('p', {}, a.detail))));
+}
+
+function setSystemAlerts(list = []) {
+  systemAlerts.clear();
+  for (const alert of list) systemAlerts.set(alert.code, alert);
+  renderSystemAlerts();
 }
 
 function setLiveStatus(status) {
@@ -174,6 +193,7 @@ async function start() {
   $('#app').hidden = false;
   $('#sessionRole').textContent = session.role === 'owner' ? 'Dueño' : 'Recepción';
   applyBranding(session.clinic);
+  setSystemAlerts(session.alerts);
   buildTabs();
   if (!started) {
     started = true;

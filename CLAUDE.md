@@ -25,6 +25,13 @@ npm run preflight              # revisa variables, tablas/columnas de Supabase, 
 npm run simulate               # conversaciones reales contra Gemini con WhatsApp/Supabase falsos → docs/qa-report.md
 npm run demo                   # panel con pacientes INVENTADOS (Supabase en memoria, WhatsApp simulado) en /panel
 npm run new-clinic -- <id> "<Nombre>"  # genera config/clinics/<id>.js con TODO y media/<id>/
+# Go-live (docs/go-live.md). Todos --dry-run por defecto; --apply para ejecutar. Nunca imprimen secretos.
+npm run meta:check             # token (permanente/temporal), número, WABA, app suscrita y plantillas
+npm run meta:subscribe         # suscribe la app al WABA
+npm run meta:templates         # envía a aprobación las plantillas de config/whatsappTemplates.js
+npm run db:print               # "PEGA N° X" del SQL que Supabase no tiene (db:migrate lo aplica con SUPABASE_DB_URL)
+npm run crons:setup            # crea/actualiza las 6 tareas de cron-job.org (CRONJOB_API_KEY)
+npm run smoke:prod -- <URL>    # prueba de extremo a extremo contra producción
 node --check <archivo.js>      # verificación rápida de sintaxis
 pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-ClinicName para otra clínica)
 ```
@@ -53,7 +60,9 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | Etiquetas de fotos `[ENVIAR_FOTO: x]` | `services/mediaTags.js` |
 | Esquema de base de datos | `migrations/*.sql` (en orden de fecha; todos idempotentes) |
 | Scripts | `scripts/preflight.js`, `scripts/simulate-conversations.js`, `scripts/new-clinic.js` |
-| Docs | `docs/deploy.md`, `docs/onboarding-cliente.md`, `docs/whatsapp-templates.md`, `docs/qa-report.md`, `docs/ventas/` |
+| Go-live por API (Meta, Supabase, cron-job.org, smoke) | `scripts/meta.js`, `scripts/db.js`, `scripts/crons-setup.js`, `scripts/smoke-prod.js`, `scripts/lib/` |
+| Alertas del sistema (token de WhatsApp vencido → log + banner) | `services/systemAlerts.js` |
+| Docs | `docs/go-live.md`, `docs/deploy.md`, `docs/onboarding-cliente.md`, `docs/whatsapp-templates.md`, `docs/qa-report.md`, `docs/ventas/` |
 
 Flujo de un mensaje: webhook (200 a Meta y dedup por `message.id`) → primer contacto: bienvenida + privacidad (+ aviso
 nocturno) y, si trae una pregunta, se responde sin pedir que la repita → debounce 2 s → ¿bot en pausa? → ¿urgencia /
