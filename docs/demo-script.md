@@ -42,7 +42,12 @@ npm run demo
 | 50–60 | — | Recepción pulsa **Intervenir** y escribe "Hola Ana, soy Rosa de recepción 😊" → el bot queda en pausa (**👤**) | "Si recepción quiere tomar la conversación, un clic: el bot se pausa y responde una persona." |
 | 60–75 | Tras **Devolver al bot**: "¿cuánto cuesta el blanqueamiento?" → responde con el **precio nuevo** | **⚙️ Configuración** → 🦷 Tratamientos → cambia el precio "desde" del blanqueamiento (o 🎁 una promoción) → **Guardar** | "El dueño cambia un precio o una promoción desde el panel, sin programar, y la asistente lo usa en el siguiente mensaje." |
 | 75–85 | — | Pestaña **Reporte**: conversaciones fuera de horario, solicitudes, confirmadas y **garantía ✅** | "Cada semana, un reporte con lo que midió el sistema: lo que llegó de noche y las citas confirmadas." |
-| 85–90 | Pantalla final con la oferta | — | "**S/ 800: S/ 400 al conectar y S/ 400 solo si en 7 días el reporte muestra 2 citas de evaluación confirmadas.**" |
+| 85–90 | Pantalla final con la oferta | — | "**S/ 400 al conectar y S/ 400 más solo si en 7 días el reporte muestra 2 citas de evaluación confirmadas, con tu pauta de Meta activa. Si no, te devuelvo los S/ 400.**" |
+
+**Oferta y garantía (igual que `docs/ventas/propuesta.md`):** S/ 400 al conectar + S/ 400 si en los 7 días siguientes
+el reporte del sistema muestra al menos 2 citas de evaluación confirmadas por recepción (o asistidas). Si no, se
+devuelven los S/ 400 pagados al conectar. Condición: la clínica mantiene su **pauta activa en Meta durante los 7 días** y
+recepción marca las solicitudes en el panel.
 
 > La garantía ✅ del Reporte en (B) sale de los pacientes inventados de la demo. En (A) aparece recién cuando haya
 > citas confirmadas reales: para el video de (A) muestra el Reporte de la demo (B) y dilo así ("así se ve el reporte").
