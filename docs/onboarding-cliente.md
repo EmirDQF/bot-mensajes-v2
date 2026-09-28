@@ -30,11 +30,11 @@ Mándalo por WhatsApp o correo apenas cierres. Sin estos datos no se instala.
 |---|---|---|
 | 1 | 10 min | `npm run new-clinic -- <id> "<Nombre>"` (ej. `sonrisa-surco "Clínica Dental Sonrisa"`). Completa cada `TODO` de `config/clinics/<id>.js` con los datos del punto 1. El bot **no arranca** mientras quede algún TODO y el error dice cuáles faltan. |
 | 2 | 5 min | Imágenes en `media/<id>/` con los nombres de `media: {...}`. Sin fotos propias: `pwsh scripts/generate-demo-media.ps1 -ClinicId <id> -ClinicName "<Nombre>" -ShortName "<MARCA>" -AddressLine "<dirección corta>" -AddressNote "" -Footnote "Imagen referencial"`. |
-| 3 | 10 min | **Supabase**: un proyecto por clínica (sus datos no se mezclan con los de otra). Ejecuta las migraciones en orden (`docs/deploy.md`, paso 2). |
+| 3 | 10 min | **Supabase**: un proyecto por clínica (sus datos no se mezclan con los de otra). `npm run db:print` y pega cada "PEGA N° X" en el SQL Editor (o `npm run db:migrate -- --apply`). |
 | 4 | 10 min | **Render**: Blueprint con `ACTIVE_CLINIC=<id>` y los 3 teléfonos (`docs/deploy.md`, paso 1). |
-| 5 | 10 min | **Meta**: token permanente, webhook a `TU-URL/webhook`, suscripción a `messages` y envío de las plantillas (`docs/deploy.md`, paso 3). |
-| 6 | 5 min | **cron-job.org**: las 6 tareas (`docs/deploy.md`, paso 4). |
-| 7 | 5 min | `npm run preflight` con las mismas variables → todo en ✅. |
+| 5 | 10 min | **Meta**: token permanente (`npm run meta:check` → PERMANENTE), webhook a `TU-URL/webhook` + campo `messages` (a mano, una vez), `npm run meta:subscribe -- --apply` y `npm run meta:templates -- --apply` (`docs/go-live.md`, pasos 5-7). |
+| 6 | 2 min | **cron-job.org**: `npm run crons:setup -- --apply` (o la tabla a mano, `docs/deploy.md`, paso 4). |
+| 7 | 5 min | `npm run preflight` y `npm run smoke:prod -- TU-URL --apply` → todo en ✅. |
 
 ## 3. Prueba en vivo con el dueño (15–20 min, el día de la conexión)
 

@@ -133,7 +133,7 @@ export function readMigrations(dir = path.join(ROOT, 'migrations')) {
 }
 
 // Tablas que el producto ya no usa (se conservan en Supabase, sin borrar datos): clinics guardaba la
-// integración con Chatwoot, reemplazada por la bandeja propia del panel.
+// integración de mensajería externa, reemplazada por la bandeja propia del panel.
 export const LEGACY_TABLES = new Set(['clinics']);
 
 const TABLE_MISSING = new Set(['42P01', 'PGRST205', 'PGRST106']);

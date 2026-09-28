@@ -56,7 +56,7 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | Recomendación de evaluación sin diagnosticar, lead score, notas para el bot | `services/recommendationService.js` (ficha: `PUT /api/panel/conversations/:phone/profile`) |
 | Recordatorios, resumen diario, seguimiento | `services/jobsService.js` + `routes/jobs.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
-| Panel de recepción | `public/panel.html`, `public/panel.js`, `controllers/panelController.js`, `services/panelDataService.js` |
+| Panel de recepción | `public/panel.html`, `public/app/*.js` (main, inbox, live, views, config, tester), `controllers/panelController.js`, `services/panelDataService.js` |
 | Etiquetas de fotos `[ENVIAR_FOTO: x]` | `services/mediaTags.js` |
 | Esquema de base de datos | `migrations/*.sql` (en orden de fecha; todos idempotentes) |
 | Scripts | `scripts/preflight.js`, `scripts/simulate-conversations.js`, `scripts/new-clinic.js` |
@@ -67,7 +67,7 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 Flujo de un mensaje: webhook (200 a Meta y dedup por `message.id`) → primer contacto: bienvenida + privacidad (+ aviso
 nocturno) y, si trae una pregunta, se responde sin pedir que la repita → debounce 2 s → ¿bot en pausa? → ¿urgencia /
 pide humano? → ¿cancelar, reprogramar o responder un recordatorio? → ¿pide cita, o de noche pregunta precio o
-tratamiento? (3 horarios, desde el día que pida) → Gemini (si falla: horarios o aviso + alerta a recepción) → Fase B
+tratamiento? (3 horarios, desde el día que pida) → Gemini (timeout 12 s y 1 reintento; si falla: horarios o aviso + alerta a recepción) → Fase B
 guarda la solicitud (rechaza horarios fuera de atención) y avisa a recepción → fotos en secuencia cada 300 ms.
 
 ## Reglas (no negociables)

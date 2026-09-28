@@ -58,8 +58,8 @@ tiempos); aquí está el detalle de cada servicio. Casi todo se hace con scripts
    - **Alternativa sin copiar y pegar:** pon en tu `.env` (nunca en Render) `SUPABASE_DB_URL` = Supabase → **Connect** →
      Connection string → **URI** (modo *Session pooler*) y corre `npm run db:migrate` (muestra el plan) y luego
      `npm run db:migrate -- --apply` (las aplica y las anota en la tabla `schema_migrations`).
-   - Todas las migraciones se pueden ejecutar más de una vez sin romper nada. `20260803_add_chatwoot_fields_to_clinics.sql`
-     es histórica (el producto ya no usa Chatwoot): no hace daño.
+   - Todas las migraciones se pueden ejecutar más de una vez sin romper nada. La del 03/08 es histórica (columnas de
+     una integración de mensajería que el producto ya no usa): no hace daño.
 3. **Project Settings → API**:
    - **Project URL** → es `SUPABASE_URL`. Debe verse así: `https://xxxx.supabase.co` (**sin** `/rest/v1` al final).
    - **service_role** (en "Project API keys", botón *Reveal*) → es `SUPABASE_SERVICE_ROLE_KEY`. Es secreta: solo va en Render.
