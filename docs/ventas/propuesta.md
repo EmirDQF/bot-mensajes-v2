@@ -31,7 +31,8 @@ número las 24 horas:
 | **Total** | **S/ 800** |
 
 **Garantía:** si en los 7 días siguientes a la conexión el reporte del sistema no muestra al menos 2 citas de
-evaluación confirmadas por recepción (o asistidas), se devuelven los S/ 400 pagados al conectar.
+evaluación confirmadas por recepción (o asistidas), se devuelven los S/ 400 pagados al conectar. Condición: la clínica
+mantiene su **pauta activa en Meta durante los 7 días** y recepción marca las solicitudes en el panel.
 
 **Mantenimiento mensual (opcional):** [S/ ___] al mes. Incluye hosting, costo de la IA, monitoreo, cambios de precios,
 horarios y campañas, y soporte por WhatsApp en horario de oficina. Sin mantenimiento, las cuentas de servicios

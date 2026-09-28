@@ -53,6 +53,13 @@ describe('configuración: base + cambios', () => {
     assert.ok(Object.isFrozen(BASE_CLINIC));
   });
 
+  it('the clinic name is editable (personalized demo per prospect) but never empty', () => {
+    assert.deepEqual(applyClinicOverrides({ name: 'Clínica Sonrisa Prueba' }), []);
+    assert.equal(clinic.name, 'Clínica Sonrisa Prueba');
+    assert.ok(applyClinicOverrides({ name: '  ' }).some((e) => /name/.test(e)));
+    assert.equal(clinic.name, 'Clínica Sonrisa Prueba', 'un cambio inválido no se aplica');
+  });
+
   it('uses the same validator: invalid changes are rejected and nothing is applied', async () => {
     const { settings, db } = setup();
     await assert.rejects(settings.save({ tone: 'grosero', mapsUrl: 'no-es-un-enlace' }, 'dueno'), (error) => {

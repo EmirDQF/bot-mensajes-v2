@@ -156,7 +156,7 @@ export default clinic;
 
 // Lo que el dueño puede cambiar. id, nombre de la clínica, zona horaria, aviso legal y teléfonos no.
 export const EDITABLE_FIELDS = [
-  'botName', 'tone', 'emojiLevel', 'workingHours', 'workingHoursText', 'holidays', 'treatments', 'promotions',
+  'name', 'botName', 'tone', 'emojiLevel', 'workingHours', 'workingHoursText', 'holidays', 'treatments', 'promotions',
   'campaign', 'paymentMethods', 'financingText', 'address', 'mapsUrl', 'reviewUrl', 'faq', 'welcomeCaption',
   'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media',
 ];

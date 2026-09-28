@@ -109,6 +109,7 @@ function photoPicker(key, media, onChange) {
 
 // ---------- Secciones ----------
 function assistantSection(c) {
+  const clinicName = text(c.name, { maxlength: 80 });
   const botName = text(c.botName, { maxlength: 40 });
   const tone = select(c.tone || 'cercano', [['cercano', 'Cercano (tutea)'], ['formal', 'Formal (usted)'], ['juvenil', 'Juvenil']]);
   const emojis = select(c.emojiLevel || 'pocos', [['pocos', 'Pocos (máx. 2)'], ['ninguno', 'Ninguno'], ['normal', 'Normal (máx. 4)']]);
@@ -120,17 +121,18 @@ function assistantSection(c) {
   night.addEventListener('input', updatePreview);
   updatePreview();
   return section({
-    id: 'assistant', title: '🤖 Asistente: nombre, tono y bienvenida', open: true,
-    fields: ['botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice'],
+    id: 'assistant', title: '🤖 Clínica y asistente: nombres, tono y bienvenida', open: true,
+    fields: ['name', 'botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice'],
     tryMessage: 'hola',
     body: [
-      h('div', { class: 'grid-2' }, field('Nombre de la asistente', botName), field('Tono', tone), field('Emojis', emojis)),
+      h('div', { class: 'grid-2' }, field('Nombre de la clínica', clinicName), field('Nombre de la asistente', botName)),
+      h('div', { class: 'grid-2' }, field('Tono', tone), field('Emojis', emojis)),
       field('Mensaje de bienvenida (primer contacto)', welcome, 'Va con el logo y el aviso de privacidad.'),
       field('Aviso nocturno (clínica cerrada)', night, 'Vacío = texto por defecto.'),
       h('p', { class: 'field' }, h('span', {}, 'Vista previa')), preview,
     ],
     collect: () => ({
-      botName: botName.value.trim(), tone: tone.value, emojiLevel: emojis.value,
+      name: clinicName.value.trim(), botName: botName.value.trim(), tone: tone.value, emojiLevel: emojis.value,
       welcomeCaption: welcome.value.trim(), ...(night.value.trim() ? { afterHoursNotice: night.value.trim() } : {}),
     }),
   });
