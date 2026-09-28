@@ -117,6 +117,7 @@ function validateEditable(c) {
       if (!textList(rule?.triggers, 80) || !rule.triggers.length) errors.push(`recommendationRules[${i}] necesita palabras que la activen`);
       if (!isText(rule?.evaluation, 120)) errors.push(`recommendationRules[${i}] necesita la evaluación que se recomienda`);
       if (rule?.treatmentKey && !keys.has(rule.treatmentKey)) errors.push(`recommendationRules[${i}].treatmentKey "${rule.treatmentKey}" no es un tratamiento`);
+      if (rule?.priority !== undefined && !(Number.isInteger(rule.priority) && rule.priority >= 0 && rule.priority <= 10)) errors.push(`recommendationRules[${i}].priority debe ser un entero de 0 a 10`);
     });
   }
   return errors;

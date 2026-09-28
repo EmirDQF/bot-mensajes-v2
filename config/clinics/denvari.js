@@ -132,6 +132,7 @@ Cuéntame:
   // Venta consultiva sin diagnosticar: si el paciente cuenta algo así, se recomienda una EVALUACIÓN
   // ("por lo que me cuentas, lo indicado es una evaluación de X; el doctor confirma el mejor tratamiento").
   // Dolor fuerte, hinchazón, fiebre o golpe siempre pasan antes a urgencia. Editables en el panel.
+  // priority (opcional, 0-10): si coinciden varias reglas, gana la mayor.
   recommendationRules: [
     {
       id: 'ortodoncia',
@@ -170,6 +171,7 @@ Cuéntame:
       triggers: ['mi hijo', 'mi hija', 'mi niño', 'mi niña', 'mi bebe', 'para un niño', 'para una niña', 'niños'],
       evaluation: 'odontopediatría',
       treatmentKey: 'odontopediatria',
+      priority: 1, // si habla de su hijo, manda odontopediatría aunque mencione "chuecos
       question: '¿Qué edad tiene?',
     },
   ],

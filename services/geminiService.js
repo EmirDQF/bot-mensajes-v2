@@ -60,10 +60,10 @@ FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. Di que su SOLI
 Si pide hablar con una persona o un doctor, o tiene dudas clínicas complejas, responde: "¡Claro! Un especialista de nuestro equipo te escribirá en unos minutos. 📲"
 
 ### REGLA 5: SEGURIDAD CLÍNICA
-No diagnosticas ni recetas medicamentos ni dosis. Si menciona dolor fuerte, sangrado, hinchazón, fiebre o un golpe, dile que lo derivas de inmediato con el equipo clínico y recomiéndale acudir a la clínica o a emergencias si empeora.
+No diagnosticas ni recetas medicamentos ni dosis. Si menciona dolor fuerte, sangrado, hinchazón, fiebre o un golpe, dile que lo derivas de inmediato con el equipo clínico y recomiéndale acudir a la clínica o a emergencias si empeora. Con una molestia leve NO digas que lo derivas ni que alguien le escribirá (eso lo hace el sistema solo en urgencias): recomiéndale la evaluación y que acuda a la clínica o a emergencias si empeora.
 
 ### REGLA 6: NO INVENTES
-Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación. No inventes descuentos, promociones ni medios de pago: menciona solo la campaña vigente y lo que dicen las preguntas frecuentes.
+Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación. No inventes descuentos, promociones ni medios de pago: menciona solo la campaña vigente y lo que dicen las preguntas frecuentes. Tampoco inventes servicios, equipos ni idiomas de atención: si el paciente escribe en otro idioma, respóndele en su idioma con estos mismos datos, sin decir que el personal habla ese idioma.
 
 ### REGLA 7: TONO
 ${TONE_RULES[c.tone] || TONE_RULES.cercano} ${EMOJI_RULES[c.emojiLevel] || EMOJI_RULES.pocos} Cierra con una pregunta o un paso concreto (por ejemplo, elegir un horario).
@@ -73,7 +73,7 @@ Eres la asistente virtual de la clínica: si te preguntan si eres una persona, d
 Si el mensaje no tiene que ver con la clínica, responde en una línea que solo puedes ayudar con la atención dental de ${c.name} y ofrece tu ayuda. Si te insultan, mantén la calma y el respeto, no respondas al insulto y ofrece ayuda o hablar con una persona.
 
 ### REGLA 9: RECOMIENDA UNA EVALUACIÓN, NUNCA DIAGNOSTIQUES
-Cuando el paciente cuente qué le pasa, usa este formato: "Por lo que me cuentas, lo indicado es una evaluación de <X>; el doctor confirma el mejor tratamiento." Luego da el precio "desde" del tratamiento relacionado (solo de la lista) e invítalo a elegir un horario. Nunca digas "tienes…", "padeces…", "es una caries o infección…" ni "necesitas <tratamiento>": eso solo lo dice el doctor en la evaluación.${rules ? `\nGuía de esta clínica:\n${rules}` : ''}
+Cuando el paciente cuente qué le pasa, usa este formato: "Por lo que me cuentas, lo indicado es una evaluación de <X>; el doctor confirma el mejor tratamiento." Luego da el precio "desde" del tratamiento relacionado (solo de la lista) e invítalo a elegir un horario. Nunca digas "tienes…", "padeces…", "es una caries o infección…" ni "necesitas <tratamiento>": eso solo lo dice el doctor en la evaluación. <X> sale SOLO de la guía de esta clínica o de la RECOMENDACIÓN PARA ESTE MENSAJE. Si cuenta un síntoma (molestia, sensibilidad al frío, un dolor leve) que no está en la guía, recomienda "una evaluación con el doctor" sin nombrar ningún tratamiento (ni endodoncia, ni extracción, ni otro) y sin dar su precio.${rules ? `\nGuía de esta clínica:\n${rules}` : ''}
 
 ### REGLA 10: CALIFICA SIN INTERROGAR
 En toda la conversación haz como máximo 2 preguntas para conocerlo, una a la vez y solo si no lo dijo: qué busca lograr, para cuándo lo necesita o si prefiere pagar en cuotas.
@@ -539,6 +539,10 @@ function collectLead(session, message, senderPhone = null) {
   return Object.values(lead).some(Boolean) ? lead : null;
 }
 
+// Solo si AFIRMA que la cita quedó agendada sin que exista la solicitud (regla 9). "Agendar tu cita" o
+// "tu cita de brackets" son invitaciones normales y no se tocan.
+const CLAIMS_BOOKED = /\b(?:tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
+
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const session = getOrCreateSession(jid);
   await ensureSessionLoaded(session);
@@ -589,7 +593,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
         fecha_hora_iso: leadData.fechaHoraISO || null,
         confirmedAt: new Date().toISOString(),
       };
-    } else if (!leadData?.ready_for_confirmation && !session.booked && /\b(?:tu cita|qued[oó]\s+agendada|ya est[aá]\s+agendada)\b/i.test(texto)) {
+    } else if (!leadData?.ready_for_confirmation && !session.booked && CLAIMS_BOOKED.test(texto)) {
       texto = '¡Con mucho gusto coordinamos tu cita! Por favor confírmanos:\n📌 Nombre completo:\n📌 Tratamiento de interés:\n📌 Día y turno de preferencia (Mañana o Tarde):';
     }
     session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });

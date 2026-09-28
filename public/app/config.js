@@ -350,6 +350,7 @@ function rulesSection(c) {
       recommendationRules: items.filter((r) => r.triggers.length && r.evaluation?.trim()).map((r) => ({
         id: r.id || slug(r.evaluation), triggers: r.triggers, evaluation: r.evaluation.trim(),
         ...(r.treatmentKey ? { treatmentKey: r.treatmentKey } : {}), ...(r.question?.trim() ? { question: r.question.trim() } : {}),
+        ...(r.priority ? { priority: r.priority } : {}),
       })),
     }),
   });

@@ -30,6 +30,13 @@ describe('recomendaciones: evaluación sin diagnosticar', () => {
     assert.equal(matchRecommendation(''), null);
   });
 
+  it('a higher priority rule wins when several match (a child with crooked teeth → pediatric dentistry)', () => {
+    assert.equal(matchRecommendation('quiero llevar a mi hijo de 8 años, tiene los dientes chuecos').rule.id, 'ninos');
+    const rules = [{ id: 'a', triggers: ['x'], evaluation: 'A' }, { id: 'b', triggers: ['y'], evaluation: 'B', priority: 2 }];
+    assert.equal(matchRecommendation('x y', { recommendationRules: rules, treatments: [] }).rule.id, 'b');
+    assert.equal(matchRecommendation('x y', { recommendationRules: [rules[0], { ...rules[1], priority: 0 }], treatments: [] }).rule.id, 'a', 'a igualdad, la primera');
+  });
+
   it('matches whole words only', () => {
     // "fiesta" no debe activarse con "manifiesta" ni "evento" con "eventualmente".
     assert.equal(matchRecommendation('se manifiesta eventualmente'), null);
