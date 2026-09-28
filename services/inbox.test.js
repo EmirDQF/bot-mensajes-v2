@@ -79,6 +79,36 @@ describe('bandeja: mensajes y estados de Meta', () => {
     assert.equal(db.data.conversations[0].unread_count, 0);
   });
 
+  it('always saves a timestamp (legacy NOT NULL column) and still saves when the table has no such column', async () => {
+    const { db, inbox } = setup();
+    await inbox.recordMessage({ phone: PHONE, sender: 'patient', text: 'hola', wamid: 'wamid.ts' });
+    assert.equal(db.data.messages.find((m) => m.whatsapp_message_id === 'wamid.ts').timestamp, NOW.toISOString());
+
+    const inserted = [];
+    const noTimestampColumn = {
+      from(table) {
+        const inner = db.from(table);
+        if (table !== 'messages') return inner;
+        return {
+          insert(rows) {
+            inserted.push(rows[0]);
+            if ('timestamp' in rows[0]) {
+              const failed = { select: () => failed, maybeSingle: async () => ({ data: null, error: { code: 'PGRST204', message: "Could not find the 'timestamp' column of 'messages' in the schema cache" } }) };
+              return failed;
+            }
+            return inner.insert(rows);
+          },
+        };
+      },
+    };
+    const legacy = createInboxService({ getClient: () => noTimestampColumn, events: createLiveEvents({ bootId: 't' }), now: () => NOW });
+    const message = await legacy.recordMessage({ phone: PHONE, sender: 'bot', text: 'respuesta', wamid: 'wamid.nots' });
+    assert.equal(message.sender, 'bot');
+    assert.equal(inserted.length, 2);
+    assert.equal(inserted[1].sender, 'bot', 'solo quita "timestamp", no las columnas de la bandeja en vivo');
+    assert.ok(db.data.messages.some((m) => m.whatsapp_message_id === 'wamid.nots'));
+  });
+
   it('never goes back in delivery status and saves the reason when Meta rejects a message', async () => {
     const { db, inbox, published } = setup();
     await inbox.recordMessage({ phone: PHONE, sender: 'bot', text: 'Te propongo 3 horarios', wamid: 'wamid.out' });

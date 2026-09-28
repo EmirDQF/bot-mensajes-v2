@@ -61,6 +61,7 @@ export function createInboxService({ getClient = getSupabase, events = defaultEv
   }
 
   const hasLiveColumnError = (error, columns) => columns.some((column) => isMissingColumn(error, column));
+  const mentionsColumn = (error, column) => isMissingColumn(error, column) && String(error?.message || '').includes(column);
   const without = (row, columns) => Object.fromEntries(Object.entries(row).filter(([key]) => !columns.includes(key)));
 
   async function upsertConversation(client, phone, { preview, at, sender, contactName, isTest }) {
@@ -101,13 +102,20 @@ export function createInboxService({ getClient = getSupabase, events = defaultEv
     const row = {
       phone: id, from_phone: id, role: ROLE_BY_SENDER[sender], content: text || null,
       whatsapp_message_id: wamid, created_at: ts,
+      // Tablas heredadas de un panel anterior exigen "timestamp" NOT NULL: siempre va con valor.
+      timestamp: ts,
       sender, msg_type: type, media_id: mediaId, media_url: mediaUrl,
       status: status || (sender === 'patient' ? null : wamid ? 'sent' : null),
       status_error: statusError, is_test: Boolean(isTest),
     };
-    let { data, error } = await client.from('messages').insert([row]).select().maybeSingle();
-    if (error && hasLiveColumnError(error, LIVE_COLUMNS)) {
-      ({ data, error } = await client.from('messages').insert([without(row, LIVE_COLUMNS)]).select().maybeSingle());
+    // Sin la columna heredada "timestamp" o sin la migración de la bandeja en vivo: se reintenta sin esas columnas.
+    let payload = row;
+    let { data, error } = await client.from('messages').insert([payload]).select().maybeSingle();
+    for (let retry = 0; error && retry < 2; retry += 1) {
+      if ('timestamp' in payload && mentionsColumn(error, 'timestamp')) payload = without(payload, ['timestamp']);
+      else if (LIVE_COLUMNS.some((column) => column in payload) && hasLiveColumnError(error, LIVE_COLUMNS)) payload = without(payload, LIVE_COLUMNS);
+      else break;
+      ({ data, error } = await client.from('messages').insert([payload]).select().maybeSingle());
     }
     if (error) throw error;
     const message = toClientMessage({ ...row, ...(data || {}) });
