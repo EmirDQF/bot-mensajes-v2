@@ -23,6 +23,7 @@ npm start                      # node index.js (puerto PORT, por defecto 3000)
 npm run test:unit              # todos los services/*.test.js (multiplataforma)
 npm run preflight              # revisa variables, tablas/columnas de Supabase, WhatsApp, Gemini y clínica (sin secretos)
 npm run simulate               # conversaciones reales contra Gemini con WhatsApp/Supabase falsos → docs/qa-report.md
+npm run demo                   # panel con pacientes INVENTADOS (Supabase en memoria, WhatsApp simulado) en /panel
 npm run new-clinic -- <id> "<Nombre>"  # genera config/clinics/<id>.js con TODO y media/<id>/
 node --check <archivo.js>      # verificación rápida de sintaxis
 pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-ClinicName para otra clínica)
@@ -43,6 +44,8 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | Primer contacto: tiempo de primera respuesta y `after_hours` | `services/conversationMetrics.js` |
 | Reloj único (lo fija el simulador) | `services/clock.js` |
 | Pase a humano / urgencias | `services/handoffService.js` |
+| Modo demo: Supabase en memoria, pacientes inventados, bloqueo en producción | `services/demo/` (`scripts/demo.js`) |
+| Probador del panel (flujo real, WhatsApp falso, hora simulada) | `controllers/testerController.js`, `public/app/tester.js`, `services/testContext.js` |
 | Recomendación de evaluación sin diagnosticar, lead score, notas para el bot | `services/recommendationService.js` (ficha: `PUT /api/panel/conversations/:phone/profile`) |
 | Recordatorios, resumen diario, seguimiento | `services/jobsService.js` + `routes/jobs.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |

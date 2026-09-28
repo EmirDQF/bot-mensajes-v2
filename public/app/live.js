@@ -3,7 +3,7 @@
 // el servidor repone lo perdido; si no puede ("resync") o si el stream falla varias veces seguidas,
 // el panel vuelve a pedir los datos a la API.
 
-const TYPES = ['message', 'status', 'typing', 'bot', 'handoff', 'appointment', 'conversation', 'settings'];
+const TYPES = ['message', 'status', 'typing', 'bot', 'handoff', 'appointment', 'conversation', 'settings', 'tester'];
 const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
 const POLL_MS = 5000;
 

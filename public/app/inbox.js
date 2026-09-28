@@ -10,6 +10,7 @@ const FILTERS = [
   ['all', 'Todos'], ['unread', 'Sin leer'], ['urgent', '🚨 Urgencias'], ['requests', '📅 Solicitudes'], ['paused', '👤 Bot en pausa'],
 ];
 const SCORE = { caliente: '🔥', tibio: '🌤️', frio: '❄️' };
+const SCORE_LABEL = { caliente: 'caliente', tibio: 'tibio', frio: 'frío' };
 const SENDER_LABEL = { patient: 'Paciente', bot: '🤖 Asistente', reception: '👤 Recepción' };
 const TICKS = { sent: '✓', delivered: '✓✓', read: '✓✓' };
 const TAG_LABEL = { en_tratamiento: 'En tratamiento', vip: 'VIP', precio_sensible: 'Sensible al precio', no_contactar: 'No contactar' };
@@ -77,7 +78,7 @@ function badges(c, { withAgent = true } = {}) {
     c.afterHours ? h('span', { class: 'badge badge--night', title: 'Escribió con la clínica cerrada' }, '🌙') : null,
     c.request ? h('span', { class: 'badge badge--request', title: `Solicitud de cita (${c.request.status})` }, '📅') : null,
     withAgent ? h('span', { class: `badge ${c.paused ? 'badge--human' : 'badge--bot'}`, title: c.paused ? 'Atiende recepción' : 'Atiende el asistente' }, c.paused ? '👤' : '🤖') : null,
-    c.leadScore ? h('span', { class: `badge badge--score badge--${c.leadScore}`, title: c.leadScoreReason || 'Lead score' }, `${SCORE[c.leadScore] || ''} ${c.leadScore}`) : null,
+    c.leadScore ? h('span', { class: `badge badge--score badge--${c.leadScore}`, title: c.leadScoreReason || 'Lead score' }, `${SCORE[c.leadScore] || ''} ${SCORE_LABEL[c.leadScore] || c.leadScore}`) : null,
   ];
 }
 
@@ -338,7 +339,7 @@ function renderProfile() {
     h('button', { type: 'submit', class: 'btn btn--primary btn--block' }, 'Guardar ficha'));
   clear($('#profile'),
     profileHead(),
-    p.leadScore ? h('p', { class: 'profile__hint' }, h('span', { class: `badge badge--score badge--${p.leadScore}` }, `${SCORE[p.leadScore] || ''} ${p.leadScore}`), ' ', p.leadScoreReason || '') : null,
+    p.leadScore ? h('p', { class: 'profile__hint' }, h('span', { class: `badge badge--score badge--${p.leadScore}` }, `${SCORE[p.leadScore] || ''} ${SCORE_LABEL[p.leadScore] || p.leadScore}`), ' ', p.leadScoreReason || '') : null,
     form);
 }
 

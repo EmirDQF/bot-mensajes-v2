@@ -1,5 +1,6 @@
 import config from '../config/env.js';
 import { testMode } from './testContext.js';
+import { isDemoMode } from './demo/demoFlag.js';
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.WHATSAPP_TIMEOUT_MS || 8000);
 const DEFAULT_MAX_RETRIES = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
@@ -33,6 +34,12 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
     const id = `wamid.prueba.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
     test.onSend?.(String(toPhone), { text, template: options.template?.name || null, media: media?.link || null, id });
     return { messages: [{ id }], test: true };
+  }
+  // Modo demo (npm run demo): los pacientes son inventados; nada sale a Meta.
+  if (isDemoMode() && !options.fetchImpl) {
+    const kind = options.template ? `plantilla ${options.template.name}` : media ? 'foto' : 'texto';
+    console.log(`[Demo] WhatsApp simulado → …${String(toPhone).slice(-4)} (${kind})`);
+    return { messages: [{ id: `wamid.demo.${Date.now()}.${Math.random().toString(36).slice(2, 8)}` }], demo: true };
   }
 
   const url = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -176,7 +183,7 @@ export function sendTemplateMessage(toPhone, name, bodyParams = [], { language =
 async function sendStatus(toPhone, status, messageId = null, typing = false) {
   const phoneNumberId = config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
-  if (!phoneNumberId || !token || !messageId || testMode()) return null;
+  if (!phoneNumberId || !token || !messageId || testMode() || isDemoMode()) return null;
 
   const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
   const response = await fetch(`https://graph.facebook.com/${version}/${phoneNumberId}/messages`, {

@@ -3,6 +3,14 @@ import createApp from './app.js';
 import { initializeGeminiClient } from './src/geminiClient.js';
 import clinic, { missingPhoneVars } from './config/clinic.config.js';
 import clinicSettings from './services/clinicSettings.js';
+import { assertDemoAllowed, isDemoMode } from './services/demo/demoFlag.js';
+
+// DEMO_MODE con NODE_ENV=production detiene el arranque (el modo demo usa pacientes inventados).
+assertDemoAllowed();
+if (isDemoMode()) {
+  const { enableDemoMode } = await import('./services/demo/demoMode.js');
+  await enableDemoMode();
+}
 
 const app = createApp();
 

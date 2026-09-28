@@ -2,7 +2,8 @@ import express from 'express';
 import { getAgenda, setAppointmentStatus, getMetrics, getReport, getSession } from '../controllers/panelController.js';
 import inbox from '../controllers/inboxController.js';
 import settings from '../controllers/settingsController.js';
-import { login, logout, requirePanel } from '../middleware/panelAuth.js';
+import tester from '../controllers/testerController.js';
+import { login, logout, requirePanel, sessionFor } from '../middleware/panelAuth.js';
 
 // API del panel. Recepción (PANEL_USER) y dueño (PANEL_OWNER_USER) ven la bandeja, la agenda,
 // las métricas y el reporte; Configuración y Probador son solo del dueño (requirePanel('owner')).
@@ -30,7 +31,13 @@ router.post('/login', login);
 router.post('/logout', logout);
 
 const panel = requirePanel();
-router.get('/session', panel, getSession);
+// Sin sesión responde { authenticated: false } (200): el panel muestra el login sin un error en la consola.
+router.get('/session', (req, res, next) => {
+  const current = sessionFor(req);
+  if (!current) return res.json({ authenticated: false });
+  req.panelSession = current;
+  return next();
+}, getSession);
 
 // Bandeja en vivo
 router.get('/stream', panel, inbox.stream);
@@ -54,5 +61,9 @@ router.get('/settings', owner, settings.get);
 router.put('/settings', owner, settings.save);
 router.post('/settings/reset', owner, settings.reset);
 router.get('/settings/audit', owner, settings.audit);
+
+// Probador (solo el dueño): el flujo real con WhatsApp falso y hora simulada.
+router.post('/tester/message', owner, tester.message);
+router.post('/tester/reset', owner, tester.reset);
 
 export default router;

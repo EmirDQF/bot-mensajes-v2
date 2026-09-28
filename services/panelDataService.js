@@ -3,6 +3,7 @@ import activeClinic, { getOwnerPhone, getReceptionPhone } from '../config/clinic
 import TEMPLATES from '../config/whatsappTemplates.js';
 import appointmentService, { addDays, formatDateEs, formatTimeEs, localParts } from './appointmentService.js';
 import jobsService from './jobsService.js';
+import { createReport } from './reportService.js';
 import { fetchAllRows } from './supabasePaging.js';
 import { now as clockNow } from './clock.js';
 
@@ -19,8 +20,11 @@ export function createPanelData({
   clinic = activeClinic,
   appointments = appointmentService,
   jobs = jobsService,
+  report = null,
   now = clockNow,
 } = {}) {
+  const reports = report || createReport({ getClient, clinic, jobs, now });
+
   async function db() {
     const client = await getClient();
     if (!client) throw new Error('Supabase no configurado (SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY)');
@@ -94,6 +98,12 @@ export function createPanelData({
     for (const a of appts) byAd.set(adName(a.ad_referral), (byAd.get(adName(a.ad_referral)) || 0) + 1);
 
     const pct = (part, total) => (total ? Math.round((part / total) * 100) : 0);
+    // KPI del panel con la misma lógica del reporte: el periodo elegido y la garantía de los últimos 7 días (hoy incluido).
+    const today = localParts(clinic.timezone, now()).date;
+    const [periodReport, week] = await Promise.all([
+      reports.buildReport({ from: addDays(today, -(period - 1)), to: today }),
+      reports.buildReport({ from: addDays(today, -6), to: today }),
+    ]);
     return {
       days: period,
       leads: leads.size,
@@ -103,6 +113,10 @@ export function createPanelData({
       noShows,
       noShowRate: pct(noShows, attended + noShows),
       byAd: [...byAd.entries()].map(([ad, count]) => ({ ad, count })).sort((a, b) => b.count - a.count),
+      afterHoursAppointments: periodReport.requestedAfterHours,
+      avgFirstResponseMs: periodReport.avgFirstResponseMs,
+      potentialValue: periodReport.potentialValue,
+      guarantee: week.guarantee,
     };
   }
 

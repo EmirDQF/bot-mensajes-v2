@@ -9,7 +9,7 @@ import crypto from 'crypto';
 // Ids "<arranque>-<secuencia>": si el servidor se reinició, el id del navegador no coincide con el
 // arranque actual y se le pide volver a cargar (evento "resync").
 
-export const EVENT_TYPES = ['message', 'status', 'typing', 'bot', 'handoff', 'appointment', 'conversation', 'settings'];
+export const EVENT_TYPES = ['message', 'status', 'typing', 'bot', 'handoff', 'appointment', 'conversation', 'settings', 'tester'];
 
 export function createLiveEvents({ bufferSize = 500, bootId = crypto.randomBytes(4).toString('hex') } = {}) {
   const emitter = new EventEmitter();

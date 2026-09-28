@@ -9,7 +9,7 @@ import clinicSettings from '../services/clinicSettings.js';
 // GET /api/panel/session — quién inició sesión y la marca de la clínica.
 export async function getSession(req, res) {
   await clinicSettings.ensureFresh();
-  res.json({ ...req.panelSession, ownerAvailable: ownerConfigured(), clinic: publicClinicInfo() });
+  res.json({ authenticated: true, ...req.panelSession, ownerAvailable: ownerConfigured(), clinic: publicClinicInfo() });
 }
 
 const sendPanelError = (res, e, fallback) => {

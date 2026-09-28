@@ -54,6 +54,12 @@ export function createApp({ getSupabase = getDefaultSupabase } = {}) {
   app.use(securityHeaders);
   const publicDir = path.join(process.cwd(), 'public');
   app.use('/media', express.static(path.join(process.cwd(), 'media')));
+  // Modo demo: fotos subidas en Configuración, guardadas en el Supabase en memoria.
+  app.get('/demo-media/*file', async (req, res) => {
+    const file = (await getSupabase())?.files?.get([].concat(req.params.file).join('/'));
+    if (!file) return res.status(404).json({ error: 'Archivo no encontrado' });
+    return res.type(file.contentType || 'application/octet-stream').send(file.buffer);
+  });
   app.use(express.static(publicDir));
 
   // Marca pública de la clínica activa para el panel (sin teléfonos).

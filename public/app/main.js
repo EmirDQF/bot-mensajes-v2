@@ -134,6 +134,9 @@ function initAlerts() {
 }
 
 function onLiveEvent(type, data) {
+  // El Probador escucha los eventos en vivo sin acoplarse a la bandeja.
+  window.dispatchEvent(new CustomEvent('panel:live', { detail: { type, data } }));
+  if (type === 'tester') return;
   handleLiveEvent(type, data);
   if (type === 'settings') refreshClinic();
   if (type === 'handoff' && data.reason === 'urgencia') alertUser('🚨 Urgencia', `${data.contactName || data.phone}: ${data.message || 'requiere atención inmediata'}`, true);
@@ -162,6 +165,7 @@ async function refreshClinic() {
 async function start() {
   try {
     session = await api('/session');
+    if (!session.authenticated) return showLogin();
   } catch (error) {
     if (error.status === 401) return showLogin();
     return showLogin(error.message);
