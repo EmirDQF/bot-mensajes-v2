@@ -2,7 +2,7 @@ import geminiService from '../services/geminiService.js';
 import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService, { markMessageAsRead, sendTypingIndicator } from '../services/whatsappService.js';
-import { getGeminiClient } from '../src/geminiClient.js';
+import { getGeminiClient, getGeminiFallbackClients } from '../src/geminiClient.js';
 import { getSupabase } from '../services/supabaseClient.js';
 import activeClinic, { findTreatment, getReceptionPhone, mediaUrl } from '../config/clinic.config.js';
 import appointmentService, {
@@ -576,7 +576,7 @@ async function processBatch(from, buffer) {
   let geminiResult;
   try {
     geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
-      client: getGeminiClient(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts,
+      client: getGeminiClient(), fallbackClients: getGeminiFallbackClients(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts,
       availableSlots: offeredSlots, afterHours, welcomed: Boolean(buffer.context?.welcomed),
       recommendation, botNotes: await getBotNotes(from),
     });

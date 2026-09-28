@@ -1,15 +1,15 @@
 import config from '../config/env.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-let cachedClient = null;
+// Un cliente por modelo: el SDK fija el modelo al crearlo.
+const cachedClients = new Map();
 
-export function getGeminiClient() {
-  if (cachedClient) {
-    return cachedClient;
+export function getGeminiClient(modelName = config.gemini?.model || 'gemini-3.5-flash-lite') {
+  if (cachedClients.has(modelName)) {
+    return cachedClients.get(modelName);
   }
 
   const apiKey = config.gemini?.apiKey;
-  const modelName = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   const maxOutputTokens = Number(config.gemini?.maxOutputTokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 110);
 
   if (!apiKey) {
@@ -19,14 +19,19 @@ export function getGeminiClient() {
 
   console.log('[geminiClient] initializing client with model:', modelName);
   const generativeAi = new GoogleGenerativeAI(apiKey);
-  cachedClient = generativeAi.getGenerativeModel({
+  const client = generativeAi.getGenerativeModel({
     model: modelName,
     generationConfig: {
       maxOutputTokens,
     },
   });
+  cachedClients.set(modelName, client);
+  return client;
+}
 
-  return cachedClient;
+// Clientes de respaldo (GEMINI_FALLBACK_MODELS), en orden, para cuando el modelo principal está saturado.
+export function getGeminiFallbackClients() {
+  return (config.gemini?.fallbackModels || []).map((name) => getGeminiClient(name)).filter(Boolean);
 }
 
 export function initializeGeminiClient() {

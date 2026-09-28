@@ -462,25 +462,32 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// Reintento corto con backoff (600 ms, 1,5 s) y un tope de tiempo por intento. Si igual falla, lanza:
-// el webhook responde con su respaldo (horarios o aviso) y alerta a recepción. Nunca deja al paciente sin respuesta.
+// Modelo inexistente o retirado (404): no mejora reintentando el mismo, pero sí pasando a otro modelo.
+const isModelNotFound = (error) => /\b404\b|not found|no longer available/i.test(`${error?.status || ''} ${error?.message || ''}`);
+
+// Reintento corto con backoff (600 ms, 1,5 s) y un tope de tiempo por intento. Cada reintento usa el siguiente
+// modelo de respaldo (options.fallbackClients, GEMINI_FALLBACK_MODELS): si un modelo está saturado, otro responde.
+// Si igual falla, lanza: el webhook responde con su respaldo (horarios o aviso) y alerta a recepción.
 export async function callGemini(client, request, options = {}) {
-  const attempts = Math.max(1, Number(options.maxRetries ?? 1) + 1);
+  const clients = [client, ...(options.fallbackClients || []).filter((fallback) => fallback && fallback !== client)];
+  const attempts = Math.max(1, Number(options.maxRetries ?? 1) + 1, clients.length);
   const timeoutMs = Number(options.timeoutMs || GEMINI_TIMEOUT_MS);
   const backoff = options.backoffMs || GEMINI_BACKOFF_MS;
-  const model = config.gemini.model || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const current = clients[attempt % clients.length];
+    const modelName = String(current?.model || config.gemini.model || '').replace(/^models\//, '');
     try {
-      if (request.structured) return await withTimeout(client.generateContent(request.request, { model }), timeoutMs);
-      if (typeof client?.generate === 'function') {
-        return await withTimeout(client.generate(request.prompt, { model, maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS }), timeoutMs);
+      if (request.structured) return await withTimeout(current.generateContent(request.request), timeoutMs);
+      if (typeof current?.generate === 'function') {
+        return await withTimeout(current.generate(request.prompt, { model: modelName, maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS }), timeoutMs);
       }
       throw new Error('Gemini client does not support generate or generateContent');
     } catch (error) {
       lastError = error;
-      const retriable = isRetriableGeminiError(error);
-      console.error(`[Gemini] Intento ${attempt + 1}/${attempts} falló${retriable ? ' (se reintenta)' : ''}:`, error?.message || error);
+      const nextIsOtherModel = clients.length > 1 && clients[(attempt + 1) % clients.length] !== current;
+      const retriable = isRetriableGeminiError(error) || (nextIsOtherModel && isModelNotFound(error));
+      console.error(`[Gemini] Intento ${attempt + 1}/${attempts} (${modelName || 'modelo'}) falló${retriable ? ' (se reintenta)' : ''}:`, error?.message || error);
       if (attempt + 1 >= attempts || !retriable) break;
       await new Promise((resolve) => setTimeout(resolve, backoff[Math.min(attempt, backoff.length - 1)]));
     }

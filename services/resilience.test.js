@@ -54,6 +54,31 @@ describe('Gemini: reintento corto y respaldo', () => {
     assert.equal(result.texto, null);
   });
 
+  it('si el modelo principal está saturado pasa al modelo de respaldo, no reintenta el mismo', async () => {
+    const primary = sequenceClient([httpError(503, 'This model is currently experiencing high demand')]);
+    const backup = sequenceClient(['Respuesta del respaldo']);
+    const result = await callGemini(primary, { structured: false, prompt: 'hola' }, { ...fast, maxRetries: 1, fallbackClients: [backup] });
+    assert.equal(result.text, 'Respuesta del respaldo');
+    assert.equal(primary.calls, 1);
+    assert.equal(backup.calls, 1);
+  });
+
+  it('prueba todos los modelos de respaldo aunque maxRetries sea menor, y salta un modelo retirado (404)', async () => {
+    const primary = sequenceClient(['hang']);
+    const retired = sequenceClient([httpError(404, 'models/x is no longer available')]);
+    const backup = sequenceClient(['Hola desde el tercer modelo']);
+    const result = await callGemini(primary, { structured: false, prompt: 'hola' }, { ...fast, maxRetries: 0, fallbackClients: [retired, backup] });
+    assert.equal(result.text, 'Hola desde el tercer modelo');
+    assert.deepEqual([primary.calls, retired.calls, backup.calls], [1, 1, 1]);
+  });
+
+  it('una clave inválida no se reintenta tampoco con los modelos de respaldo', async () => {
+    const primary = sequenceClient([httpError(400, 'API_KEY_INVALID')]);
+    const backup = sequenceClient(['no debería llegar']);
+    await assert.rejects(callGemini(primary, { structured: false, prompt: 'hola' }, { ...fast, fallbackClients: [backup] }));
+    assert.equal(backup.calls, 0);
+  });
+
   it('clasifica errores reintentables', () => {
     assert.equal(isRetriableGeminiError(new Error('fetch failed')), true);
     assert.equal(isRetriableGeminiError({ code: 'ETIMEDOUT', message: 'Gemini timeout' }), true);
