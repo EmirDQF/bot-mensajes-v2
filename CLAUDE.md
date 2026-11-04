@@ -25,6 +25,7 @@ npm run preflight              # revisa variables, tablas/columnas de Supabase, 
 npm run simulate               # conversaciones reales contra Gemini con WhatsApp/Supabase falsos → docs/qa-report.md
 npm run demo                   # panel con pacientes INVENTADOS (Supabase en memoria, WhatsApp simulado) en /panel
 npm run new-clinic -- <id> "<Nombre>"  # genera config/clinics/<id>.js con TODO y media/<id>/
+npm run quick-demo             # demo de un prospecto (nombre, precios, campaña) → config/clinics/demo-*.js (ignorado por git)
 # Go-live (docs/go-live.md). Todos --dry-run por defecto; --apply para ejecutar. Nunca imprimen secretos.
 npm run meta:check             # token (permanente/temporal), número, WABA, app suscrita y plantillas
 npm run meta:subscribe         # suscribe la app al WABA
