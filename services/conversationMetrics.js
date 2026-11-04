@@ -9,6 +9,9 @@ import { now as clockNow } from './clock.js';
 // Nunca lanzan: una métrica que falla no puede frenar la conversación.
 
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
+// Un tiempo de primera respuesta mayor a 7 días es un reloj desfasado (p. ej. el Probador con hora simulada),
+// no una métrica real: no se guarda. Antes llegó a 288915076252 ms y rompía la columna INTEGER.
+export const MAX_PLAUSIBLE_RESPONSE_MS = 7 * 24 * 60 * 60 * 1000;
 let warnedMissingColumns = false;
 
 export function createConversationMetrics({
@@ -22,7 +25,9 @@ export function createConversationMetrics({
     const id = digits(phone);
     const start = firstMessageAt instanceof Date && !Number.isNaN(firstMessageAt.getTime()) ? firstMessageAt : respondedAt;
     const afterHours = !isWithinWorkingHours(clinic, start);
-    const firstResponseMs = Math.max(0, respondedAt - start);
+    const elapsedMs = Math.max(0, respondedAt - start);
+    const firstResponseMs = elapsedMs <= MAX_PLAUSIBLE_RESPONSE_MS ? elapsedMs : null;
+    if (firstResponseMs === null) console.warn(`[Metrics] Tiempo de primera respuesta imposible (${elapsedMs} ms): no se guarda`);
     const result = { afterHours, firstResponseMs, saved: false };
     if (!id) return result;
     try {

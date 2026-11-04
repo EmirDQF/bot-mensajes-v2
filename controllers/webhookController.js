@@ -1,7 +1,7 @@
 import geminiService from '../services/geminiService.js';
 import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
-import whatsappService, { markMessageAsRead, sendTypingIndicator } from '../services/whatsappService.js';
+import whatsappService, { sendTypingIndicator } from '../services/whatsappService.js';
 import { getGeminiClient, getGeminiFallbackClients } from '../src/geminiClient.js';
 import { getSupabase } from '../services/supabaseClient.js';
 import activeClinic, { findTreatment, mediaUrl } from '../config/clinic.config.js';
@@ -28,6 +28,7 @@ import { createSerialQueue } from '../services/serialQueue.js';
 import { createExpiringMap } from '../services/expiringMap.js';
 import { describeError } from '../services/safeLog.js';
 import { aiFallbackReply, createNoAiAlert, formatSlotList } from '../services/aiFallback.js';
+import { quickAnswer } from '../services/quickAnswers.js';
 
 export { aiFallbackReply, formatSlotList };
 
@@ -487,14 +488,11 @@ async function sendReply(from, messageText, reply, failureLog = 'webhookControll
   }
 }
 
-// "Leído" + "escribiendo…" al instante, sin hacer esperar a Meta ni a Gemini.
+// "Leído" + "escribiendo…" al instante (una sola llamada a Meta), sin hacer esperar la respuesta.
+// sendTypingIndicator nunca lanza: un fallo queda en el log con el motivo de Meta.
 function showTyping(messageId) {
   if (!messageId) return;
-  void Promise.allSettled([markMessageAsRead(messageId), sendTypingIndicator(messageId)]).then((results) => {
-    for (const result of results) {
-      if (result.status === 'rejected') console.error('[WhatsApp] Status update failed:', describeError(result.reason));
-    }
-  });
+  void sendTypingIndicator(messageId);
 }
 
 // Urgencia clínica o pedido de hablar con una persona: se responde, se pausa el bot y se avisa a recepción.
@@ -532,13 +530,16 @@ async function planSlotOffer(messageText, jid, current, afterHours) {
   return { offeredSlots, alreadyChoosing, recommendation };
 }
 
-// Gemini sin respuesta utilizable: horarios o aviso al paciente y alerta a recepción.
+// Gemini sin respuesta utilizable. Primero, una respuesta sin IA con los datos de la clínica (precio, ubicación,
+// horario, campaña o pagos); si la pregunta no es de esas, horarios o aviso al paciente y alerta a recepción.
 async function replyWithoutAI(from, messageText, offeredSlots, recommendation, current) {
-  console.error('[Gemini] No se obtuvo una respuesta utilizable; se envía la respuesta de respaldo');
-  let fallback = aiFallbackReply(offeredSlots, recommendation);
+  const today = localParts(activeClinic.timezone, current).date;
+  const quick = recommendation ? null : quickAnswer(messageText, { clinic: activeClinic, today });
+  console.error(`[Gemini] Sin respuesta utilizable; se envía ${quick ? `la respuesta sin IA (${quick.kinds.join(', ')})` : 'la respuesta de respaldo'}`);
+  let fallback = quick ? `${quick.text}${formatSlotList(offeredSlots)}` : aiFallbackReply(offeredSlots, recommendation);
   if (takeAfterHoursNotice(from, current)) fallback = `${afterHoursNotice()}\n\n${fallback}`;
   await sendReply(from, messageText, fallback);
-  await alertReceptionNoAI(from, messageText);
+  if (!quick) await alertReceptionNoAI(from, messageText);
 }
 
 async function saveLeadFromReply(from, messageText, geminiResult) {
@@ -655,7 +656,8 @@ async function processBatch(from, buffer) {
   let geminiResult;
   try {
     geminiResult = await geminiService.obtenerRespuestaIA(jid, messageText, {
-      client: getGeminiClient(), fallbackClients: getGeminiFallbackClients(), maxRetries: 1, maxOutputTokens: 300, messageParts: buffer.parts,
+      client: getGeminiClient(), fallbackClients: getGeminiFallbackClients(), maxRetries: 1, messageParts: buffer.parts,
+      profileName: buffer.context?.profileName ?? null,
       availableSlots: offeredSlots, afterHours, welcomed: Boolean(buffer.context?.welcomed),
       recommendation, botNotes: await getBotNotes(from),
     });
@@ -826,6 +828,8 @@ async function receiveMessage(message, value) {
   const sentAt = Number(message.timestamp) > 0 ? new Date(Number(message.timestamp) * 1000) : receivedAt;
   const context = {
     contactName: value?.contacts?.[0]?.profile?.name || from,
+    // Nombre del perfil tal cual; geminiService lo usa solo si parece un nombre real.
+    profileName: value?.contacts?.[0]?.profile?.name || null,
     phoneNumberId: value?.metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID || null,
     messageId: message.id || null,
     // Meta puede entregar tarde si Render estaba dormido: se mide desde la hora real del mensaje.

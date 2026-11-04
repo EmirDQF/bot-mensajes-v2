@@ -70,7 +70,7 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 Flujo de un mensaje: webhook (200 a Meta y dedup por `message.id`) → primer contacto: bienvenida + privacidad (+ aviso
 nocturno) y, si trae una pregunta, se responde sin pedir que la repita → debounce 2 s → ¿bot en pausa? → ¿urgencia /
 pide humano? → ¿cancelar, reprogramar o responder un recordatorio? → ¿pide cita, o de noche pregunta precio o
-tratamiento? (3 horarios, desde el día que pida) → Gemini (timeout 12 s y 1 reintento; si falla: horarios o aviso + alerta a recepción) → Fase B
+tratamiento? (3 horarios, desde el día que pida) → Gemini (20 s por intento, tope total 35 s, backoff con jitter y modelos de respaldo; si falla: respuesta sin IA con datos de la clínica, o horarios/aviso + alerta a recepción) → Fase B
 guarda la solicitud (rechaza horarios fuera de atención) y avisa a recepción → fotos en secuencia cada 300 ms.
 
 ## Reglas (no negociables)

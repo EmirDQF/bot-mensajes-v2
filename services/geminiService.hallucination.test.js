@@ -25,8 +25,8 @@ describe('regression: model hallucination should not assert bookings', () => {
     const res = await obtenerRespuestaIA(jid, '¿Cuánto cuesta el tratamiento?', { client });
     const reply = (res.texto || res.text || '').toLowerCase();
     assert.equal(/qued(o|ó) agend/i.test(reply), false, 'Reply must not claim a confirmed booking');
-    assert.match(reply, /nombre completo:/i);
-    assert.match(reply, /tratamiento de interés:/i);
-    assert.match(reply, /día y turno de preferencia/i);
+    // Fase 1.5: un solo dato por mensaje; sin tratamiento todavía, se pregunta el tratamiento.
+    assert.match(reply, /qué tratamiento te interesa\?/i);
+    assert.equal((reply.match(/\?/g) || []).length, 1);
   });
 });

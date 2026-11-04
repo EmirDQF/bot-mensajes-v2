@@ -20,9 +20,9 @@ describe('geminiService regressions', () => {
 
     assert.equal(result.leadData?.ready_to_notify || false, false);
     assert.equal(/qued[oó] agendada/i.test(result.texto), false);
-    assert.match(result.texto, /Nombre completo:/i);
-    assert.match(result.texto, /Tratamiento de interés:/i);
-    assert.match(result.texto, /Día y turno de preferencia/i);
+    // Fase 1.5: un solo dato por mensaje (antes, una plantilla con los 3 a la vez).
+    assert.match(result.texto, /¿Qué tratamiento te interesa\?/);
+    assert.equal((result.texto.match(/\?/g) || []).length, 1);
   });
 
   it('preserves booked session data during casual follow-ups', async () => {

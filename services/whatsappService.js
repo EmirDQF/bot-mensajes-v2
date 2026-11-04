@@ -2,6 +2,7 @@ import config from '../config/env.js';
 import { testMode } from './testContext.js';
 import { isDemoMode } from './demo/demoFlag.js';
 import systemAlerts, { isTokenError } from './systemAlerts.js';
+import { describeError } from './safeLog.js';
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.WHATSAPP_TIMEOUT_MS || 8000);
 const DEFAULT_MAX_RETRIES = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
@@ -164,8 +165,37 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   throw lastError || new Error('Failed to send message');
 }
 
-export function sendTextMessage(toPhone, text, options = {}) {
-  return sendWhatsAppMessage(toPhone, text, options);
+// Límite real de Meta para el cuerpo de un mensaje de texto.
+export const WHATSAPP_TEXT_LIMIT = 4096;
+
+// Corta por párrafos (luego por líneas y, si hace falta, a la fuerza) sin perder ni recortar texto.
+export function splitForWhatsApp(text, limit = WHATSAPP_TEXT_LIMIT) {
+  const value = String(text ?? '');
+  if (value.length <= limit) return [value];
+  const chunks = [];
+  let current = '';
+  const flush = () => { if (current) chunks.push(current); current = ''; };
+  for (const paragraph of value.split('\n\n')) {
+    const candidate = current ? `${current}\n\n${paragraph}` : paragraph;
+    if (candidate.length <= limit) { current = candidate; continue; }
+    flush();
+    if (paragraph.length <= limit) { current = paragraph; continue; }
+    for (let i = 0; i < paragraph.length; i += limit) chunks.push(paragraph.slice(i, i + limit));
+  }
+  flush();
+  return chunks;
+}
+
+// Un texto largo sale en varios mensajes, en orden. Devuelve los ids de todos (el primero manda en la bandeja).
+export async function sendTextMessage(toPhone, text, options = {}) {
+  const chunks = splitForWhatsApp(text);
+  if (chunks.length === 1) return sendWhatsAppMessage(toPhone, text, options);
+  const messages = [];
+  for (const chunk of chunks) {
+    const result = await sendWhatsAppMessage(toPhone, chunk, options);
+    messages.push(...(result?.messages || []));
+  }
+  return { messages };
 }
 
 export function sendImageMessage(toPhone, imageUrl, caption = '', options = {}) {
@@ -184,32 +214,57 @@ export function sendTemplateMessage(toPhone, name, bodyParams = [], { language =
   return sendWhatsAppMessage(toPhone, `[plantilla ${name}]`, { ...options, template: { name, language, bodyParams: params } });
 }
 
-async function sendStatus(toPhone, status, messageId = null, typing = false) {
-  const phoneNumberId = config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
-  if (!phoneNumberId || !token || !messageId || testMode() || isDemoMode()) return null;
+// "Leído" y "escribiendo…" (Cloud API: POST /messages con status "read" y typing_indicator, que además
+// marca como leído). Nunca lanzan ni bloquean la respuesta al paciente: un fallo solo queda en el log con el
+// motivo de Meta (código y mensaje), sin token y con los números enmascarados.
+let typingSupported = true;
+export function resetStatusSupport() { typingSupported = true; }
 
-  const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0';
+async function postStatus(messageId, { typing, phoneNumberId, token }) {
+  const version = config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v21.0';
   const response = await fetch(`https://graph.facebook.com/${version}/${phoneNumberId}/messages`, {
     method: 'POST',
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
-      status,
+      status: 'read',
       message_id: messageId,
       ...(typing ? { typing_indicator: { type: 'text' } } : {}),
     }),
   });
-  if (!response.ok) throw new Error(`WhatsApp status update failed: ${response.status}`);
-  return response.json().catch(() => null);
+  if (response.ok) return response.json().catch(() => ({ success: true }));
+  const meta = await response.json().then((body) => body?.error || null).catch(() => null);
+  const detail = meta ? ` (Meta ${meta.code ?? '?'}${meta.error_subcode ? `/${meta.error_subcode}` : ''}: ${meta.error_user_msg || meta.message || 'sin mensaje'})` : '';
+  throw Object.assign(new Error(`WhatsApp status update failed: ${response.status}${detail}`), { status: response.status, meta });
 }
 
-export function markMessageAsRead(messageId) {
-  return sendStatus(null, 'read', messageId);
+async function sendStatus(messageId, { typing = false, ...credentials } = {}) {
+  const phoneNumberId = credentials.phoneNumberId || config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = credentials.token || config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '';
+  if (!phoneNumberId || !token || !messageId || testMode() || isDemoMode()) return null;
+  const wantsTyping = typing && typingSupported;
+  try {
+    return await postStatus(messageId, { typing: wantsTyping, phoneNumberId, token });
+  } catch (error) {
+    console.error(`[WhatsApp] ${describeError(error)}`);
+    // Meta rechazó "escribiendo" (p. ej. versión de la API): se deja de pedir y se marca solo como leído.
+    if (wantsTyping && error.status === 400) {
+      typingSupported = false;
+      return postStatus(messageId, { typing: false, phoneNumberId, token })
+        .catch((retryError) => { console.error(`[WhatsApp] ${describeError(retryError)}`); return null; });
+    }
+    return null;
+  }
 }
 
-export function sendTypingIndicator(messageId) {
-  return sendStatus(null, 'read', messageId, true);
+export function markMessageAsRead(messageId, credentials = {}) {
+  return sendStatus(messageId, credentials);
+}
+
+// Una sola llamada: "escribiendo…" ya marca el mensaje como leído.
+export function sendTypingIndicator(messageId, credentials = {}) {
+  return sendStatus(messageId, { ...credentials, typing: true });
 }
 
 export default {

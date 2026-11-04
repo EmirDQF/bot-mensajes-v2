@@ -10,7 +10,6 @@ export function getGeminiClient(modelName = config.gemini?.model || 'gemini-3.5-
   }
 
   const apiKey = config.gemini?.apiKey;
-  const maxOutputTokens = Number(config.gemini?.maxOutputTokens || process.env.GEMINI_MAX_OUTPUT_TOKENS || 110);
 
   if (!apiKey) {
     console.warn('GEMINI_API_KEY not set; returning null client. Gemini calls will fall back to local heuristics in test mode.');
@@ -21,8 +20,10 @@ export function getGeminiClient(modelName = config.gemini?.model || 'gemini-3.5-
   const generativeAi = new GoogleGenerativeAI(apiKey);
   const client = generativeAi.getGenerativeModel({
     model: modelName,
+    // Mismo tope que geminiService (config/env.js); cada pedido lo vuelve a enviar.
     generationConfig: {
-      maxOutputTokens,
+      maxOutputTokens: config.gemini.maxOutputTokens,
+      ...(config.gemini.thinkingConfig ? { thinkingConfig: config.gemini.thinkingConfig } : {}),
     },
   });
   cachedClients.set(modelName, client);

@@ -9,12 +9,38 @@ export const parseFallbackModels = (value, primary) => [...new Set(String(value 
   .split(',').map((name) => name.trim()).filter((name) => isGeminiModel(name) && name !== primary))];
 const geminiFallbackModels = parseFallbackModels(process.env.GEMINI_FALLBACK_MODELS, geminiModel);
 
+// Único lugar del tope de tokens de salida. Los modelos Gemini 3.x gastan parte en "pensar": con 100-300
+// las respuestas salían cortadas a la mitad ("tenemos una campaña con cu"). Nunca menos de 1024.
+export const GEMINI_MIN_OUTPUT_TOKENS = 1024;
+export function resolveMaxOutputTokens(value) {
+  const parsed = Math.floor(Number(value));
+  return Number.isFinite(parsed) && parsed > GEMINI_MIN_OUTPUT_TOKENS ? parsed : GEMINI_MIN_OUTPUT_TOKENS;
+}
+
+// Pensamiento del modelo (opcional, se prueba antes con npm run gemini:probe): GEMINI_THINKING_BUDGET=0
+// (familia 2.5) o GEMINI_THINKING_LEVEL=minimal|low (familia 3). Sin definir no se envía nada.
+const THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'];
+export function parseThinkingConfig(env = process.env) {
+  const level = String(env.GEMINI_THINKING_LEVEL || '').trim().toLowerCase();
+  if (level) return THINKING_LEVELS.includes(level) ? { thinkingLevel: level } : null;
+  const raw = String(env.GEMINI_THINKING_BUDGET ?? '').trim();
+  if (!raw) return null;
+  const budget = Number(raw);
+  return Number.isInteger(budget) && budget >= 0 ? { thinkingBudget: budget } : null;
+}
+
+const positiveMs = (value, fallback) => (Number(value) > 0 ? Number(value) : fallback);
+
 export default {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || null,
     model: geminiModel,
     fallbackModels: [...new Set(geminiFallbackModels)],
-    maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS || 100),
+    maxOutputTokens: resolveMaxOutputTokens(process.env.GEMINI_MAX_OUTPUT_TOKENS),
+    thinkingConfig: parseThinkingConfig(),
+    // Tope por intento y tope total (todos los intentos y modelos): el paciente no espera más que eso.
+    timeoutMs: positiveMs(process.env.GEMINI_TIMEOUT_MS, 20000),
+    totalTimeoutMs: positiveMs(process.env.GEMINI_TOTAL_TIMEOUT_MS, 35000),
   },
   whatsapp: {
     token: process.env.WHATSAPP_TOKEN || null,

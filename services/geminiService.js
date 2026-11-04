@@ -3,13 +3,16 @@ import clinic, { activePromotions, activeTreatments, findTreatment } from '../co
 import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
 import { now as clockNow } from './clock.js';
 import { botNotesBlock, recommendationSentence } from './recommendationService.js';
+import { getFinishReason, isTruncated, trimToLastSentence } from './geminiOutput.js';
+import { captureAnswer, extractDistrict, looksLikeRealName, nextMissingField, questionFor } from './leadFields.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
 const BOOKED_TTL_MS = Number(process.env.GEMINI_BOOKED_SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000);
 const DEBOUNCE_MS = Number(process.env.GEMINI_DEBOUNCE_MS || 0);
 const MAX_HISTORY_MESSAGES = Number(process.env.GEMINI_MAX_HISTORY || 6);
-const MAX_OUTPUT_TOKENS = 300;
+// Tope único de tokens de salida (config/env.js, mínimo 1024).
+const MAX_OUTPUT_TOKENS = config.gemini.maxOutputTokens;
 const formatSoles = (value) => `S/ ${Number(value).toLocaleString('es-PE')}`;
 
 const TONE_RULES = {
@@ -49,11 +52,7 @@ Si ya hay mensajes previos, jamás digas "¡Hola!", "Buenos días", "¿En qué p
 Cuando consulte sobre un tratamiento o pida fotos o resultados, responde breve y termina con la etiqueta de foto del tratamiento (lista abajo). Para ubicación o local usa ${placeTags || 'solo texto'}. Puedes poner varias etiquetas.
 
 ### REGLA 3: AGENDAMIENTO EN DOS FASES
-FASE A: si faltan nombre completo, tratamiento o día y hora, pide solo lo que falte:
-"¡Con mucho gusto coordinamos tu cita! Por favor indícanos:
-📌 Nombre y apellido:
-📌 Tratamiento que deseas realizarte:
-📌 Día y hora de preferencia:"
+FASE A: pide los datos de a UNO por mensaje, de forma natural, en este orden: tratamiento, nombre y apellido, distrito, día y hora. Pide solo el PRÓXIMO DATO indicado abajo y nunca vuelvas a preguntar algo que ya respondió.
 FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. Di que su SOLICITUD de cita quedó registrada y que recepción se la confirmará. Nunca digas que el horario quedó bloqueado o confirmado.
 
 ### REGLA 4: PASE A HUMANO
@@ -261,7 +260,7 @@ export function extractLeadDataFromText(text, senderPhone = null) {
   const structuredName = structuredParts.length >= 3 && /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+)+$/.test(structuredParts[0])
     ? structuredParts[0]
     : null;
-  const nameMatch = text.match(/\b(?:me llamo|mi nombre es|soy)\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
+  const nameMatch = text.match(/\b(?:me llamo|mi nombre es|soy(?!\s+(?:de|del|la|el|un|una|nuev[oa]|paciente|cliente)\b))\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
   
   let phone = text.replace(/\D/g, '').match(/(?:51)?(9\d{8})/)?.[1] || null;
   if (!phone && senderPhone && /este (mismo )?n[uú]mero|mi n[uú]mero de whatsapp|con este whatsapp|a este n[uú]mero/i.test(text)) {
@@ -292,6 +291,19 @@ export function isExplicitConfirmation(text) {
   const value = text.trim().toLowerCase();
   if (/\b(pero|cambiar|reprogramar|otra hora|otra fecha|prefiero|no puedo|espera|luego)\b/.test(value)) return false;
   return /^(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias)(?:[,.]?\s*(?:sí|si|confirmo|confirmado|correcto|vale|perfecto|ok|claro|de acuerdo|gracias))*[.!]?$/.test(value);
+}
+
+// Texto listo para enviar. Si Gemini se quedó sin tokens (MAX_TOKENS) se corta en la última oración completa;
+// si no queda ninguna, lanza para que el paciente reciba la respuesta de respaldo y nunca media frase.
+function usableText(responseText, finishReason) {
+  let text = typeof responseText === 'string' ? responseText.trim() : '';
+  if (text && isTruncated(finishReason)) {
+    const trimmed = trimToLastSentence(text);
+    console.warn(`[Gemini] Respuesta cortada por MAX_TOKENS (${text.length} caracteres); ${trimmed ? 'se envía hasta la última oración completa' : 'sin oración completa: va el respaldo'}`);
+    text = trimmed;
+  }
+  if (!text) throw new Error(isTruncated(finishReason) ? 'Gemini cortó la respuesta (MAX_TOKENS) sin una oración completa' : 'Gemini returned an empty response');
+  return text;
 }
 
 async function extractResultText(result) {
@@ -330,12 +342,37 @@ function limaNow() {
   }).format(clockNow());
 }
 
+// Nombre: el que dio el paciente; si no, el del perfil de WhatsApp solo si parece real (looksLikeRealName).
+function nameLine(patientName, profileName) {
+  if (patientName) return `\n- Nombre del paciente ya proporcionado: ${patientName}`;
+  if (profileName) return `\n- Nombre en su perfil de WhatsApp: ${profileName} (puedes saludarlo por su primer nombre; al agendar confirma nombre y apellido).`;
+  return '\n- No sabes su nombre: no lo saludes por ningún nombre; pídelo cuando vaya a agendar.';
+}
+
+// Lo ya respondido (no se vuelve a preguntar) y el único dato que falta pedir.
+function leadProgressLines(lead, session) {
+  if (!lead || session?.booked) return '';
+  const known = [
+    lead.motivo && `tratamiento: ${findTreatment(lead.motivo)?.name || lead.motivo}`,
+    lead.nombre && `nombre: ${lead.nombre}`,
+    lead.distrito && `distrito: ${lead.distrito}`,
+    lead.fechaHora && `horario: ${lead.fechaHora}`,
+  ].filter(Boolean);
+  const next = nextMissingField(lead);
+  const knownLine = known.length ? `\n- YA RESPONDIDO (no lo vuelvas a preguntar): ${known.join(' · ')}` : '';
+  const nextLine = next
+    ? `\n- PRÓXIMO DATO A PEDIR para su cita: ${next}. Primero responde lo que preguntó; si corresponde avanzar a la cita, pide solo este dato en una sola pregunta (por ejemplo: "${questionFor(next)}").`
+    : '';
+  return `${knownLine}${nextLine}`;
+}
+
 export function buildSystemPromptWithContext(jid, session = null, clinicOverride = null) {
   const profile = clinicOverride || clinic;
   const address = profile.address || clinic.address;
   const hours = profile.workingHoursText || clinic.workingHoursText;
-  const snapshot = session?.leadSnapshot;
-  const patientName = snapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
+  const lead = session?.pendingLead || null;
+  // El nombre del perfil de WhatsApp no cuenta como "proporcionado": se muestra aparte (nameLine).
+  const patientName = (lead?.nombre !== session?.profileName && lead?.nombre) || session?.leadSnapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
   const slots = !session?.booked && session?.offeredSlots?.length
     ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Invítalo a responder 1, 2 o 3 y pide solo el nombre o tratamiento que falten.`
@@ -353,7 +390,7 @@ export function buildSystemPromptWithContext(jid, session = null, clinicOverride
     ? `\nRECOMENDACIÓN PARA ESTE MENSAJE (úsala con estas palabras o muy parecidas): "${recommendationSentence(session.recommendation)}"${session.recommendation.rule.question ? ` Si aún no lo sabes, pregunta: ${session.recommendation.rule.question}` : ''}`
     : '';
   const notes = botNotesBlock(session?.botNotes);
-  return `${buildSystemPrompt(clinic)}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}\n  ${patientName ? `- Nombre del paciente ya proporcionado: ${patientName}` : ''}${snapshot ? `- Datos ya proporcionados: ${JSON.stringify(snapshot)}` : ''}${booked}${slots}${closed}${welcomed}${recommendation}${notes}`;
+  return `${buildSystemPrompt(clinic)}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}${nameLine(patientName, session?.profileName)}${leadProgressLines(lead, session)}${booked}${slots}${closed}${welcomed}${recommendation}${notes}`;
 }
 
 export function parseTextToLimaDate(text) {
@@ -435,7 +472,10 @@ Cliente: ${currentMessageText}`;
           { role: 'user', parts: [{ text: currentMessageText }, ...parts] },
         ],
         systemInstruction: systemPrompt,
-        generationConfig: { maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS },
+        generationConfig: {
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          ...(config.gemini.thinkingConfig && !thinkingRejected ? { thinkingConfig: config.gemini.thinkingConfig } : {}),
+        },
       },
     };
   }
@@ -450,8 +490,26 @@ export function isRetriableGeminiError(error) {
   return /timeout|timed out|network|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UNAVAILABLE|overloaded|INTERNAL|\b5\d{2}\b/i.test(text);
 }
 
-const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 12000);
-const GEMINI_BACKOFF_MS = [600, 1500];
+// Base del backoff exponencial y tiempo mínimo que vale la pena darle a un intento más.
+const GEMINI_BACKOFF_BASE_MS = 500;
+const MIN_ATTEMPT_MS = 1500;
+// Si un modelo rechaza thinkingConfig (400), se deja de enviar en este proceso.
+let thinkingRejected = false;
+
+// Backoff exponencial con jitter (hasta +50 %): 500 ms, 1 s, 2 s… para no golpear a la vez un modelo saturado.
+export function backoffDelay(attempt, { baseMs = GEMINI_BACKOFF_BASE_MS, random = Math.random } = {}) {
+  const exponential = baseMs * 2 ** attempt;
+  return Math.round(exponential + random() * exponential * 0.5);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isQuotaError = (error) => /\b429\b|RESOURCE_EXHAUSTED/i.test(`${error?.status || ''} ${error?.message || ''}`);
+const rejectsThinking = (error) => /\b400\b/.test(`${error?.status || ''} ${error?.message || ''}`) && /thinking/i.test(error?.message || '');
+
+function withoutThinking(request) {
+  const { thinkingConfig, ...generationConfig } = request.request.generationConfig || {};
+  return { ...request, request: { ...request.request, generationConfig } };
+}
 
 function withTimeout(promise, ms) {
   let timer;
@@ -465,31 +523,50 @@ function withTimeout(promise, ms) {
 // Modelo inexistente o retirado (404): no mejora reintentando el mismo, pero sí pasando a otro modelo.
 const isModelNotFound = (error) => /\b404\b|not found|no longer available/i.test(`${error?.status || ''} ${error?.message || ''}`);
 
-// Reintento corto con backoff (600 ms, 1,5 s) y un tope de tiempo por intento. Cada reintento usa el siguiente
-// modelo de respaldo (options.fallbackClients, GEMINI_FALLBACK_MODELS): si un modelo está saturado, otro responde.
-// Si igual falla, lanza: el webhook responde con su respaldo (horarios o aviso) y alerta a recepción.
+function generateOnce(current, request, timeoutMs, modelName) {
+  if (request.structured) return withTimeout(current.generateContent(request.request), timeoutMs);
+  if (typeof current?.generate === 'function') {
+    return withTimeout(current.generate(request.prompt, { model: modelName, maxOutputTokens: MAX_OUTPUT_TOKENS }), timeoutMs);
+  }
+  throw new Error('Gemini client does not support generate or generateContent');
+}
+
+// Reintentos con backoff exponencial y jitter, un tope por intento (GEMINI_TIMEOUT_MS, 20 s) y un TOPE TOTAL
+// (GEMINI_TOTAL_TIMEOUT_MS, 35 s) para no dejar esperando al paciente. Cada reintento usa el siguiente modelo
+// de respaldo (GEMINI_FALLBACK_MODELS): si uno está saturado (503), sin cuota (429) o retirado (404), responde otro.
+// Si igual falla, lanza: el webhook responde sin IA (datos de la clínica, horarios o aviso).
 export async function callGemini(client, request, options = {}) {
   const clients = [client, ...(options.fallbackClients || []).filter((fallback) => fallback && fallback !== client)];
   const attempts = Math.max(1, Number(options.maxRetries ?? 1) + 1, clients.length);
-  const timeoutMs = Number(options.timeoutMs || GEMINI_TIMEOUT_MS);
-  const backoff = options.backoffMs || GEMINI_BACKOFF_MS;
+  const timeoutMs = Number(options.timeoutMs || config.gemini.timeoutMs);
+  const deadline = Date.now() + Number(options.totalTimeoutMs || config.gemini.totalTimeoutMs);
+  const minAttemptMs = Number(options.minAttemptMs ?? MIN_ATTEMPT_MS);
+  const waitFor = (attempt) => (options.backoffMs ? options.backoffMs[Math.min(attempt, options.backoffMs.length - 1)] : backoffDelay(attempt));
+  let active = request;
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const remaining = deadline - Date.now();
+    if (attempt > 0 && remaining < minAttemptMs) break;
     const current = clients[attempt % clients.length];
     const modelName = String(current?.model || config.gemini.model || '').replace(/^models\//, '');
     try {
-      if (request.structured) return await withTimeout(current.generateContent(request.request), timeoutMs);
-      if (typeof current?.generate === 'function') {
-        return await withTimeout(current.generate(request.prompt, { model: modelName, maxOutputTokens: options.maxOutputTokens || MAX_OUTPUT_TOKENS }), timeoutMs);
-      }
-      throw new Error('Gemini client does not support generate or generateContent');
+      return await generateOnce(current, active, Math.max(1, Math.min(timeoutMs, remaining)), modelName);
     } catch (error) {
       lastError = error;
+      if (active.structured && active.request.generationConfig?.thinkingConfig && rejectsThinking(error)) {
+        console.warn(`[Gemini] ${modelName || 'El modelo'} no acepta thinkingConfig; se quita (revisa GEMINI_THINKING_*)`);
+        thinkingRejected = true;
+        active = withoutThinking(active);
+        attempt -= 1;
+        continue;
+      }
       const nextIsOtherModel = clients.length > 1 && clients[(attempt + 1) % clients.length] !== current;
-      const retriable = isRetriableGeminiError(error) || (nextIsOtherModel && isModelNotFound(error));
+      const retriable = isRetriableGeminiError(error) || (nextIsOtherModel && (isModelNotFound(error) || isQuotaError(error)));
       console.error(`[Gemini] Intento ${attempt + 1}/${attempts} (${modelName || 'modelo'}) falló${retriable ? ' (se reintenta)' : ''}:`, error?.message || error);
       if (attempt + 1 >= attempts || !retriable) break;
-      await new Promise((resolve) => setTimeout(resolve, backoff[Math.min(attempt, backoff.length - 1)]));
+      const wait = waitFor(attempt);
+      if (Date.now() + wait + minAttemptMs > deadline) break;
+      await sleep(wait);
     }
   }
   throw lastError;
@@ -520,8 +597,13 @@ function collectLead(session, message, senderPhone = null) {
   const chosen = pickOfferedSlot(message, session.offeredSlots);
   if (chosen) session.chosenSlot = chosen;
   const treatment = findTreatment(message) || findTreatment(textFromHistory(session.history));
+  const captured = session.captured || {};
+  // Un perfil de WhatsApp con nombre y apellido reales sirve para la solicitud; con uno solo, se pregunta.
+  const profileFullName = session.profileName?.includes(' ') ? session.profileName : null;
   const lead = {
-    nombre: incoming?.nombre || current?.nombre || session.leadSnapshot?.nombre || null,
+    nombre: incoming?.nombre || captured.nombre || current?.nombre || session.leadSnapshot?.nombre || profileFullName || null,
+    distrito: extractDistrict(message) || captured.distrito || extractDistrict(textFromHistory(session.history))
+      || session.leadSnapshot?.distrito || null,
     telefono: incoming?.telefono || current?.telefono || session.leadSnapshot?.telefono || null,
     motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || treatment?.name || null,
     fechaHora: incoming?.fechaHora || current?.fechaHora || session.leadSnapshot?.fecha_hora_texto || null,
@@ -570,16 +652,17 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     ? options.messageParts
     : [{ type: 'text', content: String(mensaje || '') }];
   const messageText = messageParts.filter((part) => part.type === 'text').map((part) => part.content).join('\n');
+  if (options.profileName !== undefined) session.profileName = looksLikeRealName(options.profileName) ? String(options.profileName).trim() : null;
+  // Respuesta corta al dato que se le pidió en el mensaje anterior ("Ana Torres", "Surco").
+  const answer = captureAnswer(session.askedField, messageText);
+  if (answer) session.captured = { ...(session.captured || {}), ...answer };
   session.history.push({ role: 'user', parts: [{ text: messageText }], at: now });
   session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
+  const leadData = collectLead(session, messageText, sid);
+  session.pendingLead = leadData;
   try {
     const result = await callGemini(options.client, buildRequest(options.client, messageText, session, jid, { ...options, messageParts }), options);
-    const responseText = await extractResultText(result);
-    if (typeof responseText !== 'string' || !responseText.trim()) {
-      throw new Error('Gemini returned an empty response');
-    }
-    const rawText = responseText.trim();
-    const leadData = collectLead(session, messageText, sid);
+    const rawText = usableText(await extractResultText(result), getFinishReason(result));
     let texto = removeForbiddenPhrases(sanitizeModelTextOutput(rawText));
     let appointmentRequest = null;
     if (leadData?.ready_for_confirmation && !session.booked) {
@@ -601,8 +684,10 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
         confirmedAt: new Date().toISOString(),
       };
     } else if (!leadData?.ready_for_confirmation && !session.booked && CLAIMS_BOOKED.test(texto)) {
-      texto = '¡Con mucho gusto coordinamos tu cita! Por favor confírmanos:\n📌 Nombre completo:\n📌 Tratamiento de interés:\n📌 Día y turno de preferencia (Mañana o Tarde):';
+      texto = `¡Con mucho gusto coordinamos tu cita! ${questionFor(nextMissingField(leadData || {}) || 'horario')}`;
     }
+    // El dato que se le pide ahora (uno por mensaje): su próxima respuesta corta se guarda como ese dato.
+    session.askedField = session.booked ? null : nextMissingField(leadData || {});
     session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });
     session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
     failureCounts.delete(sid);
