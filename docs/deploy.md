@@ -109,15 +109,16 @@ tareas (se reconocen por el título `<clínica> · <tarea>`, así que correrlo d
 2. En cada una: **URL**, **Execution schedule** según la tabla, y en la pestaña **Advanced**:
    - **Request method**: GET o POST según la tabla.
    - **Headers** → *Add*: nombre `x-cron-secret`, valor = tu `CRON_SECRET` (en todas menos `/health`).
-   - **Time zone**: `UTC` (así los horarios de la tabla son exactos; 13:00 UTC = 8:00 a. m. de Lima).
+   - **Time zone**: `UTC` (así los horarios de la tabla son exactos; 12:30 UTC = 7:30 a. m. y 13:00 UTC = 8:00 a. m. de Lima).
+   - Si ya tenías las tareas creadas con `npm run crons:setup -- --apply`, vuelve a correrlo: actualiza el horario del briefing a las 7:30.
    - Activa **Notify me on failure** para enterarte si algo se cae.
 
 | # | Método | URL | Header | Horario | Para qué |
 |---|---|---|---|---|---|
 | 1 | GET | `TU-URL/health` | — | Cada 10 minutos | Evita que Render se duerma (lo apaga a los 15 min sin tráfico) |
-| 2 | POST | `TU-URL/jobs/reminders` | `x-cron-secret` | Cada 15 minutos | Recordatorios 24 h y 2 h antes de cada cita |
-| 3 | POST | `TU-URL/jobs/follow-ups` | `x-cron-secret` | Cada hora (minuto 0) | Un solo mensaje de retoma a quien no agendó |
-| 4 | POST | `TU-URL/jobs/daily-summary` | `x-cron-secret` | Todos los días, 13:00 UTC | Resumen diario al dueño a las 8:00 a. m. de Lima |
+| 2 | POST | `TU-URL/jobs/reminders` | `x-cron-secret` | Cada 15 minutos | Recordatorios 24 h y 2 h antes de cada cita (con botones Confirmar / Reagendar si el paciente escribió en las últimas 24 h; si no, la plantilla) |
+| 3 | POST | `TU-URL/jobs/follow-ups` | `x-cron-secret` | Cada hora (minuto 0) | Seguimiento a quien no agendó a las ~4 h y a las ~23 h (con el tratamiento del anuncio) y reactivación con plantilla a los ~6 meses de su última cita. Cada uno una sola vez por paciente |
+| 4 | POST | `TU-URL/jobs/daily-summary` | `x-cron-secret` | Todos los días, 12:30 UTC | Briefing de las 7:30 a. m. de Lima al dueño y a recepción: cifras de ayer + agenda de hoy |
 | 5 | POST | `TU-URL/jobs/weekly-report` | `x-cron-secret` | Lunes, 13:00 UTC | Reporte semanal y línea de la garantía |
 | 6 | GET | `TU-URL/health/deep` | `x-cron-secret` | Cada 12 horas | Consulta la base de datos: Supabase gratis no se pausa y te avisa si se cae |
 
@@ -147,6 +148,6 @@ tareas (se reconocen por el título `<clínica> · <tarea>`, así que correrlo d
 - [ ] Entra a `TU-URL/panel` con `PANEL_USER` / `PANEL_PASSWORD` → ves la conversación, la cita en **Agenda** y reactivas
       el bot en la conversación de la urgencia.
 - [ ] cron-job.org: las 6 tareas creadas, con **Test run** en `200`.
-- [ ] Al día siguiente a las 8:00 a. m.: el dueño recibió el resumen diario.
+- [ ] Al día siguiente a las 7:30 a. m.: el dueño y recepción recibieron el briefing con la agenda del día.
 
 Si algo falla, `npm run preflight` dice qué falta y cómo arreglarlo, sin mostrar ninguna clave.

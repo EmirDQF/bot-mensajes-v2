@@ -115,6 +115,7 @@ describe('jobs: resumen diario y seguimiento', () => {
     const result = await jobs.runDailySummary();
     assert.deepEqual(result.summary, {
       date: result.summary.date, afterHours: 2, created: 1, afterHoursAppointments: 1, today: 1, unbooked: 2, topAd: 'Brackets S/ 0 (2 citas)',
+      agenda: ['Hora por confirmar — Paciente · Evaluación'],
     });
     assert.equal(whatsapp.sent[0].to, '51988777666');
     assert.equal(whatsapp.sent[0].name, 'resumen_diario');

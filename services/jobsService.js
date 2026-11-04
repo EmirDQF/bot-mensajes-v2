@@ -9,6 +9,8 @@ import { now as clockNow } from './clock.js';
 import handoffService from './handoffService.js';
 import messageDedup from './messageDedup.js';
 import { fetchAllRows } from './supabasePaging.js';
+import { isMissingColumn } from './appointmentService.js';
+import { adTreatment } from './adContext.js';
 
 // Tareas programadas. Las dispara un cron externo (Render Cron Job) vía POST /jobs/* con CRON_SECRET;
 // no hay temporizadores internos porque Render duerme el servicio.
@@ -16,6 +18,13 @@ import { fetchAllRows } from './supabasePaging.js';
 const HOUR_MS = 60 * 60 * 1000;
 const WINDOW_MS = 23.5 * HOUR_MS; // margen de seguridad sobre la ventana de 24 h de WhatsApp
 const FOLLOW_UP_AFTER_HOURS = Number(process.env.FOLLOW_UP_AFTER_HOURS || 20);
+// Primer seguimiento (~4 h sin respuesta) y reactivación de pacientes que vinieron hace ~6 meses.
+const FOLLOW_UP_FIRST_HOURS = Number(process.env.FOLLOW_UP_FIRST_HOURS || 4);
+const FOLLOW_UP_FIRST_UNTIL_HOURS = FOLLOW_UP_FIRST_HOURS + 4;
+const REACTIVATION_DAYS = Number(process.env.REACTIVATION_DAYS || 180);
+const REACTIVATION_WINDOW_DAYS = 7;
+// Botones del recordatorio dentro de la ventana de 24 h (la plantilla trae los suyos: Confirmo / Reprogramar).
+export const REMINDER_BUTTONS = [{ id: 'confirmar', title: 'Confirmar' }, { id: 'reagendar', title: 'Reagendar' }];
 
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
@@ -57,13 +66,17 @@ export function createJobs({
 
   // Dentro de la ventana de 24 h se envía texto libre; fuera de ella, la plantilla aprobada.
   // sent (opcional) recibe la respuesta de Meta en sent.result (el panel guarda el id para los ✓✓).
-  async function sendWithWindow(to, { text, template, params }, sent = {}) {
+  async function sendWithWindow(to, { text, template, params, buttons = null }, sent = {}) {
     let inWindow = false;
     try {
       const last = await lastInboundAt(to);
       inWindow = Boolean(last) && now() - last < WINDOW_MS;
     } catch (error) {
       console.warn('[Jobs] No se pudo leer el último mensaje del paciente; se usará la plantilla:', error?.message || error);
+    }
+    if (inWindow && buttons && typeof whatsapp.sendButtonsMessage === 'function') {
+      sent.result = await whatsapp.sendButtonsMessage(to, text, buttons);
+      return 'buttons';
     }
     if (inWindow) {
       sent.result = await whatsapp.sendTextMessage(to, text);
@@ -100,12 +113,19 @@ export function createJobs({
         address: clinic.address,
       };
       const hello = firstName(apt.patient_name) ? `Hola ${firstName(apt.patient_name)}` : 'Hola';
+      // Con botones (si el cliente de WhatsApp los soporta) o con 1️⃣ / 2️⃣ escritos: el webhook entiende ambos.
       const text = kind === '24h'
         ? `${hello} 👋 Te recordamos tu cita en ${clinic.name} para ${data.treatment} el ${data.day} a las ${data.time}.\n📍 ${clinic.address}\n\nResponde:\n1️⃣ Confirmo\n2️⃣ Reprogramar`
         : `${hello} 👋 Tu cita en ${clinic.name} es hoy a las ${data.time}.\n📍 ${clinic.address}\n\nSi no podrás llegar, responde 2️⃣ para reprogramar.`;
+      const buttonText = kind === '24h'
+        ? `${hello} 👋 Te recordamos tu cita en ${clinic.name} para ${data.treatment} el ${data.day} a las ${data.time}.\n📍 ${clinic.address}\n\n¿Nos confirmas tu asistencia?`
+        : `${hello} 👋 Tu cita en ${clinic.name} es hoy a las ${data.time}.\n📍 ${clinic.address}\n\nSi no podrás llegar, toca Reagendar.`;
       const template = kind === '24h' ? TEMPLATES.reminder24h : TEMPLATES.reminder2h;
       try {
-        await sendWithWindow(apt.sender_phone, { text, template, params: template.params(data) });
+        const sendsButtons = typeof whatsapp.sendButtonsMessage === 'function';
+        await sendWithWindow(apt.sender_phone, {
+          text: sendsButtons ? buttonText : text, template, params: template.params(data), buttons: sendsButtons ? REMINDER_BUTTONS : null,
+        });
         const column = kind === '24h' ? 'reminder_24h_sent_at' : 'reminder_2h_sent_at';
         await appointments.updateStatus(apt.id, apt.status, { [column]: current.toISOString() });
         result[kind === '24h' ? 'sent24h' : 'sent2h'] += 1;
@@ -136,7 +156,7 @@ export function createJobs({
 
     const created = await query(client.from('appointments').select('id, created_at')
       .eq('clinic_id', clinic.id).gte('created_at', from).lt('created_at', to));
-    const todays = await query(client.from('appointments').select('id')
+    const todays = await query(client.from('appointments').select('id, appointment_time, patient_name, treatment, status')
       .eq('clinic_id', clinic.id).eq('appointment_date', today).in('status', ACTIVE_STATUSES));
     const week = await query(client.from('appointments').select('sender_phone, ad_referral')
       .eq('clinic_id', clinic.id).gte('created_at', weekAgo));
@@ -166,6 +186,8 @@ export function createJobs({
       today: todays.length,
       unbooked,
       topAd,
+      agenda: [...todays].sort((a, b) => String(a.appointment_time).localeCompare(String(b.appointment_time)))
+        .map((a) => `${a.appointment_time ? formatTimeEs(a.appointment_time) : 'Hora por confirmar'} — ${firstName(a.patient_name) || 'Paciente'} · ${a.treatment || 'Evaluación'}${a.status === 'confirmada' ? ' ✅' : ''}`),
     };
   }
 
@@ -186,17 +208,77 @@ export function createJobs({
       `🦷 Citas para hoy: ${summary.today}`,
       `⏳ Leads sin agendar: ${summary.unbooked}`,
       `📣 Anuncio con más citas (7 días): ${summary.topAd}`,
+      '',
+      `🗓️ Agenda de hoy (${summary.agenda.length}):`,
+      ...(summary.agenda.length ? summary.agenda : ['Sin citas registradas para hoy.']),
     ].join('\n');
-    const owner = getOwnerPhone();
-    if (!owner) {
-      console.warn('[Jobs] OWNER_ALERT_PHONE no está definida; el resumen diario no se envió.');
+    // Briefing de las 7:30 a. m.: al dueño y a recepción (si es otro número). Fuera de la ventana de 24 h va la
+    // plantilla resumen_diario (solo cifras); la agenda completa queda en el panel.
+    const recipients = [...new Set([getOwnerPhone(), getReceptionPhone()].filter(Boolean))];
+    if (!recipients.length) {
+      console.warn('[Jobs] OWNER_ALERT_PHONE ni RECEPTION_ALERT_PHONE están definidas; el resumen diario no se envió.');
       return { sent: false, summary, text };
     }
-    const channel = await sendWithWindow(owner, { text, template: TEMPLATES.dailySummary, params: TEMPLATES.dailySummary.params(summary) });
-    return { sent: true, channel, summary, text };
+    const params = TEMPLATES.dailySummary.params(summary);
+    const channels = [];
+    for (const to of recipients) channels.push(await sendWithWindow(to, { text, template: TEMPLATES.dailySummary, params }));
+    return { sent: true, channel: channels[0], channels, summary, text };
   }
 
-  // ---------- Seguimiento único a leads que no agendaron ----------
+  // ---------- Seguimientos a leads que no agendaron (~4 h y ~23 h) y reactivación (~6 meses) ----------
+  // follow_ups guarda una fila por paciente y etapa (first, final, reactivation): el índice único evita repetir
+  // aunque el cron se ejecute varias veces. Sin migrations/20261104_follow_up_stages.sql solo corre "final".
+  const STAGES = [
+    { stage: 'first', fromHours: FOLLOW_UP_FIRST_HOURS, toHours: FOLLOW_UP_FIRST_UNTIL_HOURS },
+    { stage: 'final', fromHours: FOLLOW_UP_AFTER_HOURS, toHours: WINDOW_MS / HOUR_MS },
+  ];
+
+  async function sentStages(client, phones) {
+    try {
+      const rows = await query(client.from('follow_ups').select('phone, stage').eq('clinic_id', clinic.id).in('phone', phones));
+      return { supported: true, done: new Set(rows.map((f) => `${digits(f.phone)}:${f.stage || 'final'}`)) };
+    } catch (error) {
+      if (!isMissingColumn(error, 'stage')) throw error;
+      console.warn('[Jobs] Falta follow_ups.stage; ejecuta migrations/20261104_follow_up_stages.sql (solo corre el seguimiento de ~23 h)');
+      const rows = await query(client.from('follow_ups').select('phone').eq('clinic_id', clinic.id).in('phone', phones));
+      return { supported: false, done: new Set(rows.map((f) => `${digits(f.phone)}:final`)) };
+    }
+  }
+
+  // Ficha del lead: "no contactar" y anuncio de origen. leads.telefono va sin el 51.
+  async function leadProfiles(client, phones) {
+    try {
+      const local = phones.map((p) => p.slice(-9));
+      const rows = await query(client.from('leads').select('telefono, tags, ad_referral').in('telefono', [...new Set([...phones, ...local])]));
+      return new Map(rows.map((l) => [digits(l.telefono).slice(-9), l]));
+    } catch (error) {
+      console.warn('[Jobs] No se pudieron leer las fichas de los leads:', error?.message || error);
+      return new Map();
+    }
+  }
+
+  const doNotContact = (profile) => Array.isArray(profile?.tags) && profile.tags.includes('no_contactar');
+
+  // Se registra antes de enviar (claim): si otra ejecución ya lo hizo, el índice único lo rechaza.
+  async function claimFollowUp(client, phone, stage, supported, at) {
+    const row = supported ? { clinic_id: clinic.id, phone, stage, sent_at: at } : { clinic_id: clinic.id, phone, sent_at: at };
+    const { error } = await client.from('follow_ups').insert([row]);
+    if (!error) return true;
+    if (error.code !== '23505') console.error('[Jobs] No se pudo registrar el seguimiento:', error.message || error);
+    return false;
+  }
+
+  function followUpText(stage, profile) {
+    const treatment = adTreatment(profile?.ad_referral);
+    const campaign = [clinic.campaign?.evaluation, clinic.campaign?.initialFee].filter(Boolean).join(' y ');
+    if (stage === 'first') {
+      return `¡Hola! Soy ${clinic.botName} de ${clinic.name} 😊 Te escribo por tu consulta${treatment ? ` de ${treatment.name}` : ''}. `
+        + `¿Te propongo 3 horarios para tu evaluación? Solo responde "quiero una cita".`;
+    }
+    return `¡Hola! Soy ${clinic.botName} de ${clinic.name} 😊 ¿Pudiste pensarlo${treatment ? ` lo de ${treatment.name}` : ''}? `
+      + `Seguimos con ${campaign || 'nuestra campaña'}. Si quieres, te propongo 3 horarios para tu evaluación: solo responde "quiero una cita".`;
+  }
+
   async function runFollowUps() {
     const current = now();
     const client = await db();
@@ -212,50 +294,36 @@ export function createJobs({
       const at = new Date(m.created_at);
       if (!lastByPhone.has(phone) || lastByPhone.get(phone) < at) lastByPhone.set(phone, at);
     }
-    // Solo quien lleva entre 20 h y 23,5 h sin escribir: sigue dentro de la ventana gratuita.
-    const candidates = [...lastByPhone.entries()]
-      .filter(([, at]) => {
-        const hours = (current - at) / HOUR_MS;
-        return hours >= FOLLOW_UP_AFTER_HOURS && hours < WINDOW_MS / HOUR_MS;
-      })
-      .map(([phone]) => phone);
+    // Cada paciente cae como mucho en una etapa según las horas desde su último mensaje (siempre dentro de la
+    // ventana gratuita de 24 h).
+    const candidates = [];
+    for (const [phone, at] of lastByPhone) {
+      const hours = (current - at) / HOUR_MS;
+      const match = STAGES.find((s) => hours >= s.fromHours && hours < s.toHours);
+      if (match) candidates.push({ phone, stage: match.stage });
+    }
     const result = { candidates: candidates.length, sent: 0, skipped: 0, failed: 0 };
     if (!candidates.length) return result;
 
+    const phones = candidates.map((c) => c.phone);
     const monthAgo = new Date(current - 30 * 24 * HOUR_MS).toISOString();
     const withAppointment = new Set((await query(client.from('appointments').select('sender_phone')
-      .eq('clinic_id', clinic.id).in('sender_phone', candidates).gte('created_at', monthAgo))).map((a) => digits(a.sender_phone)));
-    const alreadyFollowed = new Set((await query(client.from('follow_ups').select('phone')
-      .eq('clinic_id', clinic.id).in('phone', candidates))).map((f) => digits(f.phone)));
-    // Etiqueta "no contactar" de la ficha (migrations/20260930_lead_profile.sql). leads.telefono va sin el 51.
-    let doNotContact = new Set();
-    try {
-      const local = candidates.map((p) => p.slice(-9));
-      doNotContact = new Set((await query(client.from('leads').select('telefono, tags').in('telefono', [...candidates, ...local])))
-        .filter((l) => Array.isArray(l.tags) && l.tags.includes('no_contactar')).map((l) => digits(l.telefono).slice(-9)));
-    } catch (error) {
-      console.warn('[Jobs] No se pudieron leer las etiquetas de los leads:', error?.message || error);
-    }
+      .eq('clinic_id', clinic.id).in('sender_phone', phones).gte('created_at', monthAgo))).map((a) => digits(a.sender_phone)));
+    const { supported, done } = await sentStages(client, phones);
+    const profiles = await leadProfiles(client, phones);
 
-    const campaign = [clinic.campaign?.evaluation, clinic.campaign?.initialFee].filter(Boolean).join(' y ');
-    const text = `¡Hola! Soy ${clinic.botName} de ${clinic.name} 😊 ¿Pudiste pensarlo? Seguimos con ${campaign || 'nuestra campaña'}. `
-      + 'Si quieres, te propongo 3 horarios para tu evaluación: solo responde "quiero una cita".';
-
-    for (const phone of candidates) {
-      if (withAppointment.has(phone) || alreadyFollowed.has(phone) || doNotContact.has(phone.slice(-9)) || await handoff.isPaused(phone)) {
+    for (const { phone, stage } of candidates) {
+      const profile = profiles.get(phone.slice(-9));
+      const skip = withAppointment.has(phone) || done.has(`${phone}:${stage}`) || (!supported && stage !== 'final')
+        || doNotContact(profile) || await handoff.isPaused(phone);
+      if (skip || !(await claimFollowUp(client, phone, stage, supported, current.toISOString()))) {
         result.skipped += 1;
-        continue;
-      }
-      // Se registra antes de enviar: el índice único evita un segundo mensaje aunque el cron se repita.
-      const { error: claimError } = await client.from('follow_ups').insert([{ clinic_id: clinic.id, phone, sent_at: current.toISOString() }]);
-      if (claimError) {
-        result.skipped += 1;
-        if (claimError.code !== '23505') console.error('[Jobs] No se pudo registrar el seguimiento:', claimError.message || claimError);
         continue;
       }
       try {
+        const campaign = [clinic.campaign?.evaluation, clinic.campaign?.initialFee].filter(Boolean).join(' y ');
         await sendWithWindow(phone, {
-          text, template: TEMPLATES.reactivation, params: TEMPLATES.reactivation.params({ clinicName: clinic.name, campaign }),
+          text: followUpText(stage, profile), template: TEMPLATES.reactivation, params: TEMPLATES.reactivation.params({ clinicName: clinic.name, campaign }),
         });
         result.sent += 1;
       } catch (error) {
@@ -266,7 +334,55 @@ export function createJobs({
     return result;
   }
 
-  return { runReminders, runDailySummary, buildDailySummary, runFollowUps, sendWithWindow, lastInboundAt };
+  // Pacientes cuya última cita (no cancelada) fue hace ~6 meses y no volvieron: plantilla de reactivación
+  // (fuera de la ventana de 24 h solo se puede escribir con plantillas aprobadas). Una vez por paciente.
+  async function runReactivation() {
+    const current = now();
+    const client = await db();
+    const today = localParts(clinic.timezone, current).date;
+    const from = addDays(today, -(REACTIVATION_DAYS + REACTIVATION_WINDOW_DAYS));
+    const to = addDays(today, -REACTIVATION_DAYS);
+    const old = await query(client.from('appointments').select('sender_phone, appointment_date, status')
+      .eq('clinic_id', clinic.id).gte('appointment_date', from).lte('appointment_date', to));
+    const internal = internalPhones();
+    const phones = [...new Set(old.filter((a) => a.status !== 'cancelada').map((a) => digits(a.sender_phone)))]
+      .filter((phone) => phone && !internal.has(phone));
+    const result = { candidates: phones.length, sent: 0, skipped: 0, failed: 0 };
+    if (!phones.length) return result;
+
+    const returned = new Set((await query(client.from('appointments').select('sender_phone, appointment_date, status')
+      .eq('clinic_id', clinic.id).in('sender_phone', phones).gt('appointment_date', to)))
+      .filter((a) => a.status !== 'cancelada').map((a) => digits(a.sender_phone)));
+    const { supported, done } = await sentStages(client, phones);
+    if (!supported) {
+      result.skipped = phones.length;
+      return result;
+    }
+    const profiles = await leadProfiles(client, phones);
+    const campaign = [clinic.campaign?.evaluation, clinic.campaign?.initialFee].filter(Boolean).join(' y ');
+    for (const phone of phones) {
+      const skip = returned.has(phone) || done.has(`${phone}:reactivation`) || doNotContact(profiles.get(phone.slice(-9)))
+        || await handoff.isPaused(phone);
+      if (skip || !(await claimFollowUp(client, phone, 'reactivation', true, current.toISOString()))) {
+        result.skipped += 1;
+        continue;
+      }
+      try {
+        await sendWithWindow(phone, {
+          text: `¡Hola! Te escribimos de ${clinic.name} 😊 Ya pasaron unos meses desde tu última visita. ¿Te propongo 3 horarios para tu control? Solo responde "quiero una cita".`,
+          template: TEMPLATES.reactivation,
+          params: TEMPLATES.reactivation.params({ clinicName: clinic.name, campaign: campaign || 'evaluación de control' }),
+        });
+        result.sent += 1;
+      } catch (error) {
+        result.failed += 1;
+        console.error('[Jobs] Reactivación falló:', error?.message || error);
+      }
+    }
+    return result;
+  }
+
+  return { runReminders, runDailySummary, buildDailySummary, runFollowUps, runReactivation, sendWithWindow, lastInboundAt };
 }
 
 const jobs = createJobs();

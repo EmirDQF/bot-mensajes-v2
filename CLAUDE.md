@@ -57,7 +57,7 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | Modo demo: Supabase en memoria, pacientes inventados, bloqueo en producción | `services/demo/` (`scripts/demo.js`) |
 | Probador del panel (flujo real, WhatsApp falso, hora simulada) | `controllers/testerController.js`, `public/app/tester.js`, `services/testContext.js` |
 | Recomendación de evaluación sin diagnosticar, lead score, notas para el bot | `services/recommendationService.js` (ficha: `PUT /api/panel/conversations/:phone/profile`) |
-| Recordatorios, resumen diario, seguimiento | `services/jobsService.js` + `routes/jobs.js` |
+| Recordatorios (con botones), briefing 7:30, seguimientos ~4 h / ~23 h, reactivación 6 meses | `services/jobsService.js` + `routes/jobs.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
 | Panel de recepción | `public/panel.html`, `public/app/*.js` (main, inbox, live, views, config, tester), `controllers/panelController.js`, `services/panelDataService.js` |
 | Etiquetas de fotos `[ENVIAR_FOTO: x]` | `services/mediaTags.js` |

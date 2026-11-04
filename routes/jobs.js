@@ -30,7 +30,11 @@ export function createJobsRouter(jobs = defaultJobs, report = defaultReport) {
   };
   router.post('/reminders', requireCronSecret, run('reminders', () => jobs.runReminders()));
   router.post('/daily-summary', requireCronSecret, run('daily-summary', () => jobs.runDailySummary()));
-  router.post('/follow-ups', requireCronSecret, run('follow-ups', () => jobs.runFollowUps()));
+  // Seguimientos (~4 h y ~23 h) y, en la misma tarea de cada hora, la reactivación de los ~6 meses.
+  router.post('/follow-ups', requireCronSecret, run('follow-ups', async () => ({
+    ...(await jobs.runFollowUps()), reactivation: await jobs.runReactivation(),
+  })));
+  router.post('/reactivation', requireCronSecret, run('reactivation', () => jobs.runReactivation()));
   // Lunes 8:00 a. m. (Lima): reporte de los 7 días anteriores al dueño, con la línea de la garantía.
   // Opcional: ?from=AAAA-MM-DD&to=AAAA-MM-DD (por ejemplo, la semana de garantía desde la instalación).
   router.post('/weekly-report', requireCronSecret, run('weekly-report', async (req) => {

@@ -257,7 +257,7 @@ async function persistAgendaPayload(payload, context = {}) {
       source: context.source || 'whatsapp',
       adReferral: context.adReferral || null,
     });
-    await appointmentService.notifyReception(appointment);
+    await appointmentService.notifyReception(appointment, { summary: context.summary || null });
     return { status: 'saved', appointment };
   } catch (error) {
     if (error instanceof SlotTakenError) {
@@ -288,7 +288,8 @@ export const DATA_DELETION = /^\s*(?:por\s+favor\s+)?(?:borra|borrar|elimina|eli
 const DATA_DELETION_REPLY = 'Listo ✅ Eliminamos tu conversación y tus datos de contacto de nuestro asistente. '
   + 'Si tienes una cita registrada, la clínica la conserva solo para atenderte; puedes cancelarla escribiendo "cancelar mi cita".';
 const REMINDER_CONFIRM = /^\s*(?:1|1️⃣|confirmo|confirmar|confirmado|s[ií],?\s*confirmo)\s*[.!]*\s*$/i;
-const REMINDER_RESCHEDULE = /^\s*(?:2|2️⃣|reprogramar)\s*[.!]*\s*$/i;
+// "Reagendar" / "Reprogramar": botón del recordatorio (interactivo o de la plantilla) o respuesta escrita.
+const REMINDER_RESCHEDULE = /^\s*(?:2|2️⃣|reprogramar|reagendar)\s*[.!]*\s*$/i;
 const RESCHEDULE_TTL_MS = 30 * 60 * 1000;
 // Cierra una frase sin duplicar el punto de "p. m.".
 const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
@@ -570,7 +571,7 @@ async function applyAppointmentRequest(from, jid, geminiResult, text, offeredSlo
     return { text: offeredSlots?.length ? `${text}${formatSlotList(offeredSlots)}`.trim() : text, appointmentOutcome: null };
   }
   const appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, {
-    phone: from, adReferral: await getAdReferral(from),
+    phone: from, adReferral: await getAdReferral(from), summary: geminiService.conversationSummary(jid),
   });
   if (appointmentOutcome.status !== 'slot_taken') return { text, appointmentOutcome };
   geminiService.releaseBooking(jid);

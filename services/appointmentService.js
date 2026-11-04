@@ -313,7 +313,7 @@ export function createAppointmentService({
     return data || null;
   }
 
-  function receptionMessage(appointment, event) {
+  function receptionMessage(appointment, event, summary = null) {
     const titles = {
       nueva: '🦷 Nueva solicitud de cita',
       reprogramada: '🔁 Cita reprogramada por el paciente',
@@ -330,19 +330,21 @@ export function createAppointmentService({
     ];
     const ad = appointment.ad_referral;
     if (ad && (ad.headline || ad.source_id)) lines.push(`📣 Anuncio: ${ad.headline || ad.source_id}`);
+    // Resumen de 2 líneas de la conversación (geminiService.conversationSummary), para escribirle con contexto.
+    if (summary?.length) lines.push('', '💬 Resumen:', ...summary.slice(0, 2));
     if (event === 'nueva') lines.push('', 'Escríbele al paciente para confirmar la cita.');
     return lines.join('\n');
   }
 
   // Avisa a recepción por WhatsApp. Nunca lanza: si falla, deja el error en el log.
-  async function notifyReception(appointment, { event = 'nueva' } = {}) {
+  async function notifyReception(appointment, { event = 'nueva', summary = null } = {}) {
     const to = getReceptionPhone();
     if (!to) {
       console.warn('[Appointments] RECEPTION_ALERT_PHONE no está definida; no se avisó a recepción.');
       return { sent: false, reason: 'missing_phone' };
     }
     try {
-      await whatsapp.sendTextMessage(to, receptionMessage(appointment, event));
+      await whatsapp.sendTextMessage(to, receptionMessage(appointment, event, summary));
       return { sent: true };
     } catch (error) {
       console.error('[Appointments] No se pudo avisar a recepción:', error?.message || error);

@@ -12,8 +12,8 @@ const every = (step) => Array.from({ length: 60 / step }, (_, i) => i * step);
 export const CRON_JOBS = [
   { key: 'health', method: 'GET', path: '/health', secret: false, when: 'Cada 10 minutos', schedule: { minutes: every(10), hours: ALL, wdays: ALL } },
   { key: 'reminders', method: 'POST', path: '/jobs/reminders', secret: true, when: 'Cada 15 minutos', schedule: { minutes: every(15), hours: ALL, wdays: ALL } },
-  { key: 'follow-ups', method: 'POST', path: '/jobs/follow-ups', secret: true, when: 'Cada hora (minuto 0)', schedule: { minutes: [0], hours: ALL, wdays: ALL } },
-  { key: 'daily-summary', method: 'POST', path: '/jobs/daily-summary', secret: true, when: 'Todos los días 13:00 UTC (8:00 Lima)', schedule: { minutes: [0], hours: [13], wdays: ALL } },
+  { key: 'follow-ups', method: 'POST', path: '/jobs/follow-ups', secret: true, when: 'Cada hora (minuto 0); incluye la reactivación', schedule: { minutes: [0], hours: ALL, wdays: ALL } },
+  { key: 'daily-summary', method: 'POST', path: '/jobs/daily-summary', secret: true, when: 'Todos los días 12:30 UTC (7:30 Lima)', schedule: { minutes: [30], hours: [12], wdays: ALL } },
   { key: 'weekly-report', method: 'POST', path: '/jobs/weekly-report', secret: true, when: 'Lunes 13:00 UTC (8:00 Lima)', schedule: { minutes: [0], hours: [13], wdays: [1] } },
   { key: 'health-deep', method: 'GET', path: '/health/deep', secret: true, when: 'Cada 12 horas', schedule: { minutes: [5], hours: [0, 12], wdays: ALL } },
 ];

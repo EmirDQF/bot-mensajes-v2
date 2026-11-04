@@ -687,6 +687,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   // Respuesta corta al dato que se le pidió en el mensaje anterior ("Ana Torres", "Surco").
   const answer = captureAnswer(session.askedField, messageText);
   if (answer) session.captured = { ...(session.captured || {}), ...answer };
+  if (!session.firstQuestion && messageText.trim()) session.firstQuestion = messageText.trim();
   session.history.push({ role: 'user', parts: [{ text: messageText }], at: now });
   session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
   const leadData = collectLead(session, messageText, sid);
@@ -755,8 +756,29 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   }
 }
 
+// Resumen de 2 líneas para la alerta de recepción, solo con lo que dijo el paciente (sin IA, sin inventar):
+// qué consultó primero y los datos que dejó. [] si no hay conversación en memoria.
+const quote = (text, max = 90) => {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+};
+
+export function conversationSummary(jid) {
+  const session = chatSessions.get(sessionId(jid));
+  if (!session?.firstQuestion) return [];
+  const lead = session.pendingLead || session.leadSnapshot || {};
+  const details = [
+    lead.motivo && `Tratamiento: ${findTreatment(lead.motivo)?.name || lead.motivo}`,
+    lead.distrito && `Distrito: ${lead.distrito}`,
+    session.adReferral?.headline && `Anuncio: ${quote(session.adReferral.headline, 60)}`,
+    session.afterHours && 'escribió con la clínica cerrada',
+  ].filter(Boolean);
+  return [`Consultó: "${quote(session.firstQuestion)}"`, details.join(' · ') || 'Sin más datos en la conversación'];
+}
+
 export default {
   obtenerRespuestaIA,
+  conversationSummary,
   sanitizeModelTextOutput,
   isExplicitConfirmation,
   resetSession,

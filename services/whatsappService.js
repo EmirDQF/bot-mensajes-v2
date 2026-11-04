@@ -34,7 +34,10 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const test = testMode();
   if (test && !options.fetchImpl) {
     const id = `wamid.prueba.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-    test.onSend?.(String(toPhone), { text, template: options.template?.name || null, media: media?.link || null, location: options.location || null, id });
+    test.onSend?.(String(toPhone), {
+      text, template: options.template?.name || null, media: media?.link || null, location: options.location || null,
+      buttons: options.buttons?.map((b) => b.title) || null, id,
+    });
     return { messages: [{ id }], test: true };
   }
   // Modo demo (npm run demo): los pacientes son inventados; nada sale a Meta.
@@ -48,6 +51,17 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const template = options.template || null;
   const body = options.location
     ? { messaging_product: 'whatsapp', to: toPhone, type: 'location', location: options.location }
+    : options.buttons
+    ? {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: text || '' },
+          action: { buttons: options.buttons.map(({ id, title }) => ({ type: 'reply', reply: { id, title } })) },
+        },
+      }
     : template
     ? {
         messaging_product: 'whatsapp',
@@ -216,6 +230,13 @@ export function sendLocationMessage(toPhone, { latitude, longitude, name, addres
   });
 }
 
+// Mensaje con botones de respuesta (máximo 3, título de hasta 20 caracteres). Solo dentro de la ventana de
+// 24 h; al tocarlo, el webhook recibe interactive.button_reply con el título.
+export function sendButtonsMessage(toPhone, text, buttons, options = {}) {
+  const clean = buttons.slice(0, 3).map((b) => ({ id: String(b.id).slice(0, 256), title: String(b.title).slice(0, 20) }));
+  return sendWhatsAppMessage(toPhone, String(text || '').slice(0, 1024), { ...options, buttons: clean });
+}
+
 // Plantilla aprobada por Meta (obligatoria para escribir fuera de la ventana de 24 h).
 // Ver docs/whatsapp-templates.md. Los parámetros del cuerpo no pueden llevar saltos de línea.
 export function sendTemplateMessage(toPhone, name, bodyParams = [], { language = 'es', ...options } = {}) {
@@ -282,6 +303,7 @@ export default {
   sendImageMessage,
   sendTemplateMessage,
   sendLocationMessage,
+  sendButtonsMessage,
   markMessageAsRead,
   sendTypingIndicator,
 };
