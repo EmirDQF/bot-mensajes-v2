@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { TOKEN_STEPS } from '../services/systemAlerts.js';
+import { parseFallbackModels } from '../config/env.js';
 
 const ROOT = process.cwd();
 
@@ -221,25 +222,56 @@ export async function checkWhatsApp(env, fetchImpl) {
 
 export const isTestNumber = (phone) => /^test number$/i.test(String(phone?.verified_name || '').trim());
 
-// Se valida con una llamada real (generateContent de pocos tokens): funciona con cualquier formato de clave.
+// Llamada real y corta (generateContent de pocos tokens): funciona con cualquier formato de clave.
+async function probeGeminiModel(env, model, fetchImpl) {
+  const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Responde solo: ok' }] }], generationConfig: { maxOutputTokens: 5 } }),
+  });
+  return { res, body: await res.json().catch(() => ({})) };
+}
+
+const MIN_WORKING_FALLBACKS = 2;
+
+// Cada modelo de GEMINI_FALLBACK_MODELS debe responder: son los que atienden cuando el principal da 503.
+async function checkGeminiFallbacks(env, primary, fetchImpl) {
+  const models = parseFallbackModels(env.GEMINI_FALLBACK_MODELS, primary);
+  const results = [];
+  let working = 0;
+  for (const model of models) {
+    try {
+      const { res } = await probeGeminiModel(env, model, fetchImpl);
+      if (res.ok) working += 1;
+      results.push(res.ok ? pass(`Gemini respaldo: ${model} responde`) : warn(`Gemini respaldo: ${model} no responde (HTTP ${res.status})`));
+    } catch (error) {
+      results.push(warn(`Gemini respaldo: ${model} sin respuesta (${error.message})`));
+    }
+  }
+  const fix = `Pon en GEMINI_FALLBACK_MODELS (Render → Environment) al menos ${MIN_WORKING_FALLBACKS} modelos que respondan hoy; Google AI Studio lista los disponibles.`;
+  results.push(working >= MIN_WORKING_FALLBACKS
+    ? pass(`Gemini: ${working} de ${models.length} modelos de respaldo responden`)
+    : warn(`Gemini: solo ${working} de ${models.length} modelos de respaldo responden`, fix));
+  return results;
+}
+
 export async function checkGemini(env, fetchImpl) {
   if (!env.GEMINI_API_KEY) return [fail('Gemini sin probar', 'Define GEMINI_API_KEY.')];
   const model = env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  return [await checkGeminiPrimary(env, model, fetchImpl), ...await checkGeminiFallbacks(env, model, fetchImpl)];
+}
+
+async function checkGeminiPrimary(env, model, fetchImpl) {
   try {
-    const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Responde solo: ok' }] }], generationConfig: { maxOutputTokens: 5 } }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (res.ok) return [pass(`Gemini: la clave responde con el modelo ${model}`)];
+    const { res, body } = await probeGeminiModel(env, model, fetchImpl);
+    if (res.ok) return pass(`Gemini: la clave responde con el modelo ${model}`);
     const reason = body.error?.details?.find((d) => d.reason)?.reason || body.error?.status || res.status;
-    if (res.status === 404) return [fail(`Gemini: el modelo ${model} no existe para esta clave`, 'Usa GEMINI_MODEL=gemini-3.5-flash-lite (o uno que liste Google AI Studio).')];
-    if (res.status === 429) return [warn(`Gemini: cuota agotada por ahora (${reason})`, 'La clave es válida; espera o revisa la cuota en Google AI Studio → Uso.')];
-    if (res.status >= 500) return [warn(`Gemini respondió ${res.status} (servicio saturado)`, 'Vuelve a correr el preflight en unos minutos; mientras tanto el bot usa su respuesta de respaldo.')];
-    return [fail(`Gemini rechazó la clave (${reason})`, 'Crea una clave en Google AI Studio → https://aistudio.google.com/apikey y pégala en GEMINI_API_KEY.')];
+    if (res.status === 404) return fail(`Gemini: el modelo ${model} no existe para esta clave`, 'Usa GEMINI_MODEL=gemini-3.5-flash-lite (o uno que liste Google AI Studio).');
+    if (res.status === 429) return warn(`Gemini: cuota agotada por ahora (${reason})`, 'La clave es válida; espera o revisa la cuota en Google AI Studio → Uso.');
+    if (res.status >= 500) return warn(`Gemini respondió ${res.status} (servicio saturado)`, 'Vuelve a correr el preflight en unos minutos; mientras tanto el bot usa su respuesta de respaldo.');
+    return fail(`Gemini rechazó la clave (${reason})`, 'Crea una clave en Google AI Studio → https://aistudio.google.com/apikey y pégala en GEMINI_API_KEY.');
   } catch (error) {
-    return [fail('No se pudo contactar a Gemini', `Revisa tu conexión (${error.message}).`)];
+    return fail('No se pudo contactar a Gemini', `Revisa tu conexión (${error.message}).`);
   }
 }
 

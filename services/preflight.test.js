@@ -134,6 +134,22 @@ describe('preflight: WhatsApp, Gemini y clínica', () => {
     assert.ok(!printed(bad).includes(SECRET));
   });
 
+  it('prueba cada modelo de GEMINI_FALLBACK_MODELS y avisa si responden menos de 2', async () => {
+    const env = { GEMINI_API_KEY: SECRET, GEMINI_MODEL: 'gemini-a', GEMINI_FALLBACK_MODELS: 'gemini-b, gemini-c,gemini-a' };
+    const urls = [];
+    const allOk = await checkGemini(env, async (url) => { urls.push(url); return jsonResponse(200, {}); });
+    assert.deepEqual(urls.map((u) => u.match(/models\/([^:]+)/)[1]), ['gemini-a', 'gemini-b', 'gemini-c']);
+    assert.ok(allOk.every((r) => r.status === 'ok'));
+    assert.ok(allOk.some((r) => /2 de 2 modelos de respaldo responden/.test(r.label)));
+
+    const oneDown = await checkGemini(env, async (url) => jsonResponse(/gemini-c/.test(url) ? 404 : 200, {}));
+    const summary = oneDown[oneDown.length - 1];
+    assert.equal(summary.status, 'warn');
+    assert.match(summary.label, /1 de 2/);
+    assert.match(summary.fix, /GEMINI_FALLBACK_MODELS/);
+    assert.ok(!printed(oneDown).includes(SECRET));
+  });
+
   it('validates the active clinic and its photos', async () => {
     const ok = await checkClinic();
     assert.ok(ok.every((r) => r.status === 'ok'));
