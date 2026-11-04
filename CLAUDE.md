@@ -65,7 +65,7 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | Scripts | `scripts/preflight.js`, `scripts/simulate-conversations.js`, `scripts/new-clinic.js` |
 | Go-live por API (Meta, Supabase, cron-job.org, smoke) | `scripts/meta.js`, `scripts/db.js`, `scripts/crons-setup.js`, `scripts/smoke-prod.js`, `scripts/lib/` |
 | Alertas del sistema (token de WhatsApp vencido → log + banner) | `services/systemAlerts.js` |
-| Docs | `docs/go-live.md`, `docs/deploy.md`, `docs/onboarding-cliente.md`, `docs/whatsapp-templates.md`, `docs/qa-report.md`, `docs/ventas/` |
+| Docs | `docs/go-live.md`, `docs/deploy.md`, `docs/onboarding-cliente.md`, `docs/multi-clinica.md`, `docs/whatsapp-templates.md`, `docs/qa-report.md`, `docs/ventas/` |
 
 Flujo de un mensaje: webhook (200 a Meta y dedup por `message.id`) → primer contacto: bienvenida + privacidad (+ aviso
 nocturno) y, si trae una pregunta, se responde sin pedir que la repita → debounce 2 s → ¿bot en pausa? → ¿urgencia /
