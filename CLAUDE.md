@@ -46,6 +46,8 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | App Express (`/health` primero, `/health/deep`, panel, jobs, webhook) | `app.js` (`index.js` solo arranca) |
 | Webhook, debounce, flujo de mensajes, modo nocturno, respaldo si Gemini falla | `controllers/webhookController.js` |
 | Deduplicación del webhook por `message.id` | `services/messageDedup.js` (tabla `webhook_events`) |
+| Respaldo si Gemini falla (horarios o aviso + alerta a recepción) | `services/aiFallback.js` |
+| Colas por paciente, cachés con vencimiento, logs sin datos del paciente | `services/serialQueue.js`, `services/expiringMap.js`, `services/safeLog.js` |
 | Prompt de la asistente y Fase A/B de agendamiento | `services/geminiService.js` |
 | Agenda con disponibilidad, horario de atención (`isWithinWorkingHours`) | `services/appointmentService.js` |
 | Primer contacto: tiempo de primera respuesta y `after_hours` | `services/conversationMetrics.js` |

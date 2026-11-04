@@ -3,6 +3,7 @@ import activeClinic, { getReceptionPhone } from '../config/clinic.config.js';
 import whatsappService from './whatsappService.js';
 import { isMissingColumn, isWithinWorkingHours } from './appointmentService.js';
 import liveEvents from './liveEvents.js';
+import { createExpiringMap } from './expiringMap.js';
 
 // Pase a humano: pausa el bot en una conversación y avisa a recepción.
 // El estado vive en conversations.status ('human' = bot pausado), así sobrevive a reinicios de Render
@@ -45,12 +46,15 @@ export function patientHandoffReply(reason, { text = '', recommendation = null }
 }
 
 const CACHE_MS = 60 * 1000;
+// El último estado conocido sirve de respaldo si Supabase no responde; se olvida a las 24 h.
+const CACHE_KEEP_MS = 24 * 60 * 60 * 1000;
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 
 export function createHandoffService({
   getClient = getDefaultClient, whatsapp = whatsappService, clinic = activeClinic, now = () => Date.now(), events = liveEvents,
+  cacheMaxEntries = 5000,
 } = {}) {
-  const cache = new Map();
+  const cache = createExpiringMap({ ttlMs: CACHE_KEEP_MS, maxEntries: cacheMaxEntries, now });
 
   async function isPaused(phone) {
     const id = digits(phone);

@@ -5,6 +5,8 @@ import config from '../config/env.js';
 // proxy autenticado del panel (GET /api/panel/media/:id) y nunca ve la URL firmada ni el token.
 
 export const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+// Tope por descarga: sin él, una respuesta colgada de Meta deja en espera los mensajes siguientes del paciente.
+export const MEDIA_TIMEOUT_MS = Number(process.env.META_MEDIA_TIMEOUT_MS || 15000);
 const MEDIA_ID = /^\d{5,30}$/;
 
 // Tipos que el navegador puede mostrar en línea; el resto se descarga como archivo (evita que un
@@ -17,15 +19,26 @@ export function isInlineType(contentType) {
 
 export async function fetchMetaMedia(mediaId, {
   fetchImpl = fetch, token = config.whatsapp.token, version = config.whatsapp.apiVersion, maxBytes = MAX_MEDIA_BYTES,
+  timeoutMs = MEDIA_TIMEOUT_MS,
 } = {}) {
   if (!MEDIA_ID.test(String(mediaId || ''))) throw Object.assign(new Error('media id inválido'), { status: 400 });
   if (!token) throw Object.assign(new Error('WHATSAPP_TOKEN no está configurado'), { status: 503 });
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    return await downloadMedia(mediaId, { fetchImpl, token, version, maxBytes, signal });
+  } catch (error) {
+    if (signal.aborted) throw Object.assign(new Error(`Meta no entregó el archivo en ${timeoutMs} ms`), { status: 504 });
+    throw error;
+  }
+}
+
+async function downloadMedia(mediaId, { fetchImpl, token, version, maxBytes, signal }) {
   const auth = { Authorization: `Bearer ${token}` };
-  const meta = await fetchImpl(`https://graph.facebook.com/${version}/${mediaId}`, { headers: auth });
+  const meta = await fetchImpl(`https://graph.facebook.com/${version}/${mediaId}`, { headers: auth, signal });
   if (!meta.ok) throw Object.assign(new Error(`Meta no entregó los datos del archivo (HTTP ${meta.status})`), { status: meta.status === 404 ? 404 : 502 });
   const info = await meta.json();
   if (Number(info.file_size) > maxBytes) throw Object.assign(new Error('El archivo es demasiado grande para el panel'), { status: 413 });
-  const binary = await fetchImpl(info.url, { headers: auth });
+  const binary = await fetchImpl(info.url, { headers: auth, signal });
   if (!binary.ok) throw Object.assign(new Error(`No se pudo descargar el archivo de Meta (HTTP ${binary.status})`), { status: 502 });
   const buffer = Buffer.from(await binary.arrayBuffer());
   if (buffer.length > maxBytes) throw Object.assign(new Error('El archivo es demasiado grande para el panel'), { status: 413 });

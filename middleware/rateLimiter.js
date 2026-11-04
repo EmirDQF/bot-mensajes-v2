@@ -18,6 +18,10 @@ function extractPhoneFromRawBody(rawBody) {
   try {
     const txt = rawBody instanceof Buffer ? rawBody.toString('utf8') : (typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody));
     const parsed = JSON.parse(txt);
+    // Estados de entrega: llegan desde las IP de Meta y sin "from". Cupo propio por destinatario, para que
+    // los estados de todos los pacientes no compartan (ni agoten) el cupo de una sola IP de Meta.
+    const statusRecipient = String(parsed?.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]?.recipient_id || '').replace(/\D/g, '');
+    if (statusRecipient) return `status:${statusRecipient}`;
     // Follow Meta Cloud API shape: entry[0].changes[0].value.messages[0].from
     const msgFrom = parsed?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from
       || parsed?.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.wa_id
