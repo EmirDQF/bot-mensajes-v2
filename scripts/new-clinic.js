@@ -38,6 +38,13 @@ export default {
   city: 'Lima',
   address: 'TODO: dirección completa (calle, número, distrito)',
   mapsUrl: 'TODO: enlace de Google Maps de la clínica (Compartir → Copiar enlace)',
+  // Opcionales: referencia para llegar (ej. "frente al parque Kennedy") y coordenadas de Google Maps
+  // (clic derecho en el pin → copiar). Con latitude y longitude la asistente envía un mensaje de ubicación.
+  addressReference: null,
+  latitude: null,
+  longitude: null,
+  // Opcional: formas de pago (solo las que la clínica acepta de verdad). Vacío = la asistente no las menciona.
+  paymentMethods: [],
   // Opcional: enlace de reseñas de Google. Si existe, al marcar "asistió" en el panel se pide una reseña.
   reviewUrl: null,
   timezone: ${q(demo.timezone)},

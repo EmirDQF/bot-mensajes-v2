@@ -79,6 +79,14 @@ function validateEditable(c) {
   tooLong('afterHoursNotice', 400);
   tooLong('address', 200);
   tooLong('workingHoursText', 300);
+  // Ubicación opcional: referencia para llegar y coordenadas (ambas) para el mensaje de ubicación de WhatsApp.
+  if (c.addressReference != null && !isText(c.addressReference, 200)) errors.push('"addressReference" debe ser un texto de hasta 200 caracteres');
+  const hasLat = c.latitude != null;
+  const hasLng = c.longitude != null;
+  if (hasLat !== hasLng) errors.push('"latitude" y "longitude" van juntas (o ninguna)');
+  if (hasLat && !(typeof c.latitude === 'number' && c.latitude >= -90 && c.latitude <= 90)) errors.push('"latitude" debe ser un número entre -90 y 90');
+  if (hasLng && !(typeof c.longitude === 'number' && c.longitude >= -180 && c.longitude <= 180)) errors.push('"longitude" debe ser un número entre -180 y 180');
+  if (c.financingText != null && !isText(c.financingText, 300)) errors.push('"financingText" debe ser un texto de hasta 300 caracteres');
   if (c.tone !== undefined && !TONES.includes(c.tone)) errors.push(`"tone" debe ser ${TONES.join(', ')}`);
   if (c.emojiLevel !== undefined && !EMOJI_LEVELS.includes(c.emojiLevel)) errors.push(`"emojiLevel" debe ser ${EMOJI_LEVELS.join(', ')}`);
   for (const field of ['mapsUrl', 'reviewUrl']) {

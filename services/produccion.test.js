@@ -66,7 +66,8 @@ describe('Fase 1.1: respuestas cortadas (tokens y MAX_TOKENS)', () => {
     const result = await gemini.obtenerRespuestaIA(jid(2), '¿tienen promociones?', {
       client: { async generateContent() { return sdkResult('Sí, este mes tenemos evaluación sin costo. Además tenemos una campaña con cu', 'MAX_TOKENS'); } },
     });
-    assert.equal(result.texto, 'Sí, este mes tenemos evaluación sin costo.');
+    assert.ok(result.texto.startsWith('Sí, este mes tenemos evaluación sin costo.'));
+    assert.equal(result.texto.includes('con cu'), false);
   });
 
   it('si lo cortado no deja ninguna oración completa, va al respaldo (no envía "tenemos una campaña con cu")', async () => {

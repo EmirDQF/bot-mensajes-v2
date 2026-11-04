@@ -5,6 +5,8 @@ import { now as clockNow } from './clock.js';
 import { botNotesBlock, recommendationSentence } from './recommendationService.js';
 import { getFinishReason, isTruncated, trimToLastSentence } from './geminiOutput.js';
 import { captureAnswer, extractDistrict, looksLikeRealName, nextMissingField, questionFor } from './leadFields.js';
+import { EMOJI_LIMITS, ensureNextStep, limitEmojis } from './replyStyle.js';
+import { adPromptBlock, adTreatment } from './adContext.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -20,7 +22,7 @@ const TONE_RULES = {
   formal: 'Hablas como una asesora peruana cordial y profesional: tratas de "usted", frases cortas y claras.',
   juvenil: 'Hablas como una asesora peruana joven y entusiasta: tuteas, frases cortas y cercanas, sin jergas vulgares.',
 };
-const EMOJI_RULES = { ninguno: 'No uses emojis.', pocos: 'Máximo 2 emojis por mensaje.', normal: 'Máximo 4 emojis por mensaje.' };
+const EMOJI_RULES = { ninguno: 'No uses emojis.', pocos: 'Máximo 1 emoji por mensaje.', normal: 'Máximo 3 emojis por mensaje.' };
 
 // Construye el prompt con la clínica efectiva (config/clinics/<id>.js + cambios del panel). Se arma en
 // cada conversación: un precio o una promoción editados en el panel cambian la siguiente respuesta.
@@ -63,9 +65,12 @@ No diagnosticas ni recetas medicamentos ni dosis. Si menciona dolor fuerte, sang
 
 ### REGLA 6: NO INVENTES
 Usa solo los precios, horarios y datos de esta lista. Los precios son referenciales "desde"; el costo exacto se define en la evaluación. No inventes descuentos, promociones ni medios de pago: menciona solo la campaña vigente y lo que dicen las preguntas frecuentes. Tampoco inventes servicios, equipos ni idiomas de atención: si el paciente escribe en otro idioma, respóndele en su idioma con estos mismos datos, sin decir que el personal habla ese idioma.
+Si te preguntan algo que no está en estos datos (un seguro, un equipo, un doctor en particular), dilo con honestidad, di que lo consultas con recepción y escribe al final la etiqueta [CONSULTAR_RECEPCION] (el sistema la quita y avisa a recepción).
 
 ### REGLA 7: TONO
-${TONE_RULES[c.tone] || TONE_RULES.cercano} ${EMOJI_RULES[c.emojiLevel] || EMOJI_RULES.pocos} Cierra con una pregunta o un paso concreto (por ejemplo, elegir un horario).
+${TONE_RULES[c.tone] || TONE_RULES.cercano} Español peruano cálido y profesional. Escribe de 2 a 4 líneas. ${EMOJI_RULES[c.emojiLevel] || EMOJI_RULES.pocos}
+Responde PRIMERO exactamente lo que preguntó (por ejemplo, "¿cuánto cuesta la inicial?" → el monto o rango configurado y qué incluye) y después invita a agendar.
+Termina siempre con una pregunta o un siguiente paso concreto (agendar, elegir un horario, confirmar, enviar la ubicación). No te vuelvas a presentar.
 Eres la asistente virtual de la clínica: si te preguntan si eres una persona, dilo con honestidad. Nunca finjas ser humana.${forbidden}
 
 ### REGLA 8: TEMAS AJENOS E INSULTOS
@@ -84,7 +89,7 @@ En toda la conversación haz como máximo 2 preguntas para conocerlo, una a la v
 
 ### DATOS DE LA CLÍNICA
 - Horario: ${c.workingHoursText}${closedDays ? `\n- Días cerrados (feriados): ${closedDays}` : ''}
-- Dirección: ${c.address} (mapa: ${c.mapsUrl})
+- Dirección: ${c.address}${c.addressReference ? ` (referencia: ${c.addressReference})` : ''} (mapa: ${c.mapsUrl}). Si pregunta dónde quedan, da la dirección exacta, la referencia y el enlace del mapa.
 - Campaña y promociones vigentes: ${campaign}${payments ? `\n- Formas de pago y financiamiento: ${payments}` : ''}
 
 ### TRATAMIENTOS
@@ -101,7 +106,7 @@ export function removeForbiddenPhrases(text, phrases = clinic.forbiddenPhrases |
     const escaped = String(phrase).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     if (escaped) out = out.replace(new RegExp(escaped, 'gi'), '');
   }
-  return out.replace(/\s{2,}/g, ' ').replace(/\s+([.,!?])/g, '$1').replace(/,\s*([.!?])/g, '$1').trim();
+  return out.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.,!?])/g, '$1').replace(/,[ \t]*([.!?])/g, '$1').trim();
 }
 
 const chatSessions = new Map();
@@ -332,7 +337,9 @@ export function sanitizeModelTextOutput(rawText) {
       text = text.replace(/^\s*\{\s*"(?:response|texto|text|message)"\s*:\s*"([\s\S]*)"\s*\}\s*$/i, '$1');
     }
   }
-  return text.replace(/[*_]/g, '').replace(/\s+/g, ' ').trim();
+  // Conserva los párrafos y los saltos de línea; colapsa solo espacios.
+  return text.replace(/[*_]/g, '').replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function limaNow() {
@@ -389,7 +396,7 @@ export function buildSystemPromptWithContext(jid, session = null, clinicOverride
   const recommendation = session?.recommendation
     ? `\nRECOMENDACIÓN PARA ESTE MENSAJE (úsala con estas palabras o muy parecidas): "${recommendationSentence(session.recommendation)}"${session.recommendation.rule.question ? ` Si aún no lo sabes, pregunta: ${session.recommendation.rule.question}` : ''}`
     : '';
-  const notes = botNotesBlock(session?.botNotes);
+  const notes = `${botNotesBlock(session?.botNotes)}${adPromptBlock(session?.adReferral)}`;
   return `${buildSystemPrompt(clinic)}\n\nDATOS ACTUALIZADOS:\n- Clínica: ${clinicName}\n- Dirección: ${address}\n- Horario: ${hours}\n- Fecha y hora actual: ${limaNow()}\n- Número de WhatsApp del usuario: ${sessionId(jid)}${nameLine(patientName, session?.profileName)}${leadProgressLines(lead, session)}${booked}${slots}${closed}${welcomed}${recommendation}${notes}`;
 }
 
@@ -605,7 +612,8 @@ function collectLead(session, message, senderPhone = null) {
     distrito: extractDistrict(message) || captured.distrito || extractDistrict(textFromHistory(session.history))
       || session.leadSnapshot?.distrito || null,
     telefono: incoming?.telefono || current?.telefono || session.leadSnapshot?.telefono || null,
-    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || treatment?.name || null,
+    // El tratamiento del anuncio de origen cuenta como respondido: no se vuelve a preguntar.
+    motivo: incoming?.motivo || current?.motivo || session.leadSnapshot?.motivo || treatment?.name || adTreatment(session.adReferral)?.name || null,
     fechaHora: incoming?.fechaHora || current?.fechaHora || session.leadSnapshot?.fecha_hora_texto || null,
   };
   if (session.chosenSlot) {
@@ -628,6 +636,28 @@ function collectLead(session, message, senderPhone = null) {
   return Object.values(lead).some(Boolean) ? lead : null;
 }
 
+const RECEPTION_TAG = /\[\s*CONSULTAR[_ ]?RECEPCI[OÓ]N\s*\]/i;
+const RECEPTION_TAG_ALL = new RegExp(RECEPTION_TAG.source, 'gi');
+
+// Tope de emojis de la clínica y cierre con una pregunta o un siguiente paso (respaldo de la REGLA 7).
+// Si debajo van los horarios ofrecidos, el siguiente paso ya es elegir uno.
+function polishReply(text, session, lead) {
+  const limited = limitEmojis(text, EMOJI_LIMITS[clinic.emojiLevel] ?? EMOJI_LIMITS.pocos);
+  if (session.booked || session.offeredSlots?.length) return limited;
+  const next = nextMissingField(lead || {});
+  return ensureNextStep(limited, next && next !== 'tratamiento' ? questionFor(next) : '¿Te propongo horarios para tu evaluación?');
+}
+
+// Resumen de la solicitud (regla 9: "solicitud de cita … Recepción te la confirmará", nunca "bloqueado").
+function bookingSummary(lead, treatmentName) {
+  return [
+    `¡Listo, ${lead.nombre}! Tu solicitud de cita para ${treatmentName} el ${formatDateEs(lead.slot.date)} a las ${formatTimeEs(lead.slot.time)} quedó registrada en ${clinic.address}.`,
+    clinic.addressReference ? `Referencia: ${clinic.addressReference}` : null,
+    `Cómo llegar: ${clinic.mapsUrl}`,
+    'Recepción te la confirmará.',
+  ].filter(Boolean).join('\n');
+}
+
 // Solo si AFIRMA que la cita quedó agendada sin que exista la solicitud (regla 9). "Agendar tu cita" o
 // "tu cita de brackets" son invitaciones normales y no se tocan.
 const CLAIMS_BOOKED = /\b(?:tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
@@ -645,6 +675,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.welcomed = Boolean(options.welcomed);
   session.recommendation = options.recommendation || null;
   session.botNotes = options.botNotes || null;
+  if (options.adReferral !== undefined) session.adReferral = options.adReferral || null;
   if (Array.isArray(options.availableSlots) && options.availableSlots.length && !session.booked) {
     session.offeredSlots = options.availableSlots;
   }
@@ -662,12 +693,15 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.pendingLead = leadData;
   try {
     const result = await callGemini(options.client, buildRequest(options.client, messageText, session, jid, { ...options, messageParts }), options);
-    const rawText = usableText(await extractResultText(result), getFinishReason(result));
-    let texto = removeForbiddenPhrases(sanitizeModelTextOutput(rawText));
+    const modelText = usableText(await extractResultText(result), getFinishReason(result));
+    // "No lo sé, lo consulto con recepción": la etiqueta no llega al paciente y el webhook avisa a recepción.
+    const askReception = RECEPTION_TAG.test(modelText);
+    const rawText = modelText.replace(RECEPTION_TAG_ALL, '').trim();
+    let texto = polishReply(removeForbiddenPhrases(sanitizeModelTextOutput(rawText)), session, leadData);
     let appointmentRequest = null;
     if (leadData?.ready_for_confirmation && !session.booked) {
       const treatmentName = findTreatment(leadData.motivo)?.name || leadData.motivo;
-      texto = `¡Listo, ${leadData.nombre}! Tu solicitud de cita para ${treatmentName} el ${formatDateEs(leadData.slot.date)} a las ${formatTimeEs(leadData.slot.time)} quedó registrada en ${clinic.address}. Recepción te la confirmará.`;
+      texto = bookingSummary(leadData, treatmentName);
       // El controlador guarda la cita (appointmentService) y avisa a recepción.
       appointmentRequest = {
         nombre: leadData.nombre,
@@ -707,7 +741,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
 
     // rawTexto conserva las etiquetas [ENVIAR_FOTO: x] que sanitizeModelTextOutput elimina o deforma.
     return {
-      texto, rawTexto: rawText, leadData, appointmentRequest, skipLeadPersistence: Boolean(options.skipLeadPersistence),
+      texto, rawTexto: rawText, leadData, appointmentRequest, askReception, skipLeadPersistence: Boolean(options.skipLeadPersistence),
     };
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;

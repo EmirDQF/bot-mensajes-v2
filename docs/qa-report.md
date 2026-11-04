@@ -1,5 +1,11 @@
 # Reporte de QA conversacional
 
+> **Pendiente (2026-11-04, rama `mejora/recepcionista-experta`):** se agregaron los escenarios 30–34 (anuncio de
+> brackets, "¿dónde quedan?", agendamiento paso a paso, seguro no configurado y tono de la respuesta). Este equipo
+> no tiene `GEMINI_API_KEY`, así que el reporte de abajo es el de la corrida anterior (29 escenarios) y **todavía no
+> mide los cambios de esta rama**. Para regenerarlo: define `GEMINI_API_KEY` y corre `npm run simulate`; se
+> sobrescribe este archivo con las 34 conversaciones.
+
 Generado por `npm run simulate` (scripts/simulate-conversations.js) el 2026-09-28.
 Clínica: **Clínica Dental Denvari** · asistente **Camila** · modelo `gemini-3.5-flash-lite`.
 Conversaciones reales contra Gemini; WhatsApp y Supabase son falsos (nada sale a Meta ni a la base real).

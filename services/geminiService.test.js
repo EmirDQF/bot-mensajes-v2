@@ -43,7 +43,8 @@ describe('geminiService current contract', () => {
       },
     });
 
-    assert.equal(result.texto, 'Estamos en San Isidro.');
+    // Fase 2: si la respuesta no trae pregunta, se agrega el siguiente paso.
+    assert.ok(result.texto.startsWith('Estamos en San Isidro.'));
   });
 
   it('does not duplicate system prompt or history in the current user turn', async () => {
@@ -118,6 +119,6 @@ describe('geminiService current contract', () => {
     });
 
     assert.equal(calls, 2);
-    assert.equal(result.texto, 'Respuesta recuperada');
+    assert.ok(result.texto.startsWith('Respuesta recuperada'));
   });
 });

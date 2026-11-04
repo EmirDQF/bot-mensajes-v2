@@ -27,7 +27,9 @@ import {
 import { createSerialQueue } from '../services/serialQueue.js';
 import { createExpiringMap } from '../services/expiringMap.js';
 import { describeError } from '../services/safeLog.js';
-import { aiFallbackReply, createNoAiAlert, formatSlotList } from '../services/aiFallback.js';
+import { aiFallbackReply, createNoAiAlert, createReceptionQuestionAlert, formatSlotList } from '../services/aiFallback.js';
+import { adWelcomeCaption } from '../services/adContext.js';
+import { sendClinicLocation, wantsLocation } from '../services/clinicLocation.js';
 import { quickAnswer } from '../services/quickAnswers.js';
 
 export { aiFallbackReply, formatSlotList };
@@ -236,7 +238,7 @@ function stripInstructionTags(text) {
   return String(text || '')
     .replace(/\[\s*(?:ENVIAR[_ ]?(?:FOTO|IMAGEN)|FOTO|IMAGEN)\s*:[^\]]+\]/gi, '')
     .replace(/\[AGENDAR_CITA:\{.*?\}\]/gi, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
 
@@ -276,6 +278,8 @@ async function persistAgendaPayload(payload, context = {}) {
 
 // Si Gemini falla, el paciente recibe los horarios o un aviso y recepción una alerta (services/aiFallback.js).
 const alertReceptionNoAI = createNoAiAlert();
+// La asistente no tenía el dato ([CONSULTAR_RECEPCION]): recepción responde la pregunta.
+const alertReceptionQuestion = createReceptionQuestionAlert();
 
 const BOOKING_INTENT = /\b(citas?|agendar|agendo|agenda|reservar|reserva|separar|turnos?|horarios?|disponibilidad|atenderme|evaluaci[oó]n)\b/i;
 const CANCEL_INTENT = /^\s*cancelar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\bcancel\w*\b[^.?!]*\bcita\b|\bcita\b[^.?!]*\bcancel\w*\b|\bya no (?:voy a )?(?:ir|asistir|podr[eé] ir)\b/i;
@@ -316,8 +320,11 @@ export function takeAfterHoursNotice(phone, instant = clockNow()) {
   return true;
 }
 
-export function buildWelcomeCaption({ afterHours = false } = {}) {
-  return [activeClinic.welcomeCaption, afterHours ? afterHoursNotice() : null, activeClinic.privacyNotice].filter(Boolean).join('\n\n');
+// Si llegó de un anuncio de un tratamiento, la bienvenida responde al anuncio (precio configurado) en vez de
+// preguntarle qué tratamiento busca.
+export function buildWelcomeCaption({ afterHours = false, adReferral = null } = {}) {
+  const welcome = adWelcomeCaption(activeClinic, adReferral) || activeClinic.welcomeCaption;
+  return [welcome, afterHours ? afterHoursNotice() : null, activeClinic.privacyNotice].filter(Boolean).join('\n\n');
 }
 const pendingReschedules = createExpiringMap({ ttlMs: RESCHEDULE_TTL_MS });
 
@@ -438,7 +445,7 @@ async function hasPreviousConversation(senderPhone) {
 
 async function sendFirstContactWelcome(senderPhone, context, messageText, { persistPatient = true } = {}) {
   const imageUrl = mediaUrl('logo');
-  const caption = buildWelcomeCaption({ afterHours: takeAfterHoursNotice(senderPhone) });
+  const caption = buildWelcomeCaption({ afterHours: takeAfterHoursNotice(senderPhone), adReferral: adReferrals.get(senderPhone) || null });
   const result = await whatsappService.sendImageMessage(senderPhone, imageUrl, caption);
   welcomeSentRecipients.set(String(senderPhone).replace(/\D/g, ''), true);
   const timestamp = new Date().toISOString();
@@ -659,7 +666,7 @@ async function processBatch(from, buffer) {
       client: getGeminiClient(), fallbackClients: getGeminiFallbackClients(), maxRetries: 1, messageParts: buffer.parts,
       profileName: buffer.context?.profileName ?? null,
       availableSlots: offeredSlots, afterHours, welcomed: Boolean(buffer.context?.welcomed),
-      recommendation, botNotes: await getBotNotes(from),
+      recommendation, botNotes: await getBotNotes(from), adReferral: await getAdReferral(from),
     });
   } catch (error) {
     console.error('[Gemini] Error al generar respuesta:', describeError(error));
@@ -688,6 +695,9 @@ async function processBatch(from, buffer) {
   // Primero se registra el texto ya enviado: si después falla una foto, la bandeja igual lo muestra.
   await recordBotReply(from, messageText, textoParaWhatsApp, urlsToSend[0] || null, sendResult);
   await sendRequestedPhotos(from, urlsToSend);
+  // "¿Dónde quedan?" o solicitud registrada: mensaje de ubicación (si la clínica tiene coordenadas).
+  if (wantsLocation(messageText) || appointmentOutcome?.status === 'saved') await sendClinicLocation(from);
+  if (geminiResult.askReception) await alertReceptionQuestion(from, messageText);
   // Lead score de la bandeja (nunca lanza).
   void leadInsights.observe(from, {
     text: messageText, treatment: findTreatment(messageText)?.name || recommendation?.treatment?.name || null,

@@ -34,19 +34,21 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const test = testMode();
   if (test && !options.fetchImpl) {
     const id = `wamid.prueba.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
-    test.onSend?.(String(toPhone), { text, template: options.template?.name || null, media: media?.link || null, id });
+    test.onSend?.(String(toPhone), { text, template: options.template?.name || null, media: media?.link || null, location: options.location || null, id });
     return { messages: [{ id }], test: true };
   }
   // Modo demo (npm run demo): los pacientes son inventados; nada sale a Meta.
   if (isDemoMode() && !options.fetchImpl) {
-    const kind = options.template ? `plantilla ${options.template.name}` : media ? 'foto' : 'texto';
+    const kind = options.template ? `plantilla ${options.template.name}` : media ? 'foto' : options.location ? 'ubicación' : 'texto';
     console.log(`[Demo] WhatsApp simulado → …${String(toPhone).slice(-4)} (${kind})`);
     return { messages: [{ id: `wamid.demo.${Date.now()}.${Math.random().toString(36).slice(2, 8)}` }], demo: true };
   }
 
   const url = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const template = options.template || null;
-  const body = template
+  const body = options.location
+    ? { messaging_product: 'whatsapp', to: toPhone, type: 'location', location: options.location }
+    : template
     ? {
         messaging_product: 'whatsapp',
         to: toPhone,
@@ -207,6 +209,13 @@ export function sendImageMessage(toPhone, imageUrl, caption = '', options = {}) 
   });
 }
 
+// Mensaje de ubicación (se abre en la app de mapas del paciente). Cuenta como mensaje de sesión (ventana de 24 h).
+export function sendLocationMessage(toPhone, { latitude, longitude, name, address }, options = {}) {
+  return sendWhatsAppMessage(toPhone, `[ubicación] ${name || ''}`.trim(), {
+    ...options, location: { latitude, longitude, name, address },
+  });
+}
+
 // Plantilla aprobada por Meta (obligatoria para escribir fuera de la ventana de 24 h).
 // Ver docs/whatsapp-templates.md. Los parámetros del cuerpo no pueden llevar saltos de línea.
 export function sendTemplateMessage(toPhone, name, bodyParams = [], { language = 'es', ...options } = {}) {
@@ -272,6 +281,7 @@ export default {
   sendTextMessage,
   sendImageMessage,
   sendTemplateMessage,
+  sendLocationMessage,
   markMessageAsRead,
   sendTypingIndicator,
 };

@@ -25,29 +25,49 @@ export function aiFallbackReply(offeredSlots, recommendation = null) {
 export const FALLBACK_ALERT_MS = 60 * 60 * 1000;
 const MAX_QUOTED_CHARS = 300;
 
-export function createNoAiAlert({
-  whatsapp = whatsappService, getPhone = getReceptionPhone, clinic = activeClinic, now = () => Date.now(),
-} = {}) {
+// Alerta a recepción por paciente, como máximo una por hora (si se repite, recepción no recibe una por mensaje).
+function createReceptionAlert({
+  title, hint, logTag, whatsapp = whatsappService, getPhone = getReceptionPhone, clinic = activeClinic, now = () => Date.now(),
+}) {
   const alertedAt = createExpiringMap({ ttlMs: FALLBACK_ALERT_MS, now });
 
   // Devuelve true si se envió la alerta. Nunca lanza.
-  return async function alertReceptionNoAI(from, messageText) {
+  return async function alertReception(from, messageText) {
     const to = getPhone();
     if (!to || alertedAt.has(from)) return false;
     alertedAt.set(from, now());
     const text = [
-      `⚠️ El asistente no pudo responder con IA (${clinic.name})`,
+      `⚠️ ${title} (${clinic.name})`,
       `📱 +${from} (wa.me/${from})`,
       `💬 "${String(messageText || '').slice(0, MAX_QUOTED_CHARS)}"`,
       '',
-      'Escríbele al paciente. Si se repite, revisa GEMINI_API_KEY y la cuota de Gemini (npm run preflight).',
+      hint,
     ].join('\n');
     try {
       await whatsapp.sendTextMessage(to, text);
       return true;
     } catch (error) {
-      console.error('[Gemini] No se pudo avisar a recepción de la falla:', describeError(error));
+      console.error(`${logTag} No se pudo avisar a recepción:`, describeError(error));
       return false;
     }
   };
+}
+
+export function createNoAiAlert(options = {}) {
+  return createReceptionAlert({
+    title: 'El asistente no pudo responder con IA',
+    hint: 'Escríbele al paciente. Si se repite, revisa GEMINI_API_KEY y la cuota de Gemini (npm run preflight).',
+    logTag: '[Gemini]',
+    ...options,
+  });
+}
+
+// La asistente no tenía el dato (no inventa): recepción responde la pregunta del paciente.
+export function createReceptionQuestionAlert(options = {}) {
+  return createReceptionAlert({
+    title: 'Pregunta que la asistente no pudo responder',
+    hint: 'Respóndele al paciente por este chat. Si es una pregunta frecuente, agrégala a las preguntas frecuentes en el panel.',
+    logTag: '[Recepción]',
+    ...options,
+  });
 }

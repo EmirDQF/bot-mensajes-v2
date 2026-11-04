@@ -91,7 +91,7 @@ globalThis.fetch = async (input, init = {}) => {
     if (body.to) {
       outbox.push({
         to: String(body.to), type: body.type || 'text', template: body.template?.name || null,
-        text: body.text?.body || body.image?.caption || '', image: body.image?.link || null,
+        text: body.text?.body || body.image?.caption || '', image: body.image?.link || null, location: body.location || null,
       });
     }
     return new Response(JSON.stringify({ messages: [{ id: `wamid.sim.${outbox.length}` }] }), {
@@ -516,6 +516,58 @@ const SCENARIOS = [
       check('Sin llamar a Gemini', gemini === 0),
     ],
   },
+  // ---------- Recepcionista experta (rama mejora/recepcionista-experta) ----------
+  {
+    n: 30, title: 'Llega de un anuncio de brackets', time: DAY,
+    turns: [{ ...text('Hola, quiero más información'), referral: { source_type: 'ad', source_id: 'sim-ad', headline: 'Brackets con cuota inicial S/ 0', body: 'Evaluación 3D sin costo. Escríbenos.' } }],
+    checks: ({ all }) => [
+      check('La primera respuesta habla del anuncio (ortodoncia y su precio)', has(all, /ortodoncia/i) && has(all, /1[.,]?800/)),
+      check('No pregunta qué tratamiento busca', !has(all, /qu[eé] tratamiento/i)),
+    ],
+  },
+  {
+    n: 31, title: '"¿Dónde quedan?"', time: DAY,
+    turns: [text('Hola, ¿dónde quedan exactamente?')],
+    checks: ({ bot, locations }) => [
+      check('Da la dirección y el mapa', has(bot, new RegExp(clinic.mapsUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))) || has(bot, /Calle Las Orqu[ií]deas/)),
+      check('Envía el mensaje de ubicación (la clínica tiene coordenadas)', !Number.isFinite(clinic.latitude) || locations.length > 0),
+    ],
+  },
+  {
+    n: 32, title: 'Agendamiento paso a paso (un dato por mensaje)', time: DAY,
+    turns: [text('quiero una cita para limpieza'), text('Ana Torres'), text('Surco'), text('1')],
+    checks: ({ bot, phone }) => {
+      const asksName = bot.filter((t) => /nombre/i.test(t) && /\?/.test(t)).length;
+      const saved = appointmentsOf(phone)[0];
+      return [
+        check('No vuelve a pedir el nombre ya respondido', asksName <= 1, `${asksName} veces`),
+        check('Una sola pregunta por mensaje', bot.filter((t) => !slotList.test(t)).every((t) => (t.match(/\?/g) || []).length <= 1)),
+        check('Guarda la solicitud', Boolean(saved)),
+        check('El resumen trae el mapa y "Recepción te la confirmará"', has(bot, /Cómo llegar: https:/) && has(bot, /Recepción te la confirmará/)),
+      ];
+    },
+  },
+  {
+    n: 33, title: 'Pregunta por un seguro que la clínica no tiene configurado', time: DAY,
+    turns: [text('¿Atienden con seguro Rímac?')],
+    checks: ({ bot, reception }) => [
+      check('No inventa que acepta el seguro', !has(bot, /s[ií],? (?:aceptamos|trabajamos con|atendemos con)/i)),
+      check('Avisa a recepción para que responda', reception.some((t) => /no pudo responder/.test(t))),
+    ],
+  },
+  {
+    n: 34, title: 'Tono: "¿cuánto cuesta la inicial?"', time: DAY,
+    turns: [text('Hola'), text('¿cuánto cuesta la inicial de los brackets?')],
+    checks: ({ bot }) => {
+      const answer = bot[bot.length - 1] || '';
+      return [
+        check('Responde primero el monto (S/ 0 o S/ 1,800)', /S\/\s*0\b|1[.,]?800|inicial/i.test(answer.split('\n')[0])),
+        check('Máximo 1 emoji', (answer.match(/\p{Extended_Pictographic}/gu) || []).length <= 1),
+        check('De 2 a 4 líneas', answer.split('\n').filter(Boolean).length <= 4 && answer.length <= 450),
+        check('Termina con una pregunta o un siguiente paso', /\?\s*$/.test(answer) || slotList.test(answer)),
+      ];
+    },
+  },
 ];
 
 // ---------- 9. Ejecución ----------
@@ -543,6 +595,7 @@ for (const scenario of selected) {
   const all = []; // todo lo que recibió el paciente, bienvenida incluida
   const images = [];
   const reception = [];
+  const locations = [];
   let crashed = null;
   for (const turn of scenario.turns) {
     const before = outbox.length;
@@ -558,6 +611,7 @@ for (const scenario of selected) {
       if (msg.to === phone) {
         const welcome = Boolean(msg.image && WELCOME_IMAGE.test(msg.image));
         if (msg.image && !welcome) images.push(msg.image);
+        if (msg.location) locations.push(msg.location);
         if (msg.text) all.push(msg.text);
         if (msg.text && !welcome) bot.push(msg.text);
         transcript.push({ who: 'bot', text: msg.text, image: msg.image ? path.basename(msg.image) : null });
@@ -571,7 +625,7 @@ for (const scenario of selected) {
   const checks = [
     ...(crashed ? [check('Sin errores', false, crashed.message)] : []),
     check('El bot respondió (además de la bienvenida)', bot.length > 0),
-    ...scenario.checks({ bot, all, images, reception, phone, gemini, transcript }),
+    ...scenario.checks({ bot, all, images, reception, phone, gemini, transcript, locations }),
     ...globalChecks(all),
   ];
   scenario.teardown?.(phone);
