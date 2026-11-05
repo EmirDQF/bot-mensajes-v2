@@ -211,7 +211,8 @@ export function createAppointmentService({
   }
 
   // Próximos `count` horarios concretos para ofrecer al paciente, separados al menos `minGapMinutes` el mismo día.
-  async function findNextSlots(treatment, { count = 3, fromDate = null, maxDays = 14, minGapMinutes = 120 } = {}) {
+  // Como en el video: máximo 2 horarios por día (mañana y tarde, separados ≥ 3 h) para ofrecer al menos 2 días.
+  async function findNextSlots(treatment, { count = 3, fromDate = null, maxDays = 14, minGapMinutes = 180, perDay = 2 } = {}) {
     const start = fromDate || localParts(clinic.timezone, now()).date;
     const picked = [];
     for (let i = 0; i < maxDays && picked.length < count; i += 1) {
@@ -222,7 +223,7 @@ export function createAppointmentService({
         if (last !== null && toMinutes(time) - last < minGapMinutes) continue;
         picked.push({ date, time, label: slotLabel({ date, time }) });
         last = toMinutes(time);
-        if (picked.length >= count) break;
+        if (picked.length >= count || picked.filter((p) => p.date === date).length >= perDay) break;
       }
     }
     return picked;

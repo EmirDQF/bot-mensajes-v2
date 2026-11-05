@@ -91,11 +91,12 @@ describe('appointmentService.getAvailableSlots / findNextSlots', () => {
     assert.equal((await service.getAvailableSlots('2026-10-03', 'limpieza')).at(-1), '13:30'); // sábado hasta 14:00
   });
 
-  it('offers 3 concrete, spaced options', async () => {
+  it('offers 3 concrete, spaced options on at least 2 days (max 2 per day, like the video)', async () => {
     const { service } = makeService(client);
     const options = await service.findNextSlots('limpieza');
     assert.equal(options.length, 3);
-    assert.deepEqual(options.map((o) => o.time), ['09:00', '11:00', '13:00']);
+    assert.deepEqual(options.map((o) => o.time), ['09:00', '12:00', '09:00']);
+    assert.equal(new Set(options.map((o) => o.date)).size, 2);
     assert.match(options[0].label, /29 de se(p)?tiembre/);
   });
 });

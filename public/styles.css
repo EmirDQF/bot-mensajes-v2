@@ -312,6 +312,14 @@ a { color: var(--brand); }
 .tester { flex: 1; display: grid; grid-template-columns: minmax(320px, 520px) minmax(280px, 1fr); gap: 20px; padding: 20px 24px; min-height: 0; }
 .tester__phone { display: flex; flex-direction: column; min-height: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); }
 .tester__bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--brand); color: #fff; }
+.tester__phone { position: relative; }
+.tester__notice { position: absolute; top: 64px; left: 10px; right: 10px; z-index: 5; padding: 10px 12px; border-radius: 16px;
+  background: rgba(17, 27, 33, .96); color: #e9edef; border: 1px solid rgba(37, 211, 102, .55); box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
+  max-height: 55%; overflow: auto; }
+.tester__notice[hidden] { display: none; }
+.tester__notice-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .8rem; color: #25d366; font-weight: 700; }
+.tester__notice-close { background: none; border: 0; color: #e9edef; font-size: 1.3rem; line-height: 1; cursor: pointer; min-width: 32px; min-height: 32px; }
+.tester__notice-text { margin: 6px 0 0; white-space: pre-wrap; font-size: .9rem; }
 .tester__bar .avatar { background: rgba(255, 255, 255, .2); color: #fff; }
 .tester__sub { margin: 0; font-size: 12px; opacity: .9; }
 .tester__chat { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 6px; min-height: 280px; }

@@ -24,7 +24,9 @@ export function interestOf(appointment, texts = [], clinic = activeClinic) {
 export function doctorCardText(appointment, { event = 'nueva', interest = [], clinic = activeClinic } = {}) {
   const when = slotLabel({ date: appointment.appointment_date, time: appointment.appointment_time });
   return [
-    `🩺 ${(EVENTS[event] || EVENTS.nueva)(appointment)} — ${clinic.name}`,
+    `🟢 *ALERTA AL DOCTOR — ${(EVENTS[event] || EVENTS.nueva)(appointment)}*`,
+    `🏥 ${clinic.name}`,
+    '',
     ...patientCardLines({ appointment, interest, when, hours: reminderHours(clinic) }),
   ].join('\n');
 }

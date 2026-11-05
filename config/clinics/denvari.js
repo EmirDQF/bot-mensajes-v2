@@ -80,7 +80,7 @@ Cuéntame:
       images: [
         {
           file: 'catalogo/ortodoncia-metalicos-vs-zafiro.png',
-          caption: '🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.',
+          caption: '🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso. Imagen referencial.',
         },
       ],
     },

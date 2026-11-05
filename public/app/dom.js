@@ -31,6 +31,24 @@ export function clear(node, ...children) {
   return node;
 }
 
+// Formato de WhatsApp (*negrita*, _cursiva_, ~tachado~) como nodos del DOM (nunca innerHTML): así se ve en
+// la Bandeja y el Probador igual que en el celular.
+const WA_FORMAT = /\*([^*\n]+)\*|_([^_\n]+)_|~([^~\n]+)~/g;
+export function waText(text) {
+  const value = String(text ?? '');
+  const out = [];
+  let last = 0;
+  for (const m of value.matchAll(WA_FORMAT)) {
+    if (m.index > last) out.push(value.slice(last, m.index));
+    if (m[1] !== undefined) out.push(h('strong', {}, m[1]));
+    else if (m[2] !== undefined) out.push(h('em', {}, m[2]));
+    else out.push(h('s', {}, m[3]));
+    last = m.index + m[0].length;
+  }
+  if (last < value.length) out.push(value.slice(last));
+  return out;
+}
+
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 

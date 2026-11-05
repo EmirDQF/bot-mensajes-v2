@@ -8,6 +8,7 @@ import { adWelcomeCaption } from '../services/adContext.js';
 import { now as clockNow } from '../services/clock.js';
 import { createExpiringMap } from '../services/expiringMap.js';
 import { describeError } from '../services/safeLog.js';
+import { looksLikeRealName } from '../services/leadFields.js';
 import {
   adReferrals, chatSessionHistoryCache, digitsOf, persistToChatSessions, recordInbox,
 } from './conversationStore.js';
@@ -55,8 +56,14 @@ export function takeAfterHoursNotice(phone, instant = clockNow()) {
 
 // Si llegó de un anuncio de un tratamiento, la bienvenida responde al anuncio (precio configurado) en vez de
 // preguntarle qué tratamiento busca.
-export function buildWelcomeCaption({ afterHours = false, adReferral = null } = {}) {
-  const welcome = adWelcomeCaption(activeClinic, adReferral) || activeClinic.welcomeCaption;
+// Con un nombre de perfil de WhatsApp que parece real, "¡Hola!" pasa a "¡Hola, Carlos!" (como en el video).
+export function personalize(welcome, profileName) {
+  const first = looksLikeRealName(profileName) ? String(profileName).trim().split(/\s+/)[0] : '';
+  return first ? String(welcome).replace(/^¡Hola!/, `¡Hola, ${first}!`) : welcome;
+}
+
+export function buildWelcomeCaption({ afterHours = false, adReferral = null, profileName = null } = {}) {
+  const welcome = personalize(adWelcomeCaption(activeClinic, adReferral) || activeClinic.welcomeCaption, profileName);
   return [welcome, afterHours ? afterHoursNotice() : null, activeClinic.privacyNotice].filter(Boolean).join('\n\n');
 }
 
@@ -85,9 +92,9 @@ export async function hasPreviousConversation(senderPhone) {
   }
 }
 
-async function sendFirstContactWelcome(senderPhone, messageText, { persistPatient = true } = {}) {
+async function sendFirstContactWelcome(senderPhone, messageText, { persistPatient = true, profileName = null } = {}) {
   const imageUrl = mediaUrl('logo');
-  const caption = buildWelcomeCaption({ afterHours: takeAfterHoursNotice(senderPhone), adReferral: adReferrals.get(senderPhone) || null });
+  const caption = buildWelcomeCaption({ afterHours: takeAfterHoursNotice(senderPhone), adReferral: adReferrals.get(senderPhone) || null, profileName });
   const result = await whatsappService.sendImageMessage(senderPhone, imageUrl, caption);
   welcomeSentRecipients.set(digitsOf(senderPhone), true);
   const timestamp = new Date().toISOString();
@@ -116,7 +123,7 @@ export async function greetFirstContact(from, message, text, context) {
   const onlyGreeting = !text || GREETING_ONLY.test(text);
   const continues = !onlyGreeting && !unsupported;
   try {
-    await sendFirstContactWelcome(from, unsupported ? `[${message.type}]` : text, { persistPatient: !continues });
+    await sendFirstContactWelcome(from, unsupported ? `[${message.type}]` : text, { persistPatient: !continues, profileName: context?.profileName ?? null });
     void conversationMetrics.recordFirstContact({ phone: from, firstMessageAt: context.sentAt, respondedAt: clockNow() });
   } catch (error) {
     console.error('[WhatsApp] Error al enviar bienvenida inicial:', describeError(error));

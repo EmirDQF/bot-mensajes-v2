@@ -20,15 +20,15 @@ export function reminderStatusText(appointment, { firstHours, secondHours }) {
   return planned.length ? `programado (${planned.map(hoursText).join(' y ')} antes) ✅` : 'sin recordatorio (desactivado en Configuración)';
 }
 
-// Líneas de la ficha. `when` ya viene formateado ("jueves, 5 de noviembre a las 4:30 p. m.").
+// Líneas de la ficha (formato del video: etiqueta en negrita y valor). `when` ya viene formateado ("jueves, 5 de noviembre a las 4:30 p. m.").
 export function patientCardLines({ appointment, interest = [], when, hours }) {
   return [
-    `👤 Paciente: ${appointment.patient_name || 'Sin nombre'}`,
-    `🦷 Interés: ${interest.length ? interest.join(' + ') : appointment.treatment || 'Evaluación'}`,
-    `📅 Cita: ${when}${appointment.code ? ` (${appointment.code})` : ''}`,
-    ...(appointment.specialist ? [`👩‍⚕️ Especialista: ${appointment.specialist}`] : []),
-    `🔔 Recordatorio: ${reminderStatusText(appointment, hours)}`,
-    `💬 Conversación: ${conversationLink(appointment.sender_phone)}`,
+    `👤 *Paciente:* ${appointment.patient_name || 'Sin nombre'}`,
+    `🦷 *Interés:* ${interest.length ? interest.join(' + ') : appointment.treatment || 'Evaluación'}`,
+    `📅 *Cita:* ${when}${appointment.code ? ` (${appointment.code})` : ''}`,
+    ...(appointment.specialist ? [`👩‍⚕️ *Especialista:* ${appointment.specialist}`] : []),
+    `🔔 *Recordatorio:* ${reminderStatusText(appointment, hours)}`,
+    `💬 *Conversación:* ${conversationLink(appointment.sender_phone)}`,
   ];
 }
 

@@ -1,5 +1,5 @@
 import api from './api.js';
-import { $, h, clear, toast, imageSrc, timeLabel } from './dom.js';
+import { $, h, clear, toast, imageSrc, timeLabel, waText } from './dom.js';
 
 // 🧪 Probador (solo el dueño): escribe como si fueras un paciente. Pasa por el MISMO flujo que WhatsApp
 // (debounce de 2 s, Gemini, agenda y alertas), pero nada sale a Meta. Todo queda marcado "prueba"
@@ -69,6 +69,7 @@ function build() {
           h('div', {},
             h('strong', {}, `${botName} · ${clinicName}`),
             h('p', { class: 'tester__sub', id: 'testerStatus', role: 'status' }, 'Escribe como si fueras un paciente'))),
+        h('div', { id: 'testerNotice', class: 'tester__notice', hidden: true, role: 'status' }),
         h('div', { id: 'testerChat', class: 'tester__chat', 'aria-live': 'polite' }),
         h('p', { id: 'testerTyping', class: 'typing', hidden: true },
           h('span', { class: 'typing__dots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), ` ${botName} está escribiendo…`),
@@ -141,7 +142,7 @@ function renderChat() {
       h('div', { class: 'bubble' },
         h('span', { class: 'bubble__who' }, m.from === 'bot' ? '🤖 Asistente' : '🧑 Tú (paciente)'),
         m.media && imageSrc(m.media) ? h('img', { src: imageSrc(m.media), alt: 'Foto enviada por la asistente', class: 'tester__img', loading: 'lazy' }) : null,
-        m.text ? h('p', { class: 'bubble__text' }, m.text) : null,
+        m.text ? h('p', { class: 'bubble__text' }, waText(m.text)) : null,
         h('span', { class: 'bubble__meta' }, timeLabel(m.at))),
       buttonsNode(m)))
     : h('div', { class: 'state state--empty' },
@@ -193,6 +194,8 @@ function newConversation() {
   saveSession();
   state.messages = [];
   state.log = [];
+  state.noticeShown = false;
+  if ($('#testerNotice')) $('#testerNotice').hidden = true;
   setWaiting(false);
   renderChat();
   renderLog();
@@ -213,6 +216,19 @@ async function resetTests() {
   }
 }
 
+// Notificación de WhatsApp sobre el celular (como la alerta al doctor del video). Queda hasta cerrarla.
+function showNotice(who, data) {
+  const box = $('#testerNotice');
+  if (!box || !data.text) return;
+  state.noticeShown = true;
+  clear(box,
+    h('div', { class: 'tester__notice-head' },
+      h('span', { class: 'tester__notice-app' }, `WhatsApp · ${who} (…${String(data.to).slice(-4)})`),
+      h('button', { type: 'button', class: 'tester__notice-close', 'aria-label': 'Cerrar notificación', onclick: () => { box.hidden = true; } }, '×')),
+    h('p', { class: 'tester__notice-text' }, waText(data.text)));
+  box.hidden = false;
+}
+
 function onLive(type, data) {
   if (!data || data.phone !== phone()) return;
   if (type === 'tester') {
@@ -226,6 +242,9 @@ function onLive(type, data) {
       renderChat();
     } else {
       addLog(`📲 Alerta por WhatsApp a …${String(data.to).slice(-4)}: ${String(data.text || '').split('\n')[0].slice(0, 90)}`);
+      // La ficha del doctor manda; sin ella, la primera alerta a recepción.
+      if (/ALERTA AL DOCTOR/.test(data.text || '')) showNotice('Doctor', data);
+      else if (!state.noticeShown) showNotice('Recepción', data);
     }
   } else if (type === 'appointment' && data.event === 'nueva') {
     addLog('📅 Solicitud de cita registrada en la Agenda (marcada "prueba").');

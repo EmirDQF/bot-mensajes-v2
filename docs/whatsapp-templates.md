@@ -62,11 +62,22 @@ Hola {{1}}, tu cita en {{2}} es hoy a las {{3}}. 📍 Dirección: {{4}}. Si no p
 Variable de entorno para otro nombre: `WA_TEMPLATE_DOCTOR_CARD`. Solo se usa si definiste `DOCTOR_ALERT_PHONE` y el
 doctor no le escribió al número del bot en las últimas 24 h (dentro de la ventana va como texto).
 
-**Cuerpo:**
+**Cuerpo** (formato del video de referencia; cambió en la mejora "igual que el video"):
 
 ```
-🩺 Clínica {{1}} · {{2}}. Paciente: {{3}}. Interés: {{4}}. Cita: {{5}}. Recordatorio: {{6}}. Ver conversación: {{7}} (con tu usuario del panel).
+🟢 *ALERTA AL DOCTOR — {{2}}*
+🏥 {{1}}
+
+👤 *Paciente:* {{3}}
+🦷 *Interés:* {{4}}
+📅 *Cita:* {{5}}
+🔔 *Recordatorio:* {{6}}
+💬 Ver conversación: {{7}} (con tu usuario del panel).
 ```
+
+Si ya la tenías aprobada con el texto anterior (una sola línea), `npm run meta:templates` no la vuelve a enviar
+(ya existe con ese nombre). Dos opciones: edítala en el Administrador de WhatsApp de Meta pegando este cuerpo, o
+define `WA_TEMPLATE_DOCTOR_CARD=ficha_cita_doctor_v2` y corre `npm run meta:templates -- --apply`.
 
 **Ejemplos:** {{1}} Clínica Dental Denvari · {{2}} Nueva cita confirmada · {{3}} Ana Torres · {{4}} Ortodoncia · {{5}} jueves, 5 de noviembre a las 4:30 p. m. (DV-0472) · {{6}} programado (48 h y 2 h antes) · {{7}} https://tu-bot.onrender.com/panel#chat=51999999999
 

@@ -71,9 +71,11 @@ export async function sendImages(from, items) {
 
 // Tarjeta del pack de evaluación: imagen generada + texto con los datos de la configuración, una vez por
 // paciente. Sin pack configurado no envía nada. Devuelve true si se envió.
-export async function sendEvaluationPack(from, messageText, today) {
-  const text = evaluationPackText(activeClinic, today);
-  if (!text) return false;
+// caption: pie corto cuando el detalle del pack va en el mensaje siguiente (firstVisitReply).
+export async function sendEvaluationPack(from, messageText, today, { caption = null } = {}) {
+  const fullText = evaluationPackText(activeClinic, today);
+  if (!fullText) return false;
+  const text = caption || fullText;
   const reservation = await claim(from, PACK_KEY);
   if (!reservation.claimed) return false;
   try {

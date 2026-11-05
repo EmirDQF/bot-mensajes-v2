@@ -95,7 +95,7 @@ describe('recordatorios configurables', () => {
 
   it('el texto de confirmación dice las horas configuradas', () => {
     const base = { code: 'DV-1', status: 'confirmada', appointment_date: '2026-10-01', appointment_time: '10:00', treatment: 'Limpieza' };
-    assert.match(confirmedBookingText(base), /Te recordaremos por aquí 48 h y 2 h antes\./);
+    assert.match(confirmedBookingText(base), /te recordaremos por aquí 48 h y 2 h antes de tu cita\./);
     assert.doesNotMatch(confirmedBookingText(base, { ...clinic, reminders: { firstHours: null, secondHours: null } }), /recordaremos/);
   });
 });

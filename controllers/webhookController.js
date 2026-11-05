@@ -38,6 +38,7 @@ import {
 import { forgetSentMedia, sendEvaluationPack, sendImages } from './mediaReplies.js';
 import { sendWithSlotPicker } from '../services/slotButtons.js';
 import { confirmedBookingText, sendAppointmentPass } from './bookingReplies.js';
+import { asksFirstVisit, firstVisitText, packShortCaption } from '../services/firstVisitReply.js';
 import { interestOf, notifyDoctor } from '../services/doctorAlert.js';
 import contactPreferences, { detectMinor, detectOptOut } from '../services/contactPreferences.js';
 import { answersFollowUp } from '../services/followUpService.js';
@@ -94,9 +95,11 @@ async function persistAgendaPayload(payload, context = {}) {
       : await appointmentService.saveAppointment(request);
     // Ficha para recepción y, si hay DOCTOR_ALERT_PHONE, para el doctor (sin diagnósticos ni texto libre).
     const interest = interestOf(appointment, context.summary || []);
-    await appointmentService.notifyReception(appointment, { summary: context.summary || null, interest });
-    await notifyDoctor(appointment, { interest });
-    return { status: 'saved', appointment };
+    const reception = await appointmentService.notifyReception(appointment, { summary: context.summary || null, interest });
+    const doctor = await notifyDoctor(appointment, { interest });
+    // A quién le llegó de verdad la ficha (el texto al paciente solo lo dice si se envió).
+    const cardSentTo = doctor?.sent ? 'doctor' : reception?.sent ? 'recepcion' : null;
+    return { status: 'saved', appointment, cardSentTo };
   } catch (error) {
     if (error instanceof SlotTakenError) {
       const outsideHours = error instanceof OutsideHoursError;
@@ -260,7 +263,7 @@ async function planSlotOffer(messageText, jid, current, afterHours) {
   // Lo que cuenta el paciente ("tengo los dientes chuecos") → evaluación recomendada + precio "desde" + 3 horarios.
   const recommendation = alreadyChoosing ? null : matchRecommendation(messageText);
   let offeredSlots = null;
-  if ((BOOKING_INTENT.test(intentText) || hotLead || recommendation) && !alreadyChoosing && !geminiService.isSessionBooked(jid)) {
+  if ((BOOKING_INTENT.test(intentText) || asksFirstVisit(messageText) || hotLead || recommendation) && !alreadyChoosing && !geminiService.isSessionBooked(jid)) {
     try {
       const fromDate = parseRequestedDay(messageText, localParts(activeClinic.timezone, current).date);
       const treatmentKey = findTreatment(messageText)?.key || recommendation?.treatment?.key || null;
@@ -312,15 +315,16 @@ export function withoutSlotQuestion(text) {
 
 // Fase B: nombre + tratamiento + horario → se guarda la cita y se avisa a recepción. Si el horario ya no
 // sirve, el texto cambia por las alternativas. Devuelve { text, appointmentOutcome }.
-async function applyAppointmentRequest(from, jid, geminiResult, text, offeredSlots) {
+async function applyAppointmentRequest(from, jid, geminiResult, text, offeredSlots, { slotsInText = false } = {}) {
   if (!geminiResult.appointmentRequest) {
+    if (slotsInText) return { text, appointmentOutcome: null, slots: offeredSlots };
     return { text: offeredSlots?.length ? `${withoutSlotQuestion(text)}${formatSlotList(offeredSlots)}`.trim() : text, appointmentOutcome: null, slots: offeredSlots };
   }
   const appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, {
     phone: from, adReferral: await getAdReferral(from), summary: geminiService.conversationSummary(jid),
   });
   if (appointmentOutcome.status === 'saved' && appointmentOutcome.appointment?.status === 'confirmada' && appointmentOutcome.appointment.code) {
-    return { text: confirmedBookingText(appointmentOutcome.appointment), appointmentOutcome, slots: null };
+    return { text: confirmedBookingText(appointmentOutcome.appointment, activeClinic, { cardSentTo: appointmentOutcome.cardSentTo }), appointmentOutcome, slots: null };
   }
   if (appointmentOutcome.status !== 'slot_taken') return { text, appointmentOutcome, slots: null };
   geminiService.releaseBooking(jid);
@@ -372,9 +376,17 @@ async function handleOptOut(from, messageText) {
 
 // Como una recepcionista: primero el catálogo del tratamiento y la tarjeta del pack (una vez cada uno),
 // después la respuesta con los horarios.
-async function sendVisuals(from, messageText, { today, catalog, showPack }) {
+async function sendVisuals(from, messageText, { today, catalog, showPack, packCaption = null }) {
   await sendImages(from, catalog);
-  if (showPack) await sendEvaluationPack(from, messageText, today);
+  if (showPack) await sendEvaluationPack(from, messageText, today, { caption: packCaption });
+}
+
+// "¿Qué necesito, cuánto cuesta empezar y cómo agendo?" con horarios libres: mensaje en bloques (📋 💰 📅) con los
+// datos de la configuración, en lugar del texto libre del modelo. null si no aplica.
+function firstVisitReplyFor(jid, messageText, geminiResult, offeredSlots, today) {
+  if (geminiResult.appointmentRequest || !offeredSlots?.length || !asksFirstVisit(messageText)) return null;
+  const firstName = String(geminiResult.leadData?.nombre || '').trim().split(/\s+/)[0] || '';
+  return firstVisitText({ today, interestText: geminiService.patientText(jid), messageText, slots: offeredSlots, firstName });
 }
 
 async function processBatch(from, buffer) {
@@ -427,9 +439,13 @@ async function processBatch(from, buffer) {
     return;
   }
 
-  const { text: replyText, catalog, photos } = buildBotReply(geminiResult, messageText, recommendation);
+  const built = buildBotReply(geminiResult, messageText, recommendation);
+  const { catalog, photos } = built;
+  const firstVisit = firstVisitReplyFor(jid, messageText, geminiResult, offeredSlots, today);
   const leadResult = await saveLeadFromReply(from, messageText, geminiResult);
-  const { text: appointmentText, appointmentOutcome, slots } = await applyAppointmentRequest(from, jid, geminiResult, replyText, offeredSlots);
+  const { text: appointmentText, appointmentOutcome, slots } = await applyAppointmentRequest(
+    from, jid, geminiResult, firstVisit || built.text, offeredSlots, { slotsInText: Boolean(firstVisit) },
+  );
   let textoParaWhatsApp = appointmentText;
   if (textoParaWhatsApp && takeAfterHoursNotice(from, current)) {
     textoParaWhatsApp = `${afterHoursNotice()}\n\n${textoParaWhatsApp}`;
@@ -439,6 +455,7 @@ async function processBatch(from, buffer) {
   await sendVisuals(from, messageText, {
     today, catalog: justBooked ? [] : catalog,
     showPack: !justBooked && !alreadyChoosing && !geminiService.isSessionBooked(jid) && wantsEvaluationPack(messageText),
+    packCaption: firstVisit ? packShortCaption(activeClinic, today) : null,
   });
 
   // Cita confirmada por el bot: primero el pase de cita (imagen), luego la confirmación en texto.

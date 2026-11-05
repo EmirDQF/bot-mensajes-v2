@@ -269,7 +269,7 @@ export function extractLeadDataFromText(text, senderPhone = null) {
   const structuredName = structuredParts.length >= 3 && /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+)+$/.test(structuredParts[0])
     ? structuredParts[0]
     : null;
-  const nameMatch = text.match(/\b(?:me llamo|mi nombre es|soy(?!\s+(?:de|del|la|el|un|una|nuev[oa]|paciente|cliente)\b))\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
+  const nameMatch = text.match(/\b(?:me llamo|mi nombre(?:\s+completo)?\s+es|soy(?!\s+(?:de|del|la|el|un|una|nuev[oa]|paciente|cliente)\b))\s+([A-Za-zÁÉÍÓÚáéíóúÑñÜü]+(?:\s+[A-Za-zÁÉÍÓÚáéíóúÑñÜü]+){0,2})(?=\s*(?:[,.\n]|vivo\b|vi\b|mi\b|tengo\b|y\b|con\b|$))/i);
   
   let phone = text.replace(/\D/g, '').match(/(?:51)?(9\d{8})/)?.[1] || null;
   if (!phone && senderPhone && /este (mismo )?n[uú]mero|mi n[uú]mero de whatsapp|con este whatsapp|a este n[uú]mero/i.test(text)) {
@@ -658,7 +658,8 @@ function polishReply(text, session, lead) {
 // Resumen de la solicitud (regla 9: "solicitud de cita … Recepción te la confirmará", nunca "bloqueado").
 // Solo si AFIRMA que la cita quedó agendada sin que exista la solicitud (regla 9). "Agendar tu cita" o
 // "tu cita de brackets" son invitaciones normales y no se tocan.
-const CLAIMS_BOOKED = /\b(?:(?:tu\s+)?solicitud(?:\s+de\s+cita)?\s+(?:ya\s+)?(?:qued[oó]|est[aá]|ha\s+quedado|fue)\s+(?:registrad|agendad|confirmad)\w*|tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
+// "Tu solicitud de cita para ortodoncia quedó registrada…" también cuenta (hasta 8 palabras en medio).
+export const CLAIMS_BOOKED = /\b(?:(?:tu\s+)?solicitud(?:\s+de\s+cita)?(?:\s+[^\s.!?]+){0,8}?\s+(?:ya\s+)?(?:qued[oó]|est[aá]|ha\s+quedado|fue)\s+(?:registrad|agendad|confirmad)\w*|tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
 
 async function persistSnapshotIfReady(session, leadData, sid, options) {
   if (!leadData?.ready_to_notify || options.skipLeadPersistence) return;
@@ -752,6 +753,12 @@ const quote = (text, max = 90) => {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 };
 
+// Todo lo que escribió el paciente en esta sesión (para saber qué tratamientos le interesan).
+export function patientText(jid) {
+  const session = chatSessions.get(sessionId(jid));
+  return session ? textFromHistory(session.history) : '';
+}
+
 export function conversationSummary(jid) {
   const session = chatSessions.get(sessionId(jid));
   if (!session?.firstQuestion) return [];
@@ -768,6 +775,7 @@ export function conversationSummary(jid) {
 export default {
   obtenerRespuestaIA,
   conversationSummary,
+  patientText,
   sanitizeModelTextOutput,
   isExplicitConfirmation,
   resetSession,

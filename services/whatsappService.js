@@ -3,6 +3,7 @@ import { testMode } from './testContext.js';
 import { isDemoMode } from './demo/demoFlag.js';
 import systemAlerts, { isTokenError } from './systemAlerts.js';
 import { describeError } from './safeLog.js';
+import { renderTemplateBody } from '../config/whatsappTemplates.js';
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.WHATSAPP_TIMEOUT_MS || 8000);
 const DEFAULT_MAX_RETRIES = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
@@ -34,8 +35,10 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const test = testMode();
   if (test && !options.fetchImpl) {
     const id = `wamid.prueba.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+    // Plantilla: el Probador muestra el texto tal como lo recibirá el destinatario.
+    const templateText = options.template ? renderTemplateBody(options.template.name, options.template.bodyParams) : null;
     test.onSend?.(String(toPhone), {
-      text, template: options.template?.name || null, media: media?.link || null, location: options.location || null,
+      text: templateText || text, template: options.template?.name || null, media: media?.link || null, location: options.location || null,
       buttons: options.buttons?.map((b) => b.title) || options.list?.rows.map((r) => r.title) || null,
       buttonsKind: options.list ? 'list' : options.buttons ? 'buttons' : null, id,
     });

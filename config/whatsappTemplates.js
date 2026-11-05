@@ -36,7 +36,8 @@ export const TEMPLATES = {
     // {{1}} clínica · {{2}} evento · {{3}} paciente · {{4}} interés · {{5}} cita · {{6}} recordatorio · {{7}} enlace
     params: ({ clinicName, event, patient, interest, when, reminder, link }) => [clinicName, event, patient, interest, when, reminder, link],
     category: 'UTILITY',
-    body: '🩺 Clínica {{1}} · {{2}}. Paciente: {{3}}. Interés: {{4}}. Cita: {{5}}. Recordatorio: {{6}}. Ver conversación: {{7}} (con tu usuario del panel).',
+    // Formato del video: encabezado de alerta y una línea por dato (las variables no llevan saltos de línea).
+    body: '🟢 *ALERTA AL DOCTOR — {{2}}*\n🏥 {{1}}\n\n👤 *Paciente:* {{3}}\n🦷 *Interés:* {{4}}\n📅 *Cita:* {{5}}\n🔔 *Recordatorio:* {{6}}\n💬 Ver conversación: {{7}} (con tu usuario del panel).',
     example: (c) => [c.name, 'Nueva cita confirmada', 'Ana Torres', c.treatments[0]?.name || 'Evaluación', 'jueves, 5 de noviembre a las 4:30 p. m. (DV-0472)', 'programado (48 h y 2 h antes)', 'https://tu-bot.onrender.com/panel#chat=51999999999'],
   },
   // Seguimiento del día 3 (fuera de la ventana de 24 h). MARKETING: solo a pacientes con opt-in de marketing
@@ -107,5 +108,12 @@ export const TEMPLATES = {
     example: () => ['lunes, 21 de setiembre al domingo, 27 de setiembre', '34', '14', '9', '5', 'Citas de evaluación confirmadas: 5 / meta 2 → cumplido'],
   },
 };
+
+// Texto final de una plantilla con sus variables (lo que verá quien la reciba). Para el Probador y la demo.
+export function renderTemplateBody(name, params = []) {
+  const template = Object.values(TEMPLATES).find((t) => t.name === name);
+  if (!template?.body) return null;
+  return template.body.replace(/\{\{(\d+)\}\}/g, (_, n) => String(params[Number(n) - 1] ?? ''));
+}
 
 export default TEMPLATES;

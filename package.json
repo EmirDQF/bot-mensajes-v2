@@ -13,6 +13,7 @@
     "new-clinic": "node scripts/new-clinic.js",
     "quick-demo": "node scripts/quick-demo-clinic.js",
     "demo": "node scripts/demo.js",
+    "cards:preview": "node scripts/preview-cards.js",
     "meta:check": "node scripts/meta.js check",
     "meta:subscribe": "node scripts/meta.js subscribe",
     "meta:templates": "node scripts/meta.js templates",

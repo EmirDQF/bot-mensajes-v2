@@ -39,3 +39,6 @@ media/demo-*/
 
 # Videos de referencia (democlinicatop.mp4, WhatsAppOrthoDemo.mp4): pesados, no van al repositorio
 *.mp4
+
+# Vistas previas de las imágenes (npm run cards:preview)
+tmp/

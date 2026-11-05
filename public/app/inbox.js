@@ -1,6 +1,6 @@
 import api from './api.js';
 import {
-  $, $$, h, clear, imageSrc, timeLabel, formatPhone, initials, loading, empty, failure, toast,
+  $, $$, h, clear, imageSrc, timeLabel, formatPhone, initials, loading, empty, failure, toast, waText,
 } from './dom.js';
 
 // Bandeja en vivo: lista (se reordena con cada evento), chat con burbujas paciente/bot/recepción,
@@ -196,7 +196,7 @@ function messageNode(m) {
     h('div', { class: 'bubble' },
       outgoing ? h('span', { class: 'bubble__who' }, SENDER_LABEL[m.sender]) : null,
       mediaNode(m),
-      m.text ? h('p', { class: 'bubble__text' }, m.text) : null,
+      m.text ? h('p', { class: 'bubble__text' }, waText(m.text)) : null,
       h('span', { class: 'bubble__meta' }, m.isTest ? h('span', { class: 'badge badge--test' }, 'prueba') : null, timeLabel(m.at), tick),
       m.status === 'failed' && m.error ? h('p', { class: 'bubble__error', role: 'note' }, `❌ ${m.error}`) : null));
 }

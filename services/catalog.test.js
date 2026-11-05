@@ -265,7 +265,10 @@ describe('webhook: catálogo y pack en la conversación', () => {
     const cards = sent.filter((m) => m.to === phone && /\/cards\/evaluation-pack\.png/.test(m.media || ''));
     assert.equal(cards.length, 1);
     assert.match(cards[0].text, /Radiografía panorámica/);
-    assert.match(cards[0].text, /Solo trae tu DNI/);
+    // El detalle va en un solo mensaje en bloques (📋 💰 📅), como en el video.
+    const reply = sent.find((m) => m.to === phone && /¿Qué necesitas llevar\?/.test(m.text || ''));
+    assert.ok(reply, 'mensaje en bloques de la primera visita');
+    assert.match(reply.text, /Solo trae tu DNI/);
 
     sent.length = 0;
     await send(phone, 'quiero agendar una cita', sent);

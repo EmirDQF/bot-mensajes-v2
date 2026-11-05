@@ -251,7 +251,7 @@ describe('webhook: modo solicitud vs confirmación directa', () => {
     assert.match(apt.code, /^DV-\d{4}$/);
     const toPatient = sent.filter((m) => m.to === phone);
     const passIndex = toPatient.findIndex((m) => m.media === `/api/panel/appointments/${apt.id}/pass.png`);
-    const textIndex = toPatient.findIndex((m) => /quedó \*confirmada\*/.test(m.text || ''));
+    const textIndex = toPatient.findIndex((m) => /quedó \*100% confirmada\*/.test(m.text || ''));
     assert.ok(passIndex >= 0, 'debía enviar el pase');
     assert.ok(textIndex > passIndex, 'primero el pase, luego el texto');
     assert.ok(toPatient[textIndex].text.includes(apt.code));
@@ -272,7 +272,7 @@ describe('webhook: modo solicitud vs confirmación directa', () => {
     await deliver(phone, typed('la 2'), sent);
     const [apt] = (await getSupabase()).data.appointments;
     assert.equal(apt?.status, 'confirmada');
-    assert.ok(sent.some((m) => m.to === phone && /quedó \*confirmada\*/.test(m.text || '')));
+    assert.ok(sent.some((m) => m.to === phone && /quedó \*100% confirmada\*/.test(m.text || '')));
   });
 
   it('si otro paciente tomó el horario, al segundo se le ofrecen horarios nuevos en botones', async () => {

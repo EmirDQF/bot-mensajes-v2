@@ -35,7 +35,8 @@ npm run crons:setup            # crea/actualiza las 7 tareas de cron-job.org (CR
 npm run smoke:prod -- <URL>    # prueba de extremo a extremo contra producción
 node --check <archivo.js>      # verificación rápida de sintaxis
 pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-ClinicName para otra clínica)
-node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo (media/<id>/catalogo/, SVG → PNG)
+node scripts/generate-catalog-media.js [<id>] # ilustraciones del catálogo con colores y precios de la clínica (media/<id>/catalogo/)
+npm run cards:preview [-- <id>]       # pack, pase de ejemplo, catálogo y ficha del doctor en tmp/cards-<id>/ para revisarlos
 ```
 
 ## Mapa del código
@@ -71,7 +72,8 @@ node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo 
 | Panel "Mi clínica" (solo el dueño): secciones en `public/app/clinic/`, indicador "Configuración completa", vista previa del pack y del pase, deshacer el último cambio | `public/app/config.js`, `controllers/settingsController.js`, `services/clinicSettings.js`, `services/clinicReadiness.js` |
 | Etiquetas de fotos `[ENVIAR_FOTO: x]` | `services/mediaTags.js` |
 | Catálogo visual por tratamiento (`treatments[].images`) y pack de evaluación (`evaluationPack`) | `services/catalog.js`, envío en `controllers/mediaReplies.js` |
-| Imágenes generadas en el servidor (SVG → PNG con `@resvg/resvg-js` y la fuente Inter de `assets/fonts/`) | `services/cards/` (tarjeta del pack en `GET /cards/evaluation-pack.png`) |
+| Imágenes generadas en el servidor (SVG → PNG con `@resvg/resvg-js` y la fuente Inter de `assets/fonts/`) | `services/cards/` (tarjeta del pack en `GET /cards/evaluation-pack.png`; ilustraciones del catálogo en `catalogArt.js`) |
+| Mensaje en bloques de la primera visita (📋 qué llevar · 💰 inversión · 📅 horarios), formato del video | `services/firstVisitReply.js` (paridad: `docs/paridad-video.md`) |
 | Sinónimos coloquiales y errores de tipeo comunes en Perú | `config/colloquial.js` |
 | Horarios como botones (≤ 3) o lista, con respaldo en texto; elegir por botón, número o "jueves 4:30" | `services/slotButtons.js` |
 | `bookingMode` ("solicitud" por defecto / "confirmacion_directa"): reserva atómica `reserveSlot` (+ `reserve_appointment` en Postgres), código de cita | `services/appointmentService.js`, `migrations/20261105_direct_booking.sql` |
