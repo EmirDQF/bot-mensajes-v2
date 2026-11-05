@@ -1,6 +1,8 @@
 // npm run preflight — revisa que todo esté listo para producción y dice cómo arreglar lo que falte.
 // Variables, Supabase (tablas y columnas de TODAS las migraciones), token de WhatsApp (tipo y vigencia),
 // WABA (número, app suscrita y plantillas), clave de Gemini y clínica activa. Nunca imprime secretos. No modifica nada (ni .env ni la base de datos).
+// Primero el .env: config/env.js (importado abajo) lee process.env al importarse.
+import '../src/envLoader.js';
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -305,7 +307,6 @@ export function printSection(title, results, log = console.log) {
 }
 
 async function main() {
-  await import('../src/envLoader.js');
   const env = process.env;
   console.log('🔎 Preflight: revisión antes de producción (no se muestra ningún secreto)');
 

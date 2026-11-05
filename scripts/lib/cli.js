@@ -1,5 +1,7 @@
 // Utilidades compartidas por los scripts de go-live (meta:*, db:*, crons:setup, smoke:prod).
 // Regla: ningún script imprime secretos. Todo texto que sale a la consola pasa por redact().
+// El .env se carga ANTES que cualquier otro import del script (config/env.js lo lee al importarse).
+import '../../src/envLoader.js';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
@@ -32,7 +34,6 @@ export function parseArgs(argv = process.argv.slice(2)) {
 }
 
 export async function loadEnv() {
-  await import('../../src/envLoader.js');
   return process.env;
 }
 

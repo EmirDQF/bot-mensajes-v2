@@ -36,3 +36,6 @@ NEXT_STEPS.md
 # Demos personalizadas para prospectos (npm run quick-demo): nunca se suben ni van a producción
 config/clinics/demo-*.js
 media/demo-*/
+
+# Videos de referencia (democlinicatop.mp4, WhatsAppOrthoDemo.mp4): pesados, no van al repositorio
+*.mp4
