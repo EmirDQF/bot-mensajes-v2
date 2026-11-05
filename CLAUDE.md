@@ -63,6 +63,7 @@ node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo 
 | Opt-out ("no", "stop", bloqueo), opt-in de marketing con fecha y menor de edad | `services/contactPreferences.js` (tabla `contact_preferences`) |
 | Textos legales y de consentimiento (un solo archivo para el abogado) | `config/legalTexts.js` |
 | Permiso de promociones (una sola vez, Sí/No, después de agendar) | `controllers/marketingConsent.js` |
+| Audios del paciente → texto con Gemini (solo `GEMINI_PAID_TIER=true`; máx. 2 min; el audio no se guarda) | `services/audioTranscription.js` |
 | Campañas de promociones: segmentos, opt-in, 14 días, costo, envío por lotes (`POST /jobs/campaigns`) y reporte | `services/campaignService.js`, `controllers/campaignController.js`, `public/app/campaigns.js` |
 | Ficha del paciente para recepción y el doctor (`DOCTOR_ALERT_PHONE`, opcional): interés, cita, recordatorio y enlace `/panel#chat=<tel>` | `services/patientCard.js`, `services/doctorAlert.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |

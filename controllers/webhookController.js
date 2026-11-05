@@ -32,7 +32,7 @@ import {
   recordBotReply, recordInbox, sanitizeReferral, sendReply,
 } from './conversationStore.js';
 import {
-  DEFAULT_AFTER_HOURS_NOTICE, GREETING_ONLY, UNSUPPORTED_REPLIES, afterHoursNotice, buildWelcomeCaption, forgetWelcome,
+  AUDIO_TOO_LONG_REPLY, DEFAULT_AFTER_HOURS_NOTICE, GREETING_ONLY, UNSUPPORTED_REPLIES, afterHoursNotice, buildWelcomeCaption, forgetWelcome,
   greetFirstContact, hasPreviousConversation, takeAfterHoursNotice,
 } from './firstContact.js';
 import { forgetSentMedia, sendEvaluationPack, sendImages } from './mediaReplies.js';
@@ -42,6 +42,7 @@ import { interestOf, notifyDoctor } from '../services/doctorAlert.js';
 import contactPreferences, { detectMinor, detectOptOut } from '../services/contactPreferences.js';
 import { answersFollowUp } from '../services/followUpService.js';
 import marketingConsent from './marketingConsent.js';
+import audioTranscriber, { audioTranscriptionEnabled } from '../services/audioTranscription.js';
 import { DATA_DELETION_REPLY, OPT_OUT_CONFIRMATION } from '../config/legalTexts.js';
 
 export { aiFallbackReply, formatSlotList };
@@ -527,22 +528,28 @@ async function handleResetCommand(from, message, text) {
 }
 
 // Cola de entrada del paciente: bandeja, primer contacto y debounce, en orden de llegada.
-async function intakeMessage(from, message, value, context) {
+async function intakeMessage(from, rawMessage, value, context) {
+  // Audio con GEMINI_PAID_TIER=true: se transcribe y sigue como si lo hubiera escrito (mismas reglas de urgencia,
+  // diagnóstico y opt-out). El audio no se guarda: en la bandeja queda "🎤 (transcripción) …".
+  const heard = rawMessage.type === 'audio' && audioTranscriptionEnabled() ? await audioTranscriber.transcribe(rawMessage.audio) : null;
+  const message = heard?.text ? { ...rawMessage, type: 'text', text: { body: heard.text } } : rawMessage;
   const text = incomingText(message);
   if (await handleResetCommand(from, message, text)) return;
   const firstContact = !(await hasPreviousConversation(from));
   // A la bandeja apenas llega (antes del debounce), con su foto, audio o documento si trae uno.
   const mediaType = MEDIA_TYPES.includes(message.type) ? message.type : null;
   await recordInbox({
-    phone: from, sender: 'patient', text: text || null, type: mediaType || 'text',
-    mediaId: mediaType ? message[mediaType]?.id || null : null, wamid: message.id || null,
+    phone: from, sender: 'patient', text: heard?.text ? `🎤 (transcripción) ${heard.text}` : text || null, type: mediaType || 'text',
+    // Con transcripción activada no se guarda ninguna referencia al audio.
+    mediaId: mediaType && !heard ? message[mediaType]?.id || null : null, wamid: message.id || null,
     contactName: value?.contacts?.[0]?.profile?.name || null, at: context.sentAt,
   });
   context.botPaused = await handoffService.isPaused(from);
   if (firstContact && !(await greetFirstContact(from, message, text, context))) return;
   if (UNSUPPORTED_REPLIES[message.type]) {
     if (context.botPaused) return;
-    await sendReply(from, `[${message.type}]`, UNSUPPORTED_REPLIES[message.type], '[WhatsApp] No se pudo responder a un mensaje no soportado:');
+    const reply = heard?.reason === 'too_long' ? AUDIO_TOO_LONG_REPLY : UNSUPPORTED_REPLIES[message.type];
+    await sendReply(from, `[${message.type}]`, reply, '[WhatsApp] No se pudo responder a un mensaje no soportado:');
     return;
   }
   if (message.type === 'image') {

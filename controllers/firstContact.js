@@ -33,6 +33,9 @@ export const UNSUPPORTED_REPLIES = {
   sticker: '😊 ¿En qué te ayudo? Puedo contarte precios, enviarte fotos de tratamientos o proponerte horarios para tu evaluación.',
 };
 
+// Audio de más de 2 minutos (con la transcripción activada): se pide que lo escriba.
+export const AUDIO_TOO_LONG_REPLY = 'Tu audio es un poquito largo para mí 🙏 (más de 2 minutos). ¿Me escribes en un mensaje lo que necesitas? Así te ayudo al toque.';
+
 // Modo nocturno: la asistente dice con naturalidad que la clínica está cerrada (una vez por noche)
 // y deja la solicitud de cita lista para que recepción la confirme al abrir.
 // El texto es editable en el panel (afterHoursNotice); se lee en cada uso.
