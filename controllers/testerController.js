@@ -51,6 +51,7 @@ export function createTesterController({
       events.publish('tester', {
         phone, to: target, toPatient: target === phone,
         text: payload.text || '', media: payload.media || null, template: payload.template || null, id: payload.id,
+        buttons: payload.buttons || null, buttonsKind: payload.buttonsKind || null,
       });
     };
     return runInTestMode({ clockOffsetMs, onSend }, async () => {

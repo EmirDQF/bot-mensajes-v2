@@ -4,6 +4,7 @@ import inboxService from '../services/inboxService.js';
 import { getSupabase } from '../services/supabaseClient.js';
 import { createExpiringMap } from '../services/expiringMap.js';
 import { describeError } from '../services/safeLog.js';
+import { sendWithSlotPicker } from '../services/slotButtons.js';
 
 // Lo que el webhook guarda de cada conversación: bandeja (conversations + messages), historial
 // (chat_sessions), anuncio de origen y notas para el bot. Ninguna función lanza: si Supabase falla,
@@ -112,10 +113,11 @@ export async function recordBotReply(from, messageText, text, sendResult) {
   }
 }
 
-// Envía un texto al paciente y lo registra en la bandeja. Nunca lanza: devuelve true si se envió.
-export async function sendReply(from, messageText, reply, failureLog = 'webhookController: failed sending message to user') {
+// Envía un texto al paciente (con los horarios como botones si trae `slots`) y lo registra en la bandeja.
+// Nunca lanza: devuelve true si se envió.
+export async function sendReply(from, messageText, reply, failureLog = 'webhookController: failed sending message to user', { slots = null } = {}) {
   try {
-    const sendResult = await whatsappService.sendTextMessage(from, reply);
+    const sendResult = await sendWithSlotPicker(from, reply, slots, { whatsapp: whatsappService });
     await recordBotReply(from, messageText, reply, sendResult);
     return true;
   } catch (error) {

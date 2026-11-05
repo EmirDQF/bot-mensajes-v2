@@ -35,6 +35,7 @@ import {
   greetFirstContact, hasPreviousConversation, takeAfterHoursNotice,
 } from './firstContact.js';
 import { sendEvaluationPack, sendImages } from './mediaReplies.js';
+import { sendWithSlotPicker } from '../services/slotButtons.js';
 
 export { aiFallbackReply, formatSlotList };
 export { sanitizeReferral, dataDeletionFilters };
@@ -117,6 +118,8 @@ const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
 // Consultas de precio o de un tratamiento: de noche se aprovechan para ofrecer horarios "en caliente".
 const PRICE_INTENT = /\b(?:precio|precios|cu[aá]nto|cuesta|costo|cuotas?|inicial|promo(?:ci[oó]n)?|campa[nñ]a|descuento)\b/i;
 const pendingReschedules = createExpiringMap({ ttlMs: RESCHEDULE_TTL_MS });
+// Lo agrega formatSlotList: el mensaje trae horarios para elegir.
+const SLOT_LIST_MARK = 'Horarios disponibles:';
 
 // "cancelar" / "cambiar mi cita": encuentra la próxima cita, ofrece horarios y actualiza el estado.
 // Devuelve el texto a responder, o null para que la conversación siga con Gemini.
@@ -250,7 +253,7 @@ async function replyWithoutAI(from, messageText, offeredSlots, recommendation, c
   console.error(`[Gemini] Sin respuesta utilizable; se envía ${quick ? `la respuesta sin IA (${quick.kinds.join(', ')})` : 'la respuesta de respaldo'}`);
   let fallback = quick ? `${quick.text}${formatSlotList(offeredSlots)}` : aiFallbackReply(offeredSlots, recommendation);
   if (takeAfterHoursNotice(from, current)) fallback = `${afterHoursNotice()}\n\n${fallback}`;
-  await sendReply(from, messageText, fallback);
+  await sendReply(from, messageText, fallback, undefined, { slots: offeredSlots });
   if (!quick) await alertReceptionNoAI(from, messageText);
 }
 
@@ -272,12 +275,12 @@ async function saveLeadFromReply(from, messageText, geminiResult) {
 // sirve, el texto cambia por las alternativas. Devuelve { text, appointmentOutcome }.
 async function applyAppointmentRequest(from, jid, geminiResult, text, offeredSlots) {
   if (!geminiResult.appointmentRequest) {
-    return { text: offeredSlots?.length ? `${text}${formatSlotList(offeredSlots)}`.trim() : text, appointmentOutcome: null };
+    return { text: offeredSlots?.length ? `${text}${formatSlotList(offeredSlots)}`.trim() : text, appointmentOutcome: null, slots: offeredSlots };
   }
   const appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, {
     phone: from, adReferral: await getAdReferral(from), summary: geminiService.conversationSummary(jid),
   });
-  if (appointmentOutcome.status !== 'slot_taken') return { text, appointmentOutcome };
+  if (appointmentOutcome.status !== 'slot_taken') return { text, appointmentOutcome, slots: null };
   geminiService.releaseBooking(jid);
   geminiService.setOfferedSlots(jid, appointmentOutcome.alternatives);
   const why = appointmentOutcome.reason === 'outside_hours'
@@ -286,7 +289,7 @@ async function applyAppointmentRequest(from, jid, geminiResult, text, offeredSlo
   const alternativesText = appointmentOutcome.alternatives.length
     ? `${why} Te propongo estos:${formatSlotList(appointmentOutcome.alternatives)}`
     : `${why} Recepción te escribirá para coordinar otro.`;
-  return { text: alternativesText, appointmentOutcome };
+  return { text: alternativesText, appointmentOutcome, slots: appointmentOutcome.alternatives };
 }
 
 // Texto final de Gemini: sin etiquetas, sin diagnóstico, con las fotos pedidas o deducidas del mensaje.
@@ -327,7 +330,9 @@ async function processBatch(from, buffer) {
   // Cancelar / reprogramar / responder un recordatorio se resuelve sin Gemini.
   const commandReply = await handleAppointmentCommands(from, messageText);
   if (commandReply) {
-    await sendReply(from, messageText, commandReply);
+    // Reprogramar: los horarios nuevos también van como botones.
+    const slots = commandReply.includes(SLOT_LIST_MARK) ? pendingReschedules.get(from)?.slots || null : null;
+    await sendReply(from, messageText, commandReply, undefined, { slots });
     return;
   }
 
@@ -355,7 +360,7 @@ async function processBatch(from, buffer) {
 
   const { text: replyText, catalog, photos } = buildBotReply(geminiResult, messageText, recommendation);
   const leadResult = await saveLeadFromReply(from, messageText, geminiResult);
-  const { text: appointmentText, appointmentOutcome } = await applyAppointmentRequest(from, jid, geminiResult, replyText, offeredSlots);
+  const { text: appointmentText, appointmentOutcome, slots } = await applyAppointmentRequest(from, jid, geminiResult, replyText, offeredSlots);
   let textoParaWhatsApp = appointmentText;
   if (textoParaWhatsApp && takeAfterHoursNotice(from, current)) {
     textoParaWhatsApp = `${afterHoursNotice()}\n\n${textoParaWhatsApp}`;
@@ -369,7 +374,7 @@ async function processBatch(from, buffer) {
 
   let sendResult;
   try {
-    if (textoParaWhatsApp) sendResult = await whatsappService.sendTextMessage(from, textoParaWhatsApp);
+    if (textoParaWhatsApp) sendResult = await sendWithSlotPicker(from, textoParaWhatsApp, slots);
   } catch (error) {
     console.error('webhookController: failed sending message to user', describeError(error));
     return;

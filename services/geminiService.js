@@ -8,6 +8,7 @@ import { captureAnswer, extractDistrict, looksLikeRealName, nextMissingField, qu
 import { EMOJI_LIMITS, ensureNextStep, limitEmojis } from './replyStyle.js';
 import { adPromptBlock, adTreatment } from './adContext.js';
 import { evaluationPackPrompt } from './catalog.js';
+import { matchSlotText } from './slotButtons.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -383,7 +384,7 @@ export function buildSystemPromptWithContext(jid, session = null, clinicOverride
   const patientName = (lead?.nombre !== session?.profileName && lead?.nombre) || session?.leadSnapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
   const slots = !session?.booked && session?.offeredSlots?.length
-    ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Invítalo a responder 1, 2 o 3 y pide solo el nombre o tratamiento que falten.`
+    ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Van como botones: invítalo a tocar el que prefiera (o responder 1, 2 o 3) y pide solo el nombre o tratamiento que falten.`
     : '';
   const clinicName = profile.name || clinic.name;
   // Modo nocturno: el sistema ya le avisó que la clínica está cerrada; Gemini no debe prometer atención inmediata.
@@ -583,8 +584,8 @@ export async function callGemini(client, request, options = {}) {
 // "2" o "2, me llamo Ana" (número al inicio) · "…, la 2" / "opción 3" (en cualquier parte).
 // Excluye fechas y horas: "el 2 de octubre", "a las 2 pm", "la 1:30".
 const NOT_DATE_OR_TIME = String.raw`(?!\d)(?!\s*(?:de\b|:|a\.?\s*m|p\.?\s*m|am\b|pm\b|hrs?\b|horas?\b))`;
-const SLOT_CHOICE_START = new RegExp(String.raw`^\s*(?:opci[oó]n\s*)?([1-3])${NOT_DATE_OR_TIME}(?:\s*[).,!-]|\s|$)`, 'i');
-const SLOT_CHOICE_INLINE = new RegExp(String.raw`\b(?:la|el|opci[oó]n|n[uú]mero|horario)\s+(?:n[uú]mero\s+)?([1-3])${NOT_DATE_OR_TIME}`, 'i');
+const SLOT_CHOICE_START = new RegExp(String.raw`^\s*(?:opci[oó]n\s*)?([1-9])${NOT_DATE_OR_TIME}(?:\s*[).,!-]|\s|$)`, 'i');
+const SLOT_CHOICE_INLINE = new RegExp(String.raw`\b(?:la|el|opci[oó]n|n[uú]mero|horario)\s+(?:n[uú]mero\s+)?([1-9])${NOT_DATE_OR_TIME}`, 'i');
 const SLOT_CHOICE_ORDINAL = /\b(primer[ao]?|segund[ao]|tercer[ao]?)\b/i;
 const ORDINALS = { primer: 1, primera: 1, primero: 1, segunda: 2, segundo: 2, tercer: 3, tercera: 3, tercero: 3 };
 
@@ -596,7 +597,8 @@ export function pickOfferedSlot(message, offeredSlots) {
   if (numeric) return offeredSlots[Number(numeric[1]) - 1] || null;
   const ordinal = text.match(SLOT_CHOICE_ORDINAL);
   if (ordinal) return offeredSlots[(ORDINALS[ordinal[1].toLowerCase()] || 0) - 1] || null;
-  return null;
+  // Botón tocado ("Jue 6 · 4:30 p. m.") o día y hora escritos ("el jueves a las 4:30").
+  return matchSlotText(text, offeredSlots);
 }
 
 function collectLead(session, message, senderPhone = null) {

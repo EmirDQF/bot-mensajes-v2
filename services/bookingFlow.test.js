@@ -97,7 +97,7 @@ describe('cancel / reschedule commands (webhookController)', () => {
     const appointments = fakeAppointments({ upcoming: UPCOMING });
     const offer = await handleAppointmentCommands('51911111198', 'necesito cambiar mi cita', { appointments, gemini });
     assert.ok(offer.includes('1️⃣ jueves, 1 de octubre a las 9:00 a. m.'));
-    assert.ok(offer.includes('Responde 1, 2 o 3'));
+    assert.ok(offer.includes('responde 1, 2 o 3'));
     const done = await handleAppointmentCommands('51911111198', '2', { appointments, gemini });
     assert.match(done, /quedó registrada para el jueves, 1 de octubre a las 11:00 a\. m\./);
     assert.deepEqual(appointments.calls.find((c) => c[0] === 'reschedule'), ['reschedule', 'apt-1', { appointmentDate: '2026-10-01', appointmentTime: '11:00', durationMin: 30 }]);

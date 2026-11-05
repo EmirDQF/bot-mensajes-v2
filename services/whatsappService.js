@@ -36,7 +36,8 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
     const id = `wamid.prueba.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
     test.onSend?.(String(toPhone), {
       text, template: options.template?.name || null, media: media?.link || null, location: options.location || null,
-      buttons: options.buttons?.map((b) => b.title) || null, id,
+      buttons: options.buttons?.map((b) => b.title) || options.list?.rows.map((r) => r.title) || null,
+      buttonsKind: options.list ? 'list' : options.buttons ? 'buttons' : null, id,
     });
     return { messages: [{ id }], test: true };
   }
@@ -51,6 +52,17 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const template = options.template || null;
   const body = options.location
     ? { messaging_product: 'whatsapp', to: toPhone, type: 'location', location: options.location }
+    : options.list
+    ? {
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: text || '' },
+          action: { button: options.list.button, sections: [{ title: options.list.sectionTitle, rows: options.list.rows }] },
+        },
+      }
     : options.buttons
     ? {
         messaging_product: 'whatsapp',
@@ -237,6 +249,18 @@ export function sendButtonsMessage(toPhone, text, buttons, options = {}) {
   return sendWhatsAppMessage(toPhone, String(text || '').slice(0, 1024), { ...options, buttons: clean });
 }
 
+// Mensaje con lista (hasta 10 filas): botón de hasta 20 caracteres, título de fila hasta 24 y descripción
+// hasta 72. Solo dentro de la ventana de 24 h; al elegir, el webhook recibe interactive.list_reply.
+export function sendListMessage(toPhone, text, buttonText, rows, options = {}) {
+  const clean = rows.slice(0, 10).map((r) => ({
+    id: String(r.id).slice(0, 200), title: String(r.title).slice(0, 24),
+    ...(r.description ? { description: String(r.description).slice(0, 72) } : {}),
+  }));
+  return sendWhatsAppMessage(toPhone, String(text || '').slice(0, 4096), {
+    ...options, list: { button: String(buttonText || 'Ver opciones').slice(0, 20), sectionTitle: 'Horarios libres', rows: clean },
+  });
+}
+
 // Plantilla aprobada por Meta (obligatoria para escribir fuera de la ventana de 24 h).
 // Ver docs/whatsapp-templates.md. Los parámetros del cuerpo no pueden llevar saltos de línea.
 export function sendTemplateMessage(toPhone, name, bodyParams = [], { language = 'es', ...options } = {}) {
@@ -304,6 +328,7 @@ export default {
   sendTemplateMessage,
   sendLocationMessage,
   sendButtonsMessage,
+  sendListMessage,
   markMessageAsRead,
   sendTypingIndicator,
 };

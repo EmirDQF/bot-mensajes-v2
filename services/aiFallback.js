@@ -7,11 +7,14 @@ import { describeError } from './safeLog.js';
 // Respaldo cuando Gemini falla (cuota agotada, caída o clave inválida): el paciente no se queda sin
 // respuesta (recibe los horarios ofrecidos o un aviso) y recepción recibe una alerta.
 
-const NUMBER_EMOJI = ['1️⃣', '2️⃣', '3️⃣'];
+const NUMBER_EMOJI = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+const numberChoices = (n) => (n <= 1 ? '1' : `${Array.from({ length: n - 1 }, (_, i) => i + 1).join(', ')} o ${n}`);
+
+// Los horarios van escritos (para quien no ve botones) y además como botones o lista (services/slotButtons.js).
 export function formatSlotList(slots) {
   if (!slots?.length) return '';
   const lines = slots.map((slot, i) => `${NUMBER_EMOJI[i] || `${i + 1})`} ${slot.label}`);
-  return `\n\n📅 Horarios disponibles:\n${lines.join('\n')}\n\nResponde 1, 2 o 3 👆`;
+  return `\n\n📅 Horarios disponibles:\n${lines.join('\n')}\n\nToca el horario que prefieras 👇 o responde ${numberChoices(slots.length)}.`;
 }
 
 export function aiFallbackReply(offeredSlots, recommendation = null) {

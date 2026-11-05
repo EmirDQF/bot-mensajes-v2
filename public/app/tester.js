@@ -124,6 +124,15 @@ function renderLog() {
     : h('li', { class: 'muted' }, 'Aún nada. Envía un mensaje o elige un escenario.'));
 }
 
+// Botones de WhatsApp (hasta 3) o lista de horarios: al tocar uno se envía su texto, como en el celular.
+function buttonsNode(m) {
+  if (!m.buttons?.length) return null;
+  const isList = m.buttonsKind === 'list';
+  return h('div', { class: `tester__buttons${isList ? ' tester__buttons--list' : ''}`, role: 'group', 'aria-label': 'Opciones del mensaje' },
+    isList ? h('span', { class: 'muted' }, '📋 Lista: elige una opción') : null,
+    ...m.buttons.map((title) => h('button', { type: 'button', class: 'tester__button', onclick: () => send(title) }, `📅 ${title}`)));
+}
+
 function renderChat() {
   const box = $('#testerChat');
   if (!box) return;
@@ -133,7 +142,8 @@ function renderChat() {
         h('span', { class: 'bubble__who' }, m.from === 'bot' ? '🤖 Asistente' : '🧑 Tú (paciente)'),
         m.media && imageSrc(m.media) ? h('img', { src: imageSrc(m.media), alt: 'Foto enviada por la asistente', class: 'tester__img', loading: 'lazy' }) : null,
         m.text ? h('p', { class: 'bubble__text' }, m.text) : null,
-        h('span', { class: 'bubble__meta' }, timeLabel(m.at)))))
+        h('span', { class: 'bubble__meta' }, timeLabel(m.at))),
+      buttonsNode(m)))
     : h('div', { class: 'state state--empty' },
       h('p', { class: 'state__title' }, 'Conversación de prueba vacía'),
       h('p', { class: 'state__hint' }, 'Tip: prueba la "Ráfaga nocturna": tres mensajes seguidos a las 10:30 p. m. se responden una sola vez.')));
@@ -209,7 +219,10 @@ function onLive(type, data) {
     if (data.done) {
       setWaiting(false);
     } else if (data.toPatient) {
-      state.messages.push({ from: 'bot', text: data.template ? `📨 Plantilla ${data.template}` : data.text, media: data.media, at: new Date().toISOString() });
+      state.messages.push({
+        from: 'bot', text: data.template ? `📨 Plantilla ${data.template}` : data.text, media: data.media,
+        buttons: data.buttons || null, buttonsKind: data.buttonsKind || null, at: new Date().toISOString(),
+      });
       renderChat();
     } else {
       addLog(`📲 Alerta por WhatsApp a …${String(data.to).slice(-4)}: ${String(data.text || '').split('\n')[0].slice(0, 90)}`);
