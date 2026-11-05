@@ -1,4 +1,4 @@
-import activeClinic, { mediaUrl } from '../config/clinic.config.js';
+import activeClinic, { bookingModeOf, mediaUrl } from '../config/clinic.config.js';
 import whatsappService from '../services/whatsappService.js';
 import { getSupabase } from '../services/supabaseClient.js';
 import { isWithinWorkingHours } from '../services/appointmentService.js';
@@ -41,7 +41,10 @@ export const AUDIO_TOO_LONG_REPLY = 'Tu audio es un poquito largo para mí 🙏 
 // y deja la solicitud de cita lista para que recepción la confirme al abrir.
 // El texto es editable en el panel (afterHoursNotice); se lee en cada uso.
 export const DEFAULT_AFTER_HOURS_NOTICE = '🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo y te dejo la solicitud de cita lista; recepción te la confirma a primera hora.';
-export const afterHoursNotice = () => activeClinic.afterHoursNotice || DEFAULT_AFTER_HOURS_NOTICE;
+// En "confirmacion_directa" el bot reserva al instante: no se promete una confirmación de recepción que no hará falta.
+export const DIRECT_AFTER_HOURS_NOTICE = '🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo: puedo dejar tu cita reservada en la agenda y enviarte tu pase.';
+export const afterHoursNotice = () => activeClinic.afterHoursNotice
+  || (bookingModeOf(activeClinic) === 'confirmacion_directa' ? DIRECT_AFTER_HOURS_NOTICE : DEFAULT_AFTER_HOURS_NOTICE);
 const AFTER_HOURS_RENOTICE_MS = 10 * 60 * 60 * 1000;
 const afterHoursNoticeAt = createExpiringMap({ ttlMs: AFTER_HOURS_RENOTICE_MS });
 

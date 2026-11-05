@@ -27,29 +27,52 @@ respuesta), **🦷 Dientes chuecos** (recomienda evaluación sin diagnosticar), 
 
 ## Opción 2 — Demo personalizada con SU nombre, precios y campaña (sin tocar producción)
 
-Se arma en tu laptop en ~5 minutos. **No cambia `ACTIVE_CLINIC` en Render** ni escribe en Supabase: corre en memoria.
+Se arma en tu laptop en **menos de 1 minuto** (el comando tarda ~2 s). **No cambia `ACTIVE_CLINIC` en Render** ni
+escribe en Supabase: corre en memoria.
 
-1. **Genera su clínica** con los datos de su anuncio (Biblioteca de anuncios de Meta):
+1. **Genera su clínica** con los datos de su anuncio (Biblioteca de anuncios de Meta), su web o su Google Maps:
    ```bash
-   npm run quick-demo
+   npm run quick-demo                       # pregunta los datos uno por uno
+   npm run quick-demo -- prospecto.json     # o desde un archivo (ejemplo abajo)
    ```
-   Pregunta nombre, dirección ("Distrito, Lima" basta), la campaña del anuncio en una línea y los precios "desde"
-   (Enter = no lo ofrece). Crea `config/clinics/demo-<nombre>.js` y **falla si queda algún TODO o dato inválido**.
-   Medios de pago, FAQ y promociones quedan vacíos a propósito: la asistente no inventa lo que no sabes (regla 14).
-2. **Ilustraciones con su nombre** (el comando exacto lo imprime el paso 1):
-   ```powershell
-   pwsh scripts/generate-demo-media.ps1 -ClinicId demo-<nombre> -ClinicName "<Nombre>" -ShortName "<CORTO>" -AddressLine "<dirección>" -AddressNote "" -Footnote "Imagen referencial"
+   Crea `config/clinics/demo-<nombre>.js` (**falla si queda algún TODO o dato inválido**) y `media/demo-<nombre>/`
+   con su logo (o un monograma con sus iniciales y colores si no lo tienes) y el catálogo ilustrado (ortodoncia y
+   carillas, si los ofrece) **con sus colores, su nombre y sus precios "desde"**, marcado "Imagen referencial".
+   Además deja en `tmp/cards-demo-<nombre>/` la tarjeta del pack, un pase de cita de ejemplo y la ficha del doctor:
+   ábrelos y revísalos antes de grabar. Medios de pago y FAQ quedan vacíos a propósito: la asistente no inventa lo
+   que no sabes (regla 14). Sin pack (qué incluye y precio) no hay tarjeta del pack.
+
+   Ejemplo de `prospecto.json` (solo `name`, `address`, `hours`, `campaign` y `prices` son obligatorios):
+   ```json
+   {
+     "name": "Clínica Dental Sonrisa Perfecta",
+     "address": "Av. Principal 450, Consultorio 302, Miraflores",
+     "hours": "lun-vie 09:00-13:00,14:00-20:00; sab 09:00-14:00",
+     "campaign": "Evaluación con escaneo 3D y brackets con inicial S/ 0",
+     "colors": { "primary": "#1d4ed8", "accent": "#22d3ee" },
+     "logo": "C:/Users/tu-usuario/Downloads/logo-sonrisa.png",
+     "prices": { "ortodoncia": 1500, "carillas": 250, "limpieza": 80 },
+     "pack": { "title": "Pack Evaluación Digital 3D", "includes": "Radiografía panorámica, Escaneo intraoral 3D, Plan de tratamiento", "price": 50, "bring": "Solo trae tu DNI." },
+     "promotion": { "text": "Gratis si inicias el mismo día", "validUntil": "2026-12-15", "packPrice": 0 },
+     "specialist": "Dr. Alejandro Vega"
+   }
    ```
-3. **Arranca la demo con esa clínica:**
-   ```powershell
-   $env:ACTIVE_CLINIC="demo-<nombre>"; npm run demo
+   Tratamientos que acepta `prices`: ortodoncia, carillas, implantes, blanqueamiento, limpieza, odontopediatria,
+   endodoncia, extraccion. Horario: días `lun mar mie jue vie sab dom`, rangos con coma para el refrigerio y
+   `dom cerrado`. El logo solo puede ser JPG, PNG o WebP de hasta 2 MB (se revisa el archivo, no la extensión), y
+   úsalo solo si la clínica te lo dio o está en su página pública para mostrarle su demo.
+2. **Arranca la demo lista para grabar** (modo noche 10:30 p. m., confirmación directa con pase, alertas a números
+   falsos):
+   ```bash
+   npm run demo:video -- demo-<nombre>
    ```
-   (Git Bash: `ACTIVE_CLINIC=demo-<nombre> npm run demo`). La consola dice "Clínica activa: <Nombre>".
-4. **Ábrela en tu celular:** conecta el celular al mismo Wi-Fi o al hotspot de tu laptop y abre
+   La consola imprime el enlace (`/panel?video=1#tester`), el usuario `demo` y la contraseña de esa sesión. Para una
+   demo sin grabar: `$env:ACTIVE_CLINIC="demo-<nombre>"; npm run demo`.
+3. **Ábrela en tu celular:** conecta el celular al mismo Wi-Fi o al hotspot de tu laptop y abre
    `http://<IP-de-tu-laptop>:3000/panel` (la IP sale con `ipconfig` → "Dirección IPv4"). Si Windows pregunta por el
    firewall, permite Node.js en redes privadas. Entra como dueño (usuario `demo` y la contraseña que muestra la consola,
    o tu `PANEL_OWNER_USER`).
-5. **Sigue los pasos 2 a 5 de la Opción 1.** El doctor ve su nombre, su logo, su campaña y sus precios.
+4. **Sigue los pasos 2 a 5 de la Opción 1.** El doctor ve su nombre, su logo, su campaña y sus precios.
 
 Los archivos `config/clinics/demo-*.js` y `media/demo-*/` están en `.gitignore`: nunca se suben ni llegan a Render.
 Para borrar una demo: elimina esos dos archivos/carpeta.

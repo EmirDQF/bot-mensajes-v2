@@ -44,7 +44,7 @@ const noopRes = { status() { return this; }, send() { return this; }, json() { r
 export function createTesterController({
   handleWebhook = defaultWebhook, idle = waitForIdle, events = defaultEvents, getClient = getSupabase, clinic = activeClinic,
 } = {}) {
-  function run(phone, text, clock) {
+  function run(phone, text, clock, profileName) {
     const clockOffsetMs = clock === 'night' ? nightOffsetMs(clinic) : 0;
     const onSend = (to, payload) => {
       const target = String(to).replace(/\D/g, '');
@@ -55,7 +55,8 @@ export function createTesterController({
       });
     };
     return runInTestMode({ clockOffsetMs, onSend }, async () => {
-      await handleWebhook({ body: testPayload(phone, text, { now: new Date(Date.now() + clockOffsetMs) }) }, noopRes);
+      const options = { now: new Date(Date.now() + clockOffsetMs), ...(profileName ? { name: profileName } : {}) };
+      await handleWebhook({ body: testPayload(phone, text, options) }, noopRes);
       return idle(phone);
     });
   }
@@ -68,7 +69,9 @@ export function createTesterController({
     if (text.length > MAX_TEXT) return res.status(400).json({ error: `Máximo ${MAX_TEXT} caracteres` });
     const clock = req.body?.clock === 'night' ? 'night' : 'now';
     const phone = testerPhone(req.body?.session);
-    run(phone, text, clock)
+    // Nombre del perfil de WhatsApp simulado (modo video: "Carlos Mendoza"); solo letras y espacios.
+    const profileName = String(req.body?.profileName || '').replace(/[^\p{L} ]/gu, '').trim().slice(0, 40) || null;
+    run(phone, text, clock, profileName)
       .catch((error) => console.error('[Probador] Falló el mensaje de prueba:', error?.message || error))
       .finally(() => events.publish('tester', { phone, done: true }));
     return res.status(202).json({ phone, clock });

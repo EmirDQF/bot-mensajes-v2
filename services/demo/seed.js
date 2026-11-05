@@ -216,7 +216,10 @@ export function buildDemoData(clinic, now = new Date()) {
     clinic_id: clinic.id,
     data: {
       bookingMode: 'confirmacion_directa',
-      promotions: [{ title: 'Blanqueamiento 2x1 (promoción de demostración)', description: 'Dos sesiones al precio de una', validUntil: addDays(today, 30), active: true }],
+      // Solo en la clínica ficticia: en la demo de un prospecto (quick-demo) el bot la diría como si fuera suya.
+      ...(clinic.id === 'denvari'
+        ? { promotions: [{ title: 'Blanqueamiento 2x1 (promoción de demostración)', description: 'Dos sesiones al precio de una', validUntil: addDays(today, 30), active: true }] }
+        : {}),
     },
     updated_at: iso(now), updated_by: 'demo',
   }];

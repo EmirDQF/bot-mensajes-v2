@@ -18,7 +18,20 @@ const SCENARIOS = [
   { label: '🤖 ¿Eres un robot?', text: '¿eres un robot?' },
 ];
 
-const state = { session: 1, clock: 'now', messages: [], log: [], built: false };
+// Modo video (npm run demo:video → /panel?video=1#tester): hora 10:30 p. m., perfil "Carlos Mendoza" y el guion
+// del video de referencia paso a paso. En el paso del horario se toca un botón (como en el celular).
+const VIDEO_MODE = new URLSearchParams(window.location.search).has('video');
+// Solo el nombre (como un perfil de WhatsApp real): el bot le pide el nombre completo, igual que en el video.
+const VIDEO_PROFILE = 'Carlos';
+export const VIDEO_SCRIPT = [
+  'Hola! Vi su anuncio en Instagram y me interesa mucho. Quiero mejorar mi sonrisa, ¿me dan información de ortodoncia o carillas por favor?',
+  'Qué buenas fotos! Me llaman la atención los brackets de zafiro y quizás carillas al final. Pero tengo dudas: ¿tengo que llevar radiografías o algo especial? ¿Qué necesito, qué días tienen espacio, cuánto cuesta empezar y cómo agendo?',
+  null, // toca un horario
+  'Mi nombre completo es Carlos Mendoza.',
+  '¡Genial, muchas gracias! Me encantó que me mandaran las fotos de los brackets y carillas 🙌 Nos vemos.',
+];
+
+const state = { session: 1, clock: VIDEO_MODE ? 'night' : 'now', messages: [], log: [], built: false, videoStep: 0 };
 let session = null;
 
 const randomSession = () => Math.floor(Math.random() * 9000) + 1000;
@@ -86,6 +99,8 @@ function build() {
         h('div', { class: 'field' }, h('span', {}, 'Hora del bot'),
           h('div', { id: 'testerClock', class: 'segmented', role: 'group', 'aria-label': 'Hora simulada' },
             clockButton('now', 'Ahora'), clockButton('night', '🌙 10:30 p. m.'))),
+        VIDEO_MODE ? h('div', { class: 'field' }, h('span', {}, '🎬 Guion del video'),
+          h('button', { type: 'button', id: 'testerVideoNext', class: 'btn btn--primary', onclick: nextVideoLine }, videoLabel())) : null,
         h('div', { class: 'field' }, h('span', {}, 'Escenarios'),
           h('div', { class: 'chips' }, SCENARIOS.map((s) => h('button', { type: 'button', class: 'chip', onclick: () => runScenario(s) }, s.label)))),
         h('div', { class: 'tester__actions' },
@@ -97,6 +112,25 @@ function build() {
   window.addEventListener('panel:live', (event) => onLive(event.detail.type, event.detail.data));
   renderChat();
   renderLog();
+}
+
+function videoLabel() {
+  const step = state.videoStep;
+  if (step >= VIDEO_SCRIPT.length) return '✅ Guion terminado';
+  return VIDEO_SCRIPT[step] === null ? `Paso ${step + 1}/${VIDEO_SCRIPT.length}: toca un horario 👆` : `Siguiente línea (${step + 1}/${VIDEO_SCRIPT.length})`;
+}
+
+// Escribe la siguiente línea en la caja (Enter la envía), o salta el paso de tocar un horario.
+function nextVideoLine() {
+  const line = VIDEO_SCRIPT[state.videoStep];
+  if (state.videoStep >= VIDEO_SCRIPT.length) return;
+  state.videoStep += 1;
+  if (line) {
+    const input = $('#testerText');
+    input.value = line;
+    input.focus();
+  }
+  $('#testerVideoNext').textContent = videoLabel();
 }
 
 function setClock(key) {
@@ -131,7 +165,7 @@ function buttonsNode(m) {
   const isList = m.buttonsKind === 'list';
   return h('div', { class: `tester__buttons${isList ? ' tester__buttons--list' : ''}`, role: 'group', 'aria-label': 'Opciones del mensaje' },
     isList ? h('span', { class: 'muted' }, '📋 Lista: elige una opción') : null,
-    ...m.buttons.map((title) => h('button', { type: 'button', class: 'tester__button', onclick: () => send(title) }, `📅 ${title}`)));
+    ...m.buttons.map((title) => h('button', { type: 'button', class: 'tester__button', onclick: () => send(title, { fromButton: true }) }, /\d:\d\d/.test(title) ? `📅 ${title}` : title)));
 }
 
 function renderChat() {
@@ -156,12 +190,15 @@ function setWaiting(on) {
   $('#testerStatus').textContent = on ? 'Esperando la respuesta (2 s de espera + asistente)…' : 'Escribe como si fueras un paciente';
 }
 
-async function send(text) {
-  state.messages.push({ from: 'patient', text, at: new Date().toISOString() });
+async function send(text, { fromButton = false } = {}) {
+  state.messages.push({ from: 'patient', text, fromButton, at: new Date().toISOString() });
   renderChat();
   setWaiting(true);
   try {
-    await api('/tester/message', { method: 'POST', body: { text, session: state.session, clock: state.clock } });
+    const body = { text, session: state.session, clock: state.clock, ...(VIDEO_MODE ? { profileName: VIDEO_PROFILE } : {}) };
+    await api('/tester/message', { method: 'POST', body });
+    // Tocar un horario en el paso del guion que lo pide cuenta como hecho.
+    if (VIDEO_MODE && VIDEO_SCRIPT[state.videoStep] === null && state.messages.at(-1)?.fromButton) nextVideoLine();
   } catch (error) {
     setWaiting(false);
     toast(error.message, 'error');
@@ -195,6 +232,8 @@ function newConversation() {
   state.messages = [];
   state.log = [];
   state.noticeShown = false;
+  state.videoStep = 0;
+  if ($('#testerVideoNext')) $('#testerVideoNext').textContent = videoLabel();
   if ($('#testerNotice')) $('#testerNotice').hidden = true;
   setWaiting(false);
   renderChat();

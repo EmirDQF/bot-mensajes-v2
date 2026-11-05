@@ -1,5 +1,5 @@
 import config from '../config/env.js';
-import clinic, { activePromotions, activeTreatments, findTreatment } from '../config/clinic.config.js';
+import clinic, { activePromotions, activeTreatments, bookingModeOf, findTreatment } from '../config/clinic.config.js';
 import { formatDateEs, formatTimeEs, localParts, toHHMM, toInstant } from './appointmentService.js';
 import { now as clockNow } from './clock.js';
 import { botNotesBlock, recommendationSentence } from './recommendationService.js';
@@ -58,7 +58,9 @@ Cuando consulte sobre un tratamiento o pida fotos o resultados, responde breve y
 
 ### REGLA 3: AGENDAMIENTO EN DOS FASES
 FASE A: pide los datos de a UNO por mensaje, de forma natural, en este orden: tratamiento, nombre y apellido, día y hora (no preguntes el distrito; si lo dice, se guarda solo). Pide solo el PRÓXIMO DATO indicado abajo y nunca vuelvas a preguntar algo que ya respondió.
-FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. Di que su SOLICITUD de cita quedó registrada y que recepción se la confirmará. Nunca digas que el horario quedó bloqueado o confirmado.
+${bookingModeOf(c) === 'confirmacion_directa'
+    ? 'FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. El SISTEMA reserva el horario y envía la confirmación y el pase de cita: tú nunca digas que la cita quedó confirmada ni reservada. Si la cita ya está agendada en esta conversación, NO digas que recepción la confirmará (ya está confirmada): responde con amabilidad y recuérdale que tiene su pase de cita.'
+    : 'FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. Di que su SOLICITUD de cita quedó registrada y que recepción se la confirmará. Nunca digas que el horario quedó bloqueado o confirmado.'}
 
 ### REGLA 4: PASE A HUMANO
 Si pide hablar con una persona o un doctor, o tiene dudas clínicas complejas, responde: "¡Claro! Un especialista de nuestro equipo te escribirá en unos minutos. 📲"
@@ -658,6 +660,16 @@ function polishReply(text, session, lead) {
 // Resumen de la solicitud (regla 9: "solicitud de cita … Recepción te la confirmará", nunca "bloqueado").
 // Solo si AFIRMA que la cita quedó agendada sin que exista la solicitud (regla 9). "Agendar tu cita" o
 // "tu cita de brackets" son invitaciones normales y no se tocan.
+// Confirmación directa con la cita ya reservada: "Recepción te confirmará tu cita" sería falso (ya está confirmada).
+const RECEPTION_PROMISE = /[^.!?\n]*recepci[oó]n\s+(?:te\s+)?(?:la\s+|lo\s+)?(?:confirmar[aá]|va\s+a\s+confirmar|confirma)(?=[\s.,!?]|$)[^.!?\n]*[.!?]?(?:\s*\p{Extended_Pictographic}️?)*\s*/giu;
+export const BOOKED_FOLLOW_UP = '¡Con gusto! 😊 Ya tienes tu cita confirmada y tu pase de cita. Si necesitas cambiarla, escribe "reprogramar".';
+export function withoutReceptionPromise(text) {
+  if (!RECEPTION_PROMISE.test(text)) return text;
+  RECEPTION_PROMISE.lastIndex = 0;
+  const kept = String(text).replace(RECEPTION_PROMISE, '').replace(/\n{3,}/g, '\n\n').trim();
+  return kept.length >= 12 ? kept : BOOKED_FOLLOW_UP;
+}
+
 // "Tu solicitud de cita para ortodoncia quedó registrada…" también cuenta (hasta 8 palabras en medio).
 export const CLAIMS_BOOKED = /\b(?:(?:tu\s+)?solicitud(?:\s+de\s+cita)?(?:\s+[^\s.!?]+){0,8}?\s+(?:ya\s+)?(?:qued[oó]|est[aá]|ha\s+quedado|fue)\s+(?:registrad|agendad|confirmad)\w*|tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
 
@@ -723,6 +735,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     if (!session.booked && CLAIMS_BOOKED.test(texto)) {
       texto = `¡Con mucho gusto coordinamos tu cita! ${questionFor(nextMissingField(leadData || {}) || 'horario')}`;
     }
+    if (session.booked && bookingModeOf(clinic) === 'confirmacion_directa') texto = withoutReceptionPromise(texto);
     // El dato que se le pide ahora (uno por mensaje): su próxima respuesta corta se guarda como ese dato.
     session.askedField = session.booked ? null : nextMissingField(leadData || {});
     session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });

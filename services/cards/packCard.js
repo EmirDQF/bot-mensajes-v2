@@ -100,7 +100,7 @@ export function packCardSvg(clinic = activeClinic, today) {
   ${listSvg}
   <rect x="56" y="${barY}" width="${W - 112}" height="112" rx="24" fill="url(#bar)" stroke="${accent}" stroke-opacity="0.55" stroke-width="2"/>
   <text x="92" y="${barY + 48}" font-size="28" font-weight="800" fill="#ffffff">${esc(wrapText(view.title, 30, 1)[0])}</text>
-  ${promo ? `<text x="92" y="${barY + 84}" font-size="23" font-weight="700" fill="#fcd34d">${esc(wrapText(promo, 44, 1)[0])}</text>` : `<text x="92" y="${barY + 84}" font-size="22" fill="#b9d3d8">${esc(clinic.name)}</text>`}
+  ${promo ? `<text x="92" y="${barY + 84}" font-size="${promo.length > 44 ? 19 : 23}" font-weight="700" fill="#fcd34d">${esc(wrapText(promo, 56, 1)[0])}</text>` : `<text x="92" y="${barY + 84}" font-size="22" fill="#b9d3d8">${esc(clinic.name)}</text>`}
   ${was ? `<text x="${W - 96}" y="${barY + 40}" font-size="26" fill="#b9d3d8" text-anchor="end" text-decoration="line-through">${esc(was)}</text>` : ''}
   ${price ? `<text x="${W - 96}" y="${barY + (was ? 86 : 72)}" font-size="${was ? 44 : 50}" font-weight="800" fill="#ffffff" text-anchor="end">${esc(price)}</text>` : ''}
   <text x="${W / 2}" y="${H - 30}" font-size="18" fill="#8fb0b7" text-anchor="middle">${esc(clinic.name)}${clinic.address ? ` · ${esc(wrapText(clinic.address, 50, 1)[0])}` : ''}</text>

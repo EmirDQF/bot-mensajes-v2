@@ -161,3 +161,21 @@ describe('imágenes con calidad de diseño y datos reales', () => {
     assert.deepEqual(catalogArtFor({ ...c, treatments: c.treatments.filter((t) => t.key !== 'ortodoncia') }).map((a) => a.key), ['carillas']);
   });
 });
+
+describe('confirmación directa: el modelo no promete una confirmación de recepción', () => {
+  it('el prompt de la Fase B cambia según bookingMode', async () => {
+    const { buildSystemPrompt } = await import('./geminiService.js');
+    const direct = buildSystemPrompt({ ...clinic(), bookingMode: 'confirmacion_directa' }, { today: TODAY });
+    assert.match(direct, /El SISTEMA reserva el horario/);
+    assert.doesNotMatch(direct, /Di que su SOLICITUD de cita quedó registrada/);
+    const request = buildSystemPrompt({ ...clinic(), bookingMode: 'solicitud' }, { today: TODAY });
+    assert.match(request, /Di que su SOLICITUD de cita quedó registrada y que recepción se la confirmará/);
+  });
+
+  it('con la cita ya reservada se quita "recepción te confirmará"', async () => {
+    const { withoutReceptionPromise, BOOKED_FOLLOW_UP } = await import('./geminiService.js');
+    assert.equal(withoutReceptionPromise('¡Entendido, Carlos! Ya tenemos todo registrado. Recepción te confirmará tu cita a la brevedad. 😊'), '¡Entendido, Carlos! Ya tenemos todo registrado.');
+    assert.equal(withoutReceptionPromise('Recepción te la confirmará.'), BOOKED_FOLLOW_UP);
+    assert.equal(withoutReceptionPromise('¡Te esperamos el viernes!'), '¡Te esperamos el viernes!');
+  });
+});
