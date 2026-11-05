@@ -41,6 +41,16 @@ Cuéntame:
 
   privacyNotice: '🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".',
 
+  // Pack de la primera visita: el bot envía esta tarjeta (imagen + texto) una vez por conversación cuando
+  // preguntan por la evaluación, los requisitos o quieren agendar. La promoción deja de mencionarse al vencer.
+  evaluationPack: {
+    title: 'Evaluación digital 3D',
+    includes: ['Radiografía panorámica', 'Escaneo intraoral 3D', 'Plan de tratamiento'],
+    price: 50,
+    promotion: { text: 'Precio de campaña', price: 0, validUntil: '2026-12-31' },
+    bring: 'Solo trae tu DNI: la radiografía te la tomamos aquí.',
+  },
+
   campaign: {
     evaluation: 'Evaluación digital 3D sin costo',
     initialFee: 'Cuota inicial S/ 0',
@@ -55,6 +65,14 @@ Cuéntame:
       durationMin: 60,
       financing: 'Cuota inicial S/ 0 y mensualidades desde S/ 150',
       synonyms: ['ortodoncia', 'brackets', 'bracket', 'bravkets', 'braquets', 'frenillos', 'frenos', 'aparatos', 'alineadores'],
+      // Catálogo visual: se envía cuando preguntan por el tratamiento (una vez por conversación).
+      // Ilustraciones propias de la demo (scripts/generate-catalog-media.js), no son pacientes reales.
+      images: [
+        {
+          file: 'catalogo/ortodoncia-metalicos-vs-zafiro.png',
+          caption: '🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.',
+        },
+      ],
     },
     {
       key: 'carillas',
@@ -63,6 +81,12 @@ Cuéntame:
       durationMin: 60,
       financing: 'Precio por pieza; pago en cuotas',
       synonyms: ['carillas', 'carilla', 'diseño de sonrisa', 'diseno de sonrisa', 'sonrisa', 'carrillas'],
+      images: [
+        {
+          file: 'catalogo/carillas-antes-despues.png',
+          caption: '✨ *Carillas:* cambio estético en color, forma y tamaño. Ilustración referencial: no es un paciente real.',
+        },
+      ],
     },
     {
       key: 'implantes',

@@ -6,6 +6,9 @@ import jobsRouter, { requireCronSecret } from './routes/jobs.js';
 import { getSupabase as getDefaultSupabase } from './services/supabaseClient.js';
 import errorHandler from './middleware/errorHandler.js';
 import clinic, { publicClinicInfo } from './config/clinic.config.js';
+import { packCardPng } from './services/cards/packCard.js';
+import { localParts } from './services/appointmentService.js';
+import { now as clockNow } from './services/clock.js';
 
 // Arma la aplicación Express sin escuchar un puerto (index.js la levanta; los tests la usan directo).
 
@@ -61,6 +64,19 @@ export function createApp({ getSupabase = getDefaultSupabase } = {}) {
     return res.type(file.contentType || 'application/octet-stream').send(file.buffer);
   });
   app.use(express.static(publicDir));
+
+  // Tarjeta del pack de evaluación (PNG con los datos de la clínica; sin datos de pacientes).
+  app.get('/cards/evaluation-pack.png', (req, res) => {
+    try {
+      const png = packCardPng(clinic, localParts(clinic.timezone, clockNow()).date);
+      if (!png) return res.status(404).json({ error: 'La clínica no tiene pack de evaluación configurado' });
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.type('image/png').send(png);
+    } catch (error) {
+      console.error('[Tarjetas] No se pudo generar la tarjeta del pack:', error?.message || error);
+      return res.status(500).json({ error: 'No se pudo generar la imagen' });
+    }
+  });
 
   // Marca pública de la clínica activa para el panel (sin teléfonos).
   app.get('/api/clinic', (req, res) => {

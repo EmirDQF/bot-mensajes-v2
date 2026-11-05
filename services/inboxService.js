@@ -30,9 +30,9 @@ export function panelMediaUrl({ media_id: mediaId, media_url: mediaUrl }) {
   if (mediaId && /^\d+$/.test(String(mediaId))) return `/api/panel/media/${mediaId}`;
   if (!mediaUrl) return null;
   const value = String(mediaUrl);
-  const local = value.match(/^https?:\/\/[^/]+(\/media\/.+)$/i);
+  const local = value.match(/^https?:\/\/[^/]+(\/(?:media|cards)\/.+)$/i);
   if (local) return local[1];
-  return /^https:\/\//i.test(value) || value.startsWith('/media/') ? value : null;
+  return /^https:\/\//i.test(value) || /^\/(?:media|cards)\//.test(value) ? value : null;
 }
 
 // Fila de messages → mensaje del panel. Las filas antiguas (sin sender) se deducen por el rol.

@@ -198,6 +198,8 @@ for (const t of clinic.treatments) {
 }
 collectNumbers(JSON.stringify(clinic.campaign)).forEach((n) => allowedPrices.add(n));
 collectNumbers(JSON.stringify(clinic.faq)).forEach((n) => allowedPrices.add(n));
+// Pack de evaluación (precio regular y de campaña).
+collectNumbers(JSON.stringify(clinic.evaluationPack || {})).forEach((n) => allowedPrices.add(n));
 
 const PROMISES_LOCK = /\b(?:cita|horario|turno)\s+(?:ya\s+)?(?:est[aá]|qued[oó]|queda)\s+(?:agendad|confirmad|bloquead|reservad|separad)\w*|\bagend\w*\s+directo|\bte\s+(?:bloqueo|reservo|separo)\s+el\s+horario/i;
 // "tienes caries / maloclusión…": diagnóstico. La asistente solo recomienda una EVALUACIÓN.
@@ -567,6 +569,44 @@ const SCENARIOS = [
         check('Termina con una pregunta o un siguiente paso', /\?\s*$/.test(answer) || slotList.test(answer)),
       ];
     },
+  },
+  // ---- Lenguaje muy informal (Perú) y catálogo visual ----
+  {
+    n: 35, title: 'Informal: "precio pls" de frenillos', time: DAY,
+    turns: [text('info de los frenillos precio pls')],
+    checks: ({ bot, images }) => [
+      check('Entiende "frenillos" como ortodoncia', has(bot, /ortodoncia|brackets/i) || images.some((i) => i.includes('ortodoncia'))),
+      check('Da el precio desde S/ 1,800', has(bot, /1[.,]?800/)),
+      check('Envía el catálogo de ortodoncia', images.some((i) => /catalogo\/ortodoncia/.test(i))),
+    ],
+  },
+  {
+    n: 36, title: 'Informal: "cuanto sale sacar muela"', time: DAY,
+    turns: [text('cuanto sale sacarme una muela q me molesta')],
+    checks: ({ bot }) => [
+      check('Habla de extracción o de evaluación', has(bot, /extracci[oó]n|evaluaci[oó]n/i)),
+      check('No diagnostica ni receta', !has(bot, MEDICATION) && !has(bot, DIAGNOSIS)),
+    ],
+  },
+  {
+    n: 37, title: 'Informal: "diente postizo" + "a cuanto"', time: NIGHT,
+    turns: [text('hola a cuanto el diente postizo')],
+    checks: ({ bot }) => [
+      check('Entiende "diente postizo" como implante', has(bot, /implante/i)),
+      check('Da el precio desde S/ 2,500', has(bot, /2[.,]?500/)),
+    ],
+  },
+  {
+    n: 38, title: 'Catálogo + pack (como el video de referencia)', time: DAY,
+    turns: [
+      text('Hola! Vi su anuncio y me interesa mucho. Quiero mejorar mi sonrisa, ¿me dan información de ortodoncia o carillas por favor?'),
+      text('Qué buenas fotos! Me llaman los brackets de zafiro y quizás carillas. ¿Tengo que llevar radiografías? ¿Qué necesito, qué días tienen espacio, cuánto cuesta empezar y cómo agendo?'),
+    ],
+    checks: ({ bot, images }) => [
+      check('Envía el catálogo de ortodoncia y de carillas', images.some((i) => /catalogo\/ortodoncia/.test(i)) && images.some((i) => /catalogo\/carillas/.test(i))),
+      check('Envía la tarjeta del pack una sola vez', images.filter((i) => /evaluation-pack/.test(i)).length === 1),
+      check('Ofrece horarios', has(bot, slotList)),
+    ],
   },
 ];
 

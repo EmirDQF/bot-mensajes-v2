@@ -41,6 +41,13 @@ export function safeUrl(value) {
   return /^https:\/\//i.test(url) ? url : null;
 }
 
+// Fotos y tarjetas de la clínica llegan con la URL pública completa (en local, http://localhost…):
+// en el panel se muestran desde el mismo servidor (/media o /cards).
+export function imageSrc(value) {
+  const local = String(value || '').match(/^https?:\/\/[^/]+(\/(?:media|cards)\/.+)$/i);
+  return local ? local[1] : safeUrl(value);
+}
+
 const TZ = 'America/Lima';
 export function timeLabel(value) {
   if (!value) return '';

@@ -35,6 +35,7 @@ npm run crons:setup            # crea/actualiza las 6 tareas de cron-job.org (CR
 npm run smoke:prod -- <URL>    # prueba de extremo a extremo contra producción
 node --check <archivo.js>      # verificación rápida de sintaxis
 pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-ClinicName para otra clínica)
+node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo (media/<id>/catalogo/, SVG → PNG)
 ```
 
 ## Mapa del código
@@ -61,6 +62,10 @@ pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
 | Panel de recepción | `public/panel.html`, `public/app/*.js` (main, inbox, live, views, config, tester), `controllers/panelController.js`, `services/panelDataService.js` |
 | Etiquetas de fotos `[ENVIAR_FOTO: x]` | `services/mediaTags.js` |
+| Catálogo visual por tratamiento (`treatments[].images`) y pack de evaluación (`evaluationPack`) | `services/catalog.js`, envío en `controllers/mediaReplies.js` |
+| Imágenes generadas en el servidor (SVG → PNG con `@resvg/resvg-js` y la fuente Inter de `assets/fonts/`) | `services/cards/` (tarjeta del pack en `GET /cards/evaluation-pack.png`) |
+| Sinónimos coloquiales y errores de tipeo comunes en Perú | `config/colloquial.js` |
+| Bandeja/historial/anuncio de origen del webhook; primer contacto y modo nocturno | `controllers/conversationStore.js`, `controllers/firstContact.js` |
 | Esquema de base de datos | `migrations/*.sql` (en orden de fecha; todos idempotentes) |
 | Scripts | `scripts/preflight.js`, `scripts/simulate-conversations.js`, `scripts/new-clinic.js` |
 | Go-live por API (Meta, Supabase, cron-job.org, smoke) | `scripts/meta.js`, `scripts/db.js`, `scripts/crons-setup.js`, `scripts/smoke-prod.js`, `scripts/lib/` |

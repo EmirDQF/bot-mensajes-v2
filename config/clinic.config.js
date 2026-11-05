@@ -1,6 +1,8 @@
 // Carga la clínica activa (ACTIVE_CLINIC, por defecto "denvari") desde config/clinics/<id>.js,
 // valida sus campos al arrancar y expone helpers de teléfonos, media y tratamientos.
 
+import { COMMON_TREATMENT_SYNONYMS } from './colloquial.js';
+
 const DEFAULT_CLINIC_ID = 'denvari';
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const REQUIRED_STRINGS = ['id', 'name', 'botName', 'city', 'address', 'mapsUrl', 'timezone', 'welcomeCaption', 'privacyNotice'];
@@ -61,8 +63,43 @@ export function validateClinic(clinic) {
     const color = clinic.colors?.[key];
     if (color !== undefined && !/^#[0-9a-f]{6}$/i.test(color)) errors.push(`colors.${key} debe ser un color #RRGGBB`);
   }
-  return [...errors, ...validateEditable(clinic)];
+  return [...errors, ...validateEditable(clinic), ...validateCatalog(clinic)];
 }
+
+// Catálogo visual (treatments[].images) y pack de evaluación (evaluationPack). Ambos opcionales.
+const MEDIA_FILE = /^(?!.*\.\.)[\w-]+(?:\/[\w-]+)*\.(?:png|jpe?g|webp)$/i;
+export const isMediaRef = (value) => typeof value === 'string' && (MEDIA_FILE.test(value) || /^https:\/\/\S+$/i.test(value));
+export const MAX_TREATMENT_IMAGES = 6;
+
+function validateCatalog(c) {
+  const errors = [];
+  (Array.isArray(c.treatments) ? c.treatments : []).forEach((t, i) => {
+    if (t?.images === undefined) return;
+    if (!Array.isArray(t.images) || t.images.length > MAX_TREATMENT_IMAGES) {
+      errors.push(`treatments[${i}].images debe ser una lista de hasta ${MAX_TREATMENT_IMAGES} imágenes`);
+      return;
+    }
+    t.images.forEach((img, j) => {
+      if (!isMediaRef(img?.file)) errors.push(`treatments[${i}].images[${j}].file debe ser un archivo .png/.jpg/.webp de media/${c.id}/ o un enlace https://`);
+      if (img?.caption !== undefined && !isText(img.caption, 1000)) errors.push(`treatments[${i}].images[${j}].caption debe ser un texto de hasta 1000 caracteres`);
+    });
+  });
+  const pack = c.evaluationPack;
+  if (pack === undefined || pack === null) return errors;
+  if (typeof pack !== 'object' || Array.isArray(pack)) return [...errors, '"evaluationPack" debe ser un objeto'];
+  if (!isText(pack.title, 60)) errors.push('evaluationPack.title es obligatorio (máximo 60 caracteres)');
+  if (!textList(pack.includes, 80) || !pack.includes.length || pack.includes.length > 6) errors.push('evaluationPack.includes debe tener de 1 a 6 textos');
+  if (pack.price !== undefined && !isPrice(pack.price)) errors.push('evaluationPack.price debe ser un número (0 = sin costo)');
+  if (pack.bring !== undefined && !isText(pack.bring, 120)) errors.push('evaluationPack.bring debe ser un texto de hasta 120 caracteres');
+  if (pack.promotion !== undefined && pack.promotion !== null) {
+    const promo = pack.promotion;
+    if (!isText(promo?.text, 80)) errors.push('evaluationPack.promotion.text es obligatorio (máximo 80 caracteres)');
+    if (promo?.price !== undefined && !isPrice(promo.price)) errors.push('evaluationPack.promotion.price debe ser un número');
+    if (promo?.validUntil !== undefined && !DATE.test(promo.validUntil || '')) errors.push('evaluationPack.promotion.validUntil debe ser AAAA-MM-DD');
+  }
+  return errors;
+}
+const isPrice = (value) => typeof value === 'number' && value >= 0 && value <= 100000;
 
 // Campos opcionales que el dueño puede editar desde el panel (mismas reglas para la base y los cambios).
 const TONES = ['cercano', 'formal', 'juvenil'];
@@ -167,7 +204,7 @@ export default clinic;
 export const EDITABLE_FIELDS = [
   'name', 'botName', 'tone', 'emojiLevel', 'workingHours', 'workingHoursText', 'holidays', 'treatments', 'promotions',
   'campaign', 'paymentMethods', 'financingText', 'address', 'mapsUrl', 'reviewUrl', 'faq', 'welcomeCaption',
-  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media',
+  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack',
 ];
 // Objetos que se combinan por clave (un día del horario, una foto); el resto se reemplaza entero.
 const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media'];
@@ -242,9 +279,19 @@ const isRemote = (value) => /^https:\/\//i.test(String(value || ''));
 
 // Ruta relativa (/media/<id>/<archivo>) o URL remota para el panel; mediaUrl() la vuelve absoluta para WhatsApp.
 export function mediaPath(key) {
-  const file = clinic.media?.[key];
+  return mediaFilePath(clinic.media?.[key]);
+}
+
+// Un archivo cualquiera de media/<id>/ (p. ej. las imágenes del catálogo) o una URL https.
+export function mediaFilePath(file) {
   if (!file) return null;
   return isRemote(file) ? file : `/media/${clinic.id}/${file}`;
+}
+
+export function mediaFileUrl(file) {
+  const path = mediaFilePath(file);
+  if (!path) return null;
+  return isRemote(path) ? path : `${getPublicBaseUrl()}${path}`;
 }
 
 export function mediaUrl(key) {
@@ -275,24 +322,31 @@ function editDistanceAtMostOne(a, b) {
   return edits + (a.length - i) + (b.length - j) <= 1;
 }
 
+// Sinónimos de la clínica + palabras coloquiales comunes para esa clave (config/colloquial.js).
 function treatmentTerms(t) {
-  return [t.key, ...(t.synonyms || [])].map(normalizeText).filter(Boolean);
+  return [t.key, ...(t.synonyms || []), ...(COMMON_TREATMENT_SYNONYMS[t.key] || [])].map(normalizeText).filter(Boolean);
 }
 
-// Devuelve el tratamiento mencionado en un texto libre (tolera 1 error de tipeo en palabras de 5+ letras).
-export function findTreatment(text) {
+function mentionKind(t, padded, words) {
+  if (treatmentTerms(t).some((term) => padded.includes(` ${term} `))) return 'exact';
+  const singleWordTerms = treatmentTerms(t).filter((term) => !term.includes(' ') && term.length >= 5);
+  return words.some((w) => singleWordTerms.some((term) => editDistanceAtMostOne(w, term))) ? 'fuzzy' : null;
+}
+
+// Todos los tratamientos mencionados ("info de ortodoncia o carillas"): primero las coincidencias exactas,
+// luego las que tienen 1 error de tipeo (en palabras de 5+ letras), en el orden de la clínica.
+export function findTreatments(text) {
   const value = normalizeText(text);
-  if (!value) return null;
+  if (!value) return [];
   const padded = ` ${value} `;
-  for (const t of activeTreatments()) {
-    if (treatmentTerms(t).some((term) => padded.includes(` ${term} `))) return t;
-  }
   const words = value.split(' ').filter((w) => w.length >= 5);
-  for (const t of activeTreatments()) {
-    const singleWordTerms = treatmentTerms(t).filter((term) => !term.includes(' ') && term.length >= 5);
-    if (words.some((w) => singleWordTerms.some((term) => editDistanceAtMostOne(w, term)))) return t;
-  }
-  return null;
+  const found = activeTreatments().map((t) => ({ t, kind: mentionKind(t, padded, words) })).filter((m) => m.kind);
+  return [...found.filter((m) => m.kind === 'exact'), ...found.filter((m) => m.kind === 'fuzzy')].map((m) => m.t);
+}
+
+// El tratamiento mencionado en un texto libre (el primero si hay varios).
+export function findTreatment(text) {
+  return findTreatments(text)[0] || null;
 }
 
 export function getTreatmentByKey(key) {

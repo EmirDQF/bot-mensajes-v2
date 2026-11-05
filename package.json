@@ -27,8 +27,10 @@
   "type": "module",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@resvg/resvg-js": "2.6.2",
     "@supabase/supabase-js": "^2.30.0",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "qrcode-generator": "2.0.4"
   },
   "engines": {
     "node": ">=22"

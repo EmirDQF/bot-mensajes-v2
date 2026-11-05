@@ -7,6 +7,7 @@ import { getFinishReason, isTruncated, trimToLastSentence } from './geminiOutput
 import { captureAnswer, extractDistrict, looksLikeRealName, nextMissingField, questionFor } from './leadFields.js';
 import { EMOJI_LIMITS, ensureNextStep, limitEmojis } from './replyStyle.js';
 import { adPromptBlock, adTreatment } from './adContext.js';
+import { evaluationPackPrompt } from './catalog.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -51,7 +52,7 @@ export function buildSystemPrompt(c = clinic, { today = localParts(c.timezone, c
 Si ya hay mensajes previos, jamás digas "¡Hola!", "Buenos días", "¿En qué puedo ayudarte?" ni vuelvas a presentarte.
 
 ### REGLA 2: ENVÍO PROACTIVO DE FOTOS
-Cuando consulte sobre un tratamiento o pida fotos o resultados, responde breve y termina con la etiqueta de foto del tratamiento (lista abajo). Para ubicación o local usa ${placeTags || 'solo texto'}. Puedes poner varias etiquetas.
+Cuando consulte sobre un tratamiento o pida fotos o resultados, responde breve y termina con la etiqueta de foto del tratamiento (lista abajo). Para ubicación o local usa ${placeTags || 'solo texto'}. Puedes poner varias etiquetas. Las imágenes del catálogo y la tarjeta del pack de evaluación las envía el sistema solas, antes de tu mensaje: nunca digas que no puedes enviar fotos y no describas lo que muestran.
 
 ### REGLA 3: AGENDAMIENTO EN DOS FASES
 FASE A: pide los datos de a UNO por mensaje, de forma natural, en este orden: tratamiento, nombre y apellido, distrito, día y hora. Pide solo el PRÓXIMO DATO indicado abajo y nunca vuelvas a preguntar algo que ya respondió.
@@ -90,7 +91,7 @@ En toda la conversación haz como máximo 2 preguntas para conocerlo, una a la v
 ### DATOS DE LA CLÍNICA
 - Horario: ${c.workingHoursText}${closedDays ? `\n- Días cerrados (feriados): ${closedDays}` : ''}
 - Dirección: ${c.address}${c.addressReference ? ` (referencia: ${c.addressReference})` : ''} (mapa: ${c.mapsUrl}). Si pregunta dónde quedan, da la dirección exacta, la referencia y el enlace del mapa.
-- Campaña y promociones vigentes: ${campaign}${payments ? `\n- Formas de pago y financiamiento: ${payments}` : ''}
+- Campaña y promociones vigentes: ${campaign}${payments ? `\n- Formas de pago y financiamiento: ${payments}` : ''}${evaluationPackPrompt(c, today)}
 
 ### TRATAMIENTOS
 ${treatments}

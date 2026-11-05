@@ -1,6 +1,6 @@
 import api from './api.js';
 import {
-  $, $$, h, clear, safeUrl, timeLabel, formatPhone, initials, loading, empty, failure, toast,
+  $, $$, h, clear, imageSrc, timeLabel, formatPhone, initials, loading, empty, failure, toast,
 } from './dom.js';
 
 // Bandeja en vivo: lista (se reordena con cada evento), chat con burbujas paciente/bot/recepción,
@@ -174,7 +174,7 @@ function upsertMessage(message) {
 }
 
 function mediaNode(m) {
-  const url = safeUrl(m.mediaUrl);
+  const url = imageSrc(m.mediaUrl);
   if (!url) return null;
   if (m.type === 'image' || m.type === 'sticker') {
     return h('button', { type: 'button', class: 'bubble__media', onclick: () => openLightbox(url), 'aria-label': 'Ver foto en grande' },

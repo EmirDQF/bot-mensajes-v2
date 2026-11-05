@@ -1,5 +1,5 @@
 import api from './api.js';
-import { $, h, clear, toast, safeUrl, timeLabel } from './dom.js';
+import { $, h, clear, toast, imageSrc, timeLabel } from './dom.js';
 
 // 🧪 Probador (solo el dueño): escribe como si fueras un paciente. Pasa por el MISMO flujo que WhatsApp
 // (debounce de 2 s, Gemini, agenda y alertas), pero nada sale a Meta. Todo queda marcado "prueba"
@@ -7,6 +7,9 @@ import { $, h, clear, toast, safeUrl, timeLabel } from './dom.js';
 
 const SESSION_KEY = 'tester.session';
 const SCENARIOS = [
+  { label: '🖼️ Catálogo', text: 'Hola! Quiero mejorar mi sonrisa, ¿me dan info de ortodoncia o carillas por favor?' },
+  { label: '📋 Requisitos y precio', text: '¿Qué necesito llevar, qué días tienen espacio, cuánto cuesta empezar y cómo agendo?' },
+  { label: '🗣️ Muy informal', text: 'info de los frenillos precio pls' },
   { label: '🌙 Ráfaga nocturna', clock: 'night', burst: ['hola', 'vi su anuncio de brackets', 'cuánto es la inicial'] },
   { label: '🦷 Dientes chuecos', text: 'Hola, tengo los dientes chuecos, qué me recomiendan?' },
   { label: '💍 Boda en un mes', text: 'Me caso en un mes y quiero una sonrisa bonita' },
@@ -119,12 +122,6 @@ function renderLog() {
   clear(box, state.log.length
     ? state.log.map((item) => h('li', {}, h('span', { class: 'muted' }, timeLabel(item.at)), ' ', item.text))
     : h('li', { class: 'muted' }, 'Aún nada. Envía un mensaje o elige un escenario.'));
-}
-
-// Las fotos de la clínica llegan con la URL pública completa; en el panel se muestran desde /media.
-function imageSrc(url) {
-  const local = String(url || '').match(/^https?:\/\/[^/]+(\/media\/.+)$/i);
-  return local ? local[1] : safeUrl(url);
 }
 
 function renderChat() {

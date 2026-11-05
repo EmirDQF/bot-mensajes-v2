@@ -54,7 +54,8 @@ export function buildQuickDemoClinic({ name, address, campaign, prices, id = nul
   const adCampaign = requireText(campaign, 'la campaña de su anuncio (ej. "Brackets con inicial S/ 0")');
   const priced = new Map(parsePrices(prices));
   const treatments = demo.treatments.filter((t) => priced.has(t.key))
-    .map((t) => ({ ...t, priceFrom: priced.get(t.key), financing: NEUTRAL_FINANCING }));
+    // Sin el catálogo de la demo: sus ilustraciones y textos son de Denvari.
+    .map(({ images, ...t }) => ({ ...t, priceFrom: priced.get(t.key), financing: NEUTRAL_FINANCING }));
   const keys = new Set(treatments.map((t) => t.key));
   const media = Object.fromEntries(Object.entries(demo.media).filter(([key]) => PLACE_MEDIA.includes(key) || keys.has(key)));
   // Si no ofrece el tratamiento de una regla, se recomienda la evaluación sin nombrar precio.
@@ -82,6 +83,8 @@ Cuéntame:
     paymentMethods: [],
     promotions: [],
     faq: [],
+    // El pack de evaluación (qué incluye y precio) es de cada clínica: el prospecto lo da después.
+    evaluationPack: undefined,
   };
 }
 
