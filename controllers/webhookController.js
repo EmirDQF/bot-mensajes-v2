@@ -3,7 +3,7 @@ import leadService from '../services/leadService.js';
 import notificationService from '../services/notificationService.js';
 import whatsappService, { sendTypingIndicator } from '../services/whatsappService.js';
 import { getGeminiClient, getGeminiFallbackClients } from '../src/geminiClient.js';
-import activeClinic, { findTreatment } from '../config/clinic.config.js';
+import activeClinic, { bookingModeOf, findTreatment, specialistFor } from '../config/clinic.config.js';
 import appointmentService, {
   OutsideHoursError, SlotTakenError, isWithinWorkingHours, localParts, parseRequestedDay, slotLabel,
 } from '../services/appointmentService.js';
@@ -36,6 +36,7 @@ import {
 } from './firstContact.js';
 import { sendEvaluationPack, sendImages } from './mediaReplies.js';
 import { sendWithSlotPicker } from '../services/slotButtons.js';
+import { confirmedBookingText, sendAppointmentPass } from './bookingReplies.js';
 
 export { aiFallbackReply, formatSlotList };
 export { sanitizeReferral, dataDeletionFilters };
@@ -70,7 +71,7 @@ const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 async function persistAgendaPayload(payload, context = {}) {
   if (!payload || typeof payload !== 'object') return { status: 'error' };
   try {
-    const appointment = await appointmentService.saveAppointment({
+    const request = {
       senderPhone: context.phone,
       patientName: payload.nombre || null,
       treatment: payload.tratamiento || payload.motivo || null,
@@ -78,7 +79,11 @@ async function persistAgendaPayload(payload, context = {}) {
       appointmentTime: payload.hora,
       source: context.source || 'whatsapp',
       adReferral: context.adReferral || null,
-    });
+    };
+    // Confirmación directa: el bot reserva el horario (atómico) y la cita nace confirmada con su código.
+    const appointment = bookingModeOf(activeClinic) === 'confirmacion_directa'
+      ? await appointmentService.reserveSlot({ ...request, specialist: specialistFor(findTreatment(request.treatment || '')?.key)?.name || null })
+      : await appointmentService.saveAppointment(request);
     await appointmentService.notifyReception(appointment, { summary: context.summary || null });
     return { status: 'saved', appointment };
   } catch (error) {
@@ -280,6 +285,9 @@ async function applyAppointmentRequest(from, jid, geminiResult, text, offeredSlo
   const appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, {
     phone: from, adReferral: await getAdReferral(from), summary: geminiService.conversationSummary(jid),
   });
+  if (appointmentOutcome.status === 'saved' && appointmentOutcome.appointment?.status === 'confirmada' && appointmentOutcome.appointment.code) {
+    return { text: confirmedBookingText(appointmentOutcome.appointment), appointmentOutcome, slots: null };
+  }
   if (appointmentOutcome.status !== 'slot_taken') return { text, appointmentOutcome, slots: null };
   geminiService.releaseBooking(jid);
   geminiService.setOfferedSlots(jid, appointmentOutcome.alternatives);
@@ -371,6 +379,9 @@ async function processBatch(from, buffer) {
     today, catalog: justBooked ? [] : catalog,
     showPack: !justBooked && !alreadyChoosing && !geminiService.isSessionBooked(jid) && wantsEvaluationPack(messageText),
   });
+
+  // Cita confirmada por el bot: primero el pase de cita (imagen), luego la confirmación en texto.
+  if (justBooked) await sendAppointmentPass(from, appointmentOutcome.appointment);
 
   let sendResult;
   try {

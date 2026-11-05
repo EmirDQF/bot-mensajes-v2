@@ -41,6 +41,16 @@ Cuéntame:
 
   privacyNotice: '🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".',
 
+  // Agendamiento: "solicitud" (recepción confirma) o "confirmacion_directa" (el bot reserva en la agenda del
+  // panel y envía el pase de cita). La confirmación directa solo si la agenda del panel es la ÚNICA de la clínica.
+  // En npm run demo se activa "confirmacion_directa" desde la configuración del panel (services/demo/seed.js).
+  bookingMode: 'solicitud',
+  appointmentCodePrefix: 'DV',
+  // Especialistas (opcional): nombre que va en el pase de cita. FICTICIO: Denvari es una clínica de demostración.
+  specialists: [
+    { name: 'Dra. Valeria Ríos (ficticia)', treatments: ['ortodoncia', 'carillas', 'blanqueamiento'], fictitious: true },
+  ],
+
   // Pack de la primera visita: el bot envía esta tarjeta (imagen + texto) una vez por conversación cuando
   // preguntan por la evaluación, los requisitos o quieren agendar. La promoción deja de mencionarse al vencer.
   evaluationPack: {

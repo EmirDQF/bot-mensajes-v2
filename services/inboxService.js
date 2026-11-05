@@ -32,7 +32,9 @@ export function panelMediaUrl({ media_id: mediaId, media_url: mediaUrl }) {
   const value = String(mediaUrl);
   const local = value.match(/^https?:\/\/[^/]+(\/(?:media|cards)\/.+)$/i);
   if (local) return local[1];
-  return /^https:\/\//i.test(value) || /^\/(?:media|cards)\//.test(value) ? value : null;
+  // El pase de cita se genera en una ruta del panel con sesión (nunca en una URL pública).
+  const passPath = /^\/api\/panel\/appointments\/[\w-]+\/pass\.png$/.test(value);
+  return /^https:\/\//i.test(value) || /^\/(?:media|cards)\//.test(value) || passPath ? value : null;
 }
 
 // Fila de messages → mensaje del panel. Las filas antiguas (sin sender) se deducen por el rol.

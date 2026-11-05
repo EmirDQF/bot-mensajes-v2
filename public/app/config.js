@@ -115,6 +115,16 @@ function assistantSection(c) {
   const emojis = select(c.emojiLevel || 'pocos', [['pocos', 'Pocos (máx. 2)'], ['ninguno', 'Ninguno'], ['normal', 'Normal (máx. 4)']]);
   const welcome = area(c.welcomeCaption, { maxlength: 1200, rows: 7 });
   const night = area(c.afterHoursNotice || '', { maxlength: 400, rows: 2, placeholder: '🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo…' });
+  const bookingMode = select(c.bookingMode || 'solicitud', [
+    ['solicitud', 'Solicitud: recepción confirma cada cita (recomendado)'],
+    ['confirmacion_directa', 'Confirmación directa: el bot reserva y envía el pase de cita'],
+  ]);
+  const bookingWarning = h('p', { class: 'hint hint--warn', role: 'note' },
+    '⚠️ Usa la confirmación directa solo si la Agenda de este panel es la ÚNICA agenda de la clínica. '
+    + 'Si recepción también agenda en un cuaderno, Excel u otro sistema, el bot podría confirmar un horario que ya está ocupado allí.');
+  const syncWarning = () => { bookingWarning.hidden = bookingMode.value !== 'confirmacion_directa'; };
+  bookingMode.addEventListener('change', syncWarning);
+  syncWarning();
   const preview = h('div', { class: 'preview', 'aria-live': 'polite' });
   const updatePreview = () => { preview.textContent = [welcome.value, night.value ? `(de noche) ${night.value}` : null].filter(Boolean).join('\n\n'); };
   welcome.addEventListener('input', updatePreview);
@@ -122,18 +132,21 @@ function assistantSection(c) {
   updatePreview();
   return section({
     id: 'assistant', title: '🤖 Clínica y asistente: nombres, tono y bienvenida', open: true,
-    fields: ['name', 'botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice'],
+    fields: ['name', 'botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice', 'bookingMode'],
     tryMessage: 'hola',
     body: [
       h('div', { class: 'grid-2' }, field('Nombre de la clínica', clinicName), field('Nombre de la asistente', botName)),
       h('div', { class: 'grid-2' }, field('Tono', tone), field('Emojis', emojis)),
       field('Mensaje de bienvenida (primer contacto)', welcome, 'Va con el logo y el aviso de privacidad.'),
       field('Aviso nocturno (clínica cerrada)', night, 'Vacío = texto por defecto.'),
+      field('Cómo se agendan las citas', bookingMode, 'En "solicitud" el paciente recibe "solicitud recibida" y recepción confirma.'),
+      bookingWarning,
       h('p', { class: 'field' }, h('span', {}, 'Vista previa')), preview,
     ],
     collect: () => ({
       name: clinicName.value.trim(), botName: botName.value.trim(), tone: tone.value, emojiLevel: emojis.value,
       welcomeCaption: welcome.value.trim(), ...(night.value.trim() ? { afterHoursNotice: night.value.trim() } : {}),
+      bookingMode: bookingMode.value,
     }),
   });
 }

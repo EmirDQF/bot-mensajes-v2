@@ -369,3 +369,7 @@ a { color: var(--brand); }
   #view-report { display: block !important; overflow: visible; padding: 0; }
   .metric-tile, .report-guarantee { box-shadow: none; break-inside: avoid; }
 }
+
+/* Advertencia en Configuración (p. ej. confirmación directa de citas). */
+.hint--warn { background: #fff7ed; border: 1px solid #fdba74; color: var(--warn); border-radius: 10px; padding: 10px 12px; margin: 4px 0 12px; font-size: 14px; }
+.hint--warn[hidden] { display: none; }

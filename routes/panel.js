@@ -4,6 +4,8 @@ import inbox from '../controllers/inboxController.js';
 import settings from '../controllers/settingsController.js';
 import tester from '../controllers/testerController.js';
 import { login, logout, requirePanel, sessionFor } from '../middleware/panelAuth.js';
+import appointmentService from '../services/appointmentService.js';
+import { appointmentPassPng } from '../services/cards/appointmentPass.js';
 
 // API del panel. Recepción (PANEL_USER) y dueño (PANEL_OWNER_USER) ven la bandeja, la agenda,
 // las métricas y el reporte; Configuración y Probador son solo del dueño (requirePanel('owner')).
@@ -53,6 +55,19 @@ router.get('/media/:mediaId', panel, inbox.media);
 // Agenda, métricas y reporte
 router.get('/agenda', panel, getAgenda);
 router.post('/appointments/:id/status', panel, setAppointmentStatus);
+// Pase de cita (PNG generado a pedido desde la cita; solo citas confirmadas con código). Sin caché pública.
+router.get('/appointments/:id/pass.png', panel, async (req, res) => {
+  try {
+    const appointment = /^[\w-]{1,64}$/.test(req.params.id) ? await appointmentService.findById(req.params.id) : null;
+    const png = appointment ? appointmentPassPng(appointment) : null;
+    if (!png) return res.status(404).json({ error: 'Esta cita no tiene pase (solo las confirmadas por el asistente)' });
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.type('image/png').send(png);
+  } catch (error) {
+    console.error('[Panel] No se pudo generar el pase de cita:', error?.message || error);
+    return res.status(500).json({ error: 'No se pudo generar el pase' });
+  }
+});
 router.get('/metrics', panel, getMetrics);
 router.get('/report', panel, getReport);
 

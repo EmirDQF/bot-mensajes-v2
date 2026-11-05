@@ -9,6 +9,7 @@ import { EMOJI_LIMITS, ensureNextStep, limitEmojis } from './replyStyle.js';
 import { adPromptBlock, adTreatment } from './adContext.js';
 import { evaluationPackPrompt } from './catalog.js';
 import { matchSlotText } from './slotButtons.js';
+import { bookFromLead } from './leadBooking.js';
 
 const LIMA_TIME_ZONE = clinic.timezone;
 const SESSION_TTL_MS = Number(process.env.GEMINI_SESSION_TTL_MS || 30 * 60 * 1000);
@@ -652,18 +653,22 @@ function polishReply(text, session, lead) {
 }
 
 // Resumen de la solicitud (regla 9: "solicitud de cita … Recepción te la confirmará", nunca "bloqueado").
-function bookingSummary(lead, treatmentName) {
-  return [
-    `¡Listo, ${lead.nombre}! Tu solicitud de cita para ${treatmentName} el ${formatDateEs(lead.slot.date)} a las ${formatTimeEs(lead.slot.time)} quedó registrada en ${clinic.address}.`,
-    clinic.addressReference ? `Referencia: ${clinic.addressReference}` : null,
-    `Cómo llegar: ${clinic.mapsUrl}`,
-    'Recepción te la confirmará.',
-  ].filter(Boolean).join('\n');
-}
-
 // Solo si AFIRMA que la cita quedó agendada sin que exista la solicitud (regla 9). "Agendar tu cita" o
 // "tu cita de brackets" son invitaciones normales y no se tocan.
 const CLAIMS_BOOKED = /\b(?:tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
+
+async function persistSnapshotIfReady(session, leadData, sid, options) {
+  if (!leadData?.ready_to_notify || options.skipLeadPersistence) return;
+  session.booked = true;
+  session.leadSnapshot = { ...leadData, fecha_hora_texto: leadData.fechaHora, fecha_hora_iso: leadData.fechaHoraISO, confirmedAt: new Date().toISOString() };
+  try {
+    const { saveLeadSnapshot } = await import('./leadService.js');
+    await saveLeadSnapshot(sid, session.leadSnapshot);
+  } catch (error) {
+    console.warn('geminiService: lead snapshot persistence failed:', error?.message || error);
+  }
+  scheduleCleanup(sid, session);
+}
 
 export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   const session = getOrCreateSession(jid);
@@ -695,6 +700,15 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
   session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
   const leadData = collectLead(session, messageText, sid);
   session.pendingLead = leadData;
+  // Nombre + tratamiento + horario elegido: la respuesta es el resumen de la solicitud y no depende del modelo.
+  // Sin llamar a Gemini: más rápido y la cita se registra aunque la IA esté caída.
+  if (leadData?.ready_for_confirmation && !session.booked) {
+    const booking = bookFromLead(session, leadData);
+    session.history.push({ role: 'model', parts: [{ text: booking.texto }] });
+    session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
+    await persistSnapshotIfReady(session, leadData, sid, options);
+    return { ...booking, rawTexto: booking.texto, leadData, askReception: false, skipLeadPersistence: Boolean(options.skipLeadPersistence) };
+  }
   try {
     const result = await callGemini(options.client, buildRequest(options.client, messageText, session, jid, { ...options, messageParts }), options);
     const modelText = usableText(await extractResultText(result), getFinishReason(result));
@@ -702,26 +716,7 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     const askReception = RECEPTION_TAG.test(modelText);
     const rawText = modelText.replace(RECEPTION_TAG_ALL, '').trim();
     let texto = polishReply(removeForbiddenPhrases(sanitizeModelTextOutput(rawText)), session, leadData);
-    let appointmentRequest = null;
-    if (leadData?.ready_for_confirmation && !session.booked) {
-      const treatmentName = findTreatment(leadData.motivo)?.name || leadData.motivo;
-      texto = bookingSummary(leadData, treatmentName);
-      // El controlador guarda la cita (appointmentService) y avisa a recepción.
-      appointmentRequest = {
-        nombre: leadData.nombre,
-        tratamiento: treatmentName,
-        fecha: leadData.slot.date,
-        hora: leadData.slot.time,
-      };
-      session.booked = true;
-      session.offeredSlots = null;
-      session.leadSnapshot = {
-        ...leadData,
-        fecha_hora_texto: leadData.fechaHora,
-        fecha_hora_iso: leadData.fechaHoraISO || null,
-        confirmedAt: new Date().toISOString(),
-      };
-    } else if (!leadData?.ready_for_confirmation && !session.booked && CLAIMS_BOOKED.test(texto)) {
+    if (!session.booked && CLAIMS_BOOKED.test(texto)) {
       texto = `¡Con mucho gusto coordinamos tu cita! ${questionFor(nextMissingField(leadData || {}) || 'horario')}`;
     }
     // El dato que se le pide ahora (uno por mensaje): su próxima respuesta corta se guarda como ese dato.
@@ -729,23 +724,11 @@ export async function obtenerRespuestaIA(jid, mensaje, options = {}) {
     session.history.push({ role: 'model', parts: [{ text: rawText || '' }] });
     session.history = compactHistoryForPrompt(session.history, MAX_HISTORY_MESSAGES);
     failureCounts.delete(sid);
-
-
-    if (leadData?.ready_to_notify && !options.skipLeadPersistence) {
-      session.booked = true;
-      session.leadSnapshot = { ...leadData, fecha_hora_texto: leadData.fechaHora, fecha_hora_iso: leadData.fechaHoraISO, confirmedAt: new Date().toISOString() };
-      try {
-        const { saveLeadSnapshot } = await import('./leadService.js');
-        await saveLeadSnapshot(sid, session.leadSnapshot);
-      } catch (error) {
-        console.warn('geminiService: lead snapshot persistence failed:', error?.message || error);
-      }
-      scheduleCleanup(sid, session);
-    }
+    await persistSnapshotIfReady(session, leadData, sid, options);
 
     // rawTexto conserva las etiquetas [ENVIAR_FOTO: x] que sanitizeModelTextOutput elimina o deforma.
     return {
-      texto, rawTexto: rawText, leadData, appointmentRequest, askReception, skipLeadPersistence: Boolean(options.skipLeadPersistence),
+      texto, rawTexto: rawText, leadData, appointmentRequest: null, askReception, skipLeadPersistence: Boolean(options.skipLeadPersistence),
     };
   } catch (error) {
     const failures = (failureCounts.get(sid) || 0) + 1;

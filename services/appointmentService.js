@@ -4,6 +4,7 @@ import whatsappService from './whatsappService.js';
 import { now as clockNow } from './clock.js';
 import liveEvents from './liveEvents.js';
 import { testMode } from './testContext.js';
+import crypto from 'crypto';
 
 // Agenda real con disponibilidad. Fechas y horas se guardan en la hora local de la clínica.
 
@@ -116,6 +117,39 @@ export function parseRequestedDay(text, today) {
   return null;
 }
 
+// ---------- Reserva directa (bookingMode = "confirmacion_directa") ----------
+
+// Un trabajo a la vez por clave (clínica y día) dentro de este proceso; propaga el resultado o el error.
+function createKeyedLock() {
+  const tails = new Map();
+  return async function withLock(key, work) {
+    const previous = tails.get(key) || Promise.resolve();
+    let release;
+    const mine = new Promise((resolve) => { release = resolve; });
+    const tail = previous.then(() => mine);
+    tails.set(key, tail);
+    await previous;
+    try {
+      return await work();
+    } finally {
+      release();
+      if (tails.get(key) === tail) tails.delete(key);
+    }
+  };
+}
+const reservationLock = createKeyedLock();
+
+// Código corto de la cita: prefijo de la clínica + 4 dígitos (ej. DV-0472). Es lo único que lleva el QR.
+export function appointmentCode(clinic, random = () => crypto.randomInt(0, 10000)) {
+  const prefix = clinic.appointmentCodePrefix || String(clinic.id || 'CT').replace(/[^a-z]/gi, '').slice(0, 2).toUpperCase() || 'CT';
+  return `${prefix}-${String(random()).padStart(4, '0')}`;
+}
+
+const isMissingFunction = (error) => error?.code === 'PGRST202' || error?.code === '42883'
+  || /could not find the function/i.test(String(error?.message || ''));
+const DIRECT_COLUMNS = ['code', 'specialist', 'confirmed_by', 'confirmed_at'];
+const isCodeConflict = (error) => error?.code === '23505' && /code/i.test(String(error?.message || ''));
+
 // ---------- Servicio ----------
 
 export function createAppointmentService({
@@ -130,6 +164,8 @@ export function createAppointmentService({
     if (!client) throw new Error('Supabase no configurado (SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY)');
     return client;
   }
+  // La función reserve_appointment no existe (migración pendiente): no se vuelve a intentar en este proceso.
+  let rpcMissing = false;
 
   function durationFor(treatment) {
     if (!treatment) return clinic.slotMinutes;
@@ -194,6 +230,7 @@ export function createAppointmentService({
   async function saveAppointment({
     clinicId = clinic.id, senderPhone, patientName = null, treatment = null,
     appointmentDate, appointmentTime, durationMin = null, notes = null, source = 'whatsapp', adReferral = null, isTest = false,
+    direct = null,
   }) {
     const phone = String(senderPhone || '').replace(/\D/g, '');
     if (!phone) throw new Error('senderPhone es obligatorio');
@@ -222,8 +259,18 @@ export function createAppointmentService({
       // Solicitud hecha con la clínica cerrada (se mide en el reporte semanal).
       after_hours: !isWithinWorkingHours(clinic, now()),
       ...(isTest || testMode()?.isTest ? { is_test: true } : {}),
+      // Confirmación directa: la cita nace confirmada por el bot, con su código y especialista.
+      ...(direct ? {
+        status: 'confirmada', code: direct.code, specialist: direct.specialist || null, confirmed_by: 'bot', confirmed_at: now().toISOString(),
+      } : {}),
     };
     let { data, error } = await client.from('appointments').insert([row]).select().single();
+    if (error && direct && DIRECT_COLUMNS.some((column) => isMissingColumn(error, column))) {
+      // Sin migrations/20261105_direct_booking.sql no hay dónde guardar el código: queda como solicitud.
+      console.warn('[Appointments] Falta la columna appointments.code; ejecuta migrations/20261105_direct_booking.sql (la cita queda como solicitud)');
+      const { code: _c, specialist: _s, confirmed_by: _b, confirmed_at: _a, ...requestRow } = row;
+      ({ data, error } = await client.from('appointments').insert([{ ...requestRow, status: 'pendiente' }]).select().single());
+    }
     if (error && (isMissingColumn(error, 'after_hours') || isMissingColumn(error, 'is_test'))) {
       // La migración 20260927_after_hours_metrics.sql aún no se ejecutó: la cita se guarda igual.
       console.warn('[Appointments] Falta la columna appointments.after_hours; ejecuta migrations/20260927_after_hours_metrics.sql');
@@ -231,11 +278,70 @@ export function createAppointmentService({
       ({ data, error } = await client.from('appointments').insert([legacyRow]).select().single());
     }
     if (error) {
+      if (isCodeConflict(error)) throw Object.assign(new Error('Código de cita repetido'), { code: 'CODE_TAKEN' });
       if (error.code === '23505') throw new SlotTakenError();
       throw error;
     }
     events.publish('appointment', { event: 'nueva', phone, appointment: data });
     return data;
+  }
+
+  // Reserva y confirma un horario (bookingMode = "confirmacion_directa"). Atómico: un candado por clínica y día
+  // en este proceso y, si existe, la función reserve_appointment de Postgres (candado + chequeo de solapamiento
+  // en la misma transacción). Si dos pacientes eligen el mismo horario, gana el primero; el otro recibe
+  // SlotTakenError y el bot le ofrece horarios nuevos. Si falta la migración, la cita queda como solicitud.
+  async function reserveSlot({ specialist = null, ...request }) {
+    const date = request.appointmentDate;
+    const time = String(request.appointmentTime || '').slice(0, 5);
+    return reservationLock(`${request.clinicId || clinic.id}:${date}`, async () => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const code = appointmentCode(clinic);
+        try {
+          const viaRpc = await reserveViaRpc({ ...request, appointmentTime: time, code, specialist });
+          if (viaRpc) return viaRpc;
+          return await saveAppointment({ ...request, appointmentTime: time, direct: { code, specialist } });
+        } catch (error) {
+          if (error?.code !== 'CODE_TAKEN') throw error;
+        }
+      }
+      throw new Error('No se pudo generar un código de cita único');
+    });
+  }
+
+  // null si la función no existe (migración pendiente) o el cliente no la soporta (modo demo y tests).
+  async function reserveViaRpc({ senderPhone, patientName = null, treatment = null, appointmentDate, appointmentTime, source = 'whatsapp', adReferral = null, code, specialist }) {
+    const client = await db();
+    if (rpcMissing || typeof client.rpc !== 'function') return null;
+    const duration = durationFor(treatment);
+    if (!isBookable(appointmentDate, appointmentTime, duration)) throw new OutsideHoursError();
+    const { data, error } = await client.rpc('reserve_appointment', {
+      p_clinic_id: clinic.id, p_sender_phone: String(senderPhone || '').replace(/\D/g, ''), p_patient_name: patientName,
+      p_treatment: treatment, p_date: appointmentDate, p_time: appointmentTime, p_duration: duration, p_source: source,
+      p_ad_referral: adReferral, p_code: code, p_specialist: specialist, p_after_hours: !isWithinWorkingHours(clinic, now()),
+      p_is_test: Boolean(testMode()?.isTest),
+    });
+    if (error) {
+      if (isMissingFunction(error)) {
+        console.warn('[Appointments] Falta la función reserve_appointment; ejecuta migrations/20261105_direct_booking.sql (se usa el candado del proceso)');
+        rpcMissing = true;
+        return null;
+      }
+      if (/SLOT_TAKEN/.test(String(error.message || ''))) throw new SlotTakenError();
+      if (isCodeConflict(error)) throw Object.assign(new Error('Código de cita repetido'), { code: 'CODE_TAKEN' });
+      if (error.code === '23505') throw new SlotTakenError();
+      throw error;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    events.publish('appointment', { event: 'nueva', phone: row?.sender_phone, appointment: row });
+    return row;
+  }
+
+  // Cita por id (para el pase de cita del panel).
+  async function findById(id) {
+    const client = await db();
+    const { data, error } = await client.from('appointments').select('*').eq('id', id).eq('clinic_id', clinic.id).maybeSingle();
+    if (error) throw error;
+    return data || null;
   }
 
   // Dentro del horario de atención, sin pasarse del cierre y no en el pasado (con la anticipación mínima).
@@ -321,8 +427,10 @@ export function createAppointmentService({
       confirmada: '✅ El paciente confirmó su asistencia',
     };
     const phone = String(appointment.sender_phone || '').replace(/\D/g, '');
+    const botConfirmed = event === 'nueva' && appointment.status === 'confirmada' && appointment.confirmed_by === 'bot';
+    const title = botConfirmed ? `✅ Nueva cita CONFIRMADA por el asistente${appointment.code ? ` (${appointment.code})` : ''}` : titles[event] || titles.nueva;
     const lines = [
-      `${titles[event] || titles.nueva} — ${clinic.name}`,
+      `${title} — ${clinic.name}`,
       `👤 ${appointment.patient_name || 'Sin nombre'}`,
       `📱 +${phone} (wa.me/${phone})`,
       `🩺 ${appointment.treatment || 'Evaluación'}`,
@@ -332,7 +440,9 @@ export function createAppointmentService({
     if (ad && (ad.headline || ad.source_id)) lines.push(`📣 Anuncio: ${ad.headline || ad.source_id}`);
     // Resumen de 2 líneas de la conversación (geminiService.conversationSummary), para escribirle con contexto.
     if (summary?.length) lines.push('', '💬 Resumen:', ...summary.slice(0, 2));
-    if (event === 'nueva') lines.push('', 'Escríbele al paciente para confirmar la cita.');
+    if (appointment.specialist) lines.splice(5, 0, `👩‍⚕️ ${appointment.specialist}`);
+    if (botConfirmed) lines.push('', 'Ya está en la Agenda del panel y el paciente recibió su pase de cita.');
+    else if (event === 'nueva') lines.push('', 'Escríbele al paciente para confirmar la cita.');
     return lines.join('\n');
   }
 
@@ -356,6 +466,8 @@ export function createAppointmentService({
     getAvailableSlots,
     findNextSlots,
     saveAppointment,
+    reserveSlot,
+    findById,
     updateStatus,
     confirm,
     reschedule,

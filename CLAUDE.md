@@ -65,6 +65,9 @@ node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo 
 | Catálogo visual por tratamiento (`treatments[].images`) y pack de evaluación (`evaluationPack`) | `services/catalog.js`, envío en `controllers/mediaReplies.js` |
 | Imágenes generadas en el servidor (SVG → PNG con `@resvg/resvg-js` y la fuente Inter de `assets/fonts/`) | `services/cards/` (tarjeta del pack en `GET /cards/evaluation-pack.png`) |
 | Sinónimos coloquiales y errores de tipeo comunes en Perú | `config/colloquial.js` |
+| Horarios como botones (≤ 3) o lista, con respaldo en texto; elegir por botón, número o "jueves 4:30" | `services/slotButtons.js` |
+| `bookingMode` ("solicitud" por defecto / "confirmacion_directa"): reserva atómica `reserveSlot` (+ `reserve_appointment` en Postgres), código de cita | `services/appointmentService.js`, `migrations/20261105_direct_booking.sql` |
+| Pase de cita PNG (QR solo con el código; se sube a Meta y se envía por id; en el panel: `GET /api/panel/appointments/:id/pass.png`) | `services/cards/appointmentPass.js`, `controllers/bookingReplies.js` |
 | Bandeja/historial/anuncio de origen del webhook; primer contacto y modo nocturno | `controllers/conversationStore.js`, `controllers/firstContact.js` |
 | Esquema de base de datos | `migrations/*.sql` (en orden de fecha; todos idempotentes) |
 | Scripts | `scripts/preflight.js`, `scripts/simulate-conversations.js`, `scripts/new-clinic.js` |
@@ -93,8 +96,9 @@ guarda la solicitud (rechaza horarios fuera de atención) y avisa a recepción �
    `leadService`, `toggleBot`/`handoffService`.
 8. **Seguridad clínica**: el bot no diagnostica ni receta. Dolor fuerte, sangrado, hinchazón, fiebre o golpe →
    se deriva de inmediato a un humano (bot en pausa) y se avisa a recepción.
-9. La respuesta de agendamiento dice **"solicitud de cita … Recepción te la confirmará"**: nunca prometer
-   que el horario quedó bloqueado.
+9. En `bookingMode: "solicitud"` (por defecto) la respuesta dice **"solicitud de cita … Recepción te la
+   confirmará"**: nunca prometer que el horario quedó bloqueado. Solo en `"confirmacion_directa"` y **después** de
+   que `reserveSlot` reservó el horario (cita `confirmada` con código) el bot dice "confirmada" y envía el pase.
 10. Fuera de la ventana de 24 h de WhatsApp solo se envían **plantillas aprobadas** (`sendWithWindow` lo decide).
 11. Tareas periódicas solo por **`POST /jobs/*` con `CRON_SECRET`** (Render duerme el servicio: nada de `setInterval`).
 12. Nada de fotos de pacientes reales en `media/` sin consentimiento escrito. La clínica demo usa ilustraciones propias.

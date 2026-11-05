@@ -85,6 +85,9 @@ Cuéntame:
     faq: [],
     // El pack de evaluación (qué incluye y precio) es de cada clínica: el prospecto lo da después.
     evaluationPack: undefined,
+    // Ni el especialista ficticio ni el prefijo de código de Denvari.
+    specialists: undefined,
+    appointmentCodePrefix: undefined,
   };
 }
 

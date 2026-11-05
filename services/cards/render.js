@@ -23,7 +23,8 @@ export function esc(value) {
 
 // Corta un texto en líneas de ~maxChars sin partir palabras (resvg no hace saltos de línea solo).
 export function wrapText(text, maxChars, maxLines = 3) {
-  const words = String(text || '').split(/\s+/).filter(Boolean);
+  // Solo espacios normales: un espacio no separable (U+00A0) mantiene juntas "4:30 p. m.".
+  const words = String(text || '').split(/[ \t\r\n]+/).filter(Boolean);
   const lines = [];
   let line = '';
   for (const word of words) {

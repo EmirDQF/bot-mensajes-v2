@@ -25,7 +25,7 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
   const maxRetries = (typeof options.maxRetries === 'number') ? options.maxRetries : DEFAULT_MAX_RETRIES;
   const media = options.media || null;
-  const mediaType = options.type || (media && media.link ? 'image' : null);
+  const mediaType = options.type || (media && (media.link || media.id) ? 'image' : null);
   const caption = options.caption || text || '';
 
   if (!fetchImpl) throw new Error('No fetch implementation provided');
@@ -87,12 +87,13 @@ export async function sendWhatsAppMessage(toPhone, text, options = {}) {
             : [],
         },
       }
-    : mediaType === 'image' && media && media.link
+    : mediaType === 'image' && media && (media.link || media.id)
     ? {
         messaging_product: 'whatsapp',
         to: toPhone,
         type: 'image',
-        image: { link: media.link, caption },
+        // Por id: imagen subida a Meta (p. ej. el pase de cita), sin URL pública.
+        image: media.id ? { id: media.id, caption } : { link: media.link, caption },
       }
     : {
         messaging_product: 'whatsapp',
@@ -235,6 +236,41 @@ export function sendImageMessage(toPhone, imageUrl, caption = '', options = {}) 
   });
 }
 
+// Sube una imagen a Meta (POST /{phone-number-id}/media) y devuelve su id. Para imágenes con datos del
+// paciente (pase de cita): se envían por id y nunca quedan en una URL pública. Meta la borra a los 30 días.
+export async function uploadMedia(buffer, mimeType, { fetchImpl = globalThis.fetch?.bind(globalThis), timeoutMs = 15000 } = {}) {
+  const url = `https://graph.facebook.com/${config.whatsapp?.apiVersion || process.env.WHATSAPP_API_VERSION || 'v17.0'}/${config.whatsapp?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID}/media`;
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', mimeType);
+  form.append('file', new Blob([buffer], { type: mimeType }), mimeType === 'image/png' ? 'imagen.png' : 'imagen.jpg');
+  const res = await fetchImpl(url, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + (config.whatsapp?.token || process.env.WHATSAPP_TOKEN || '') },
+    body: form,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json?.id) {
+    const err = new Error(`WhatsApp media upload returned status ${res.status}`);
+    err.status = res.status;
+    err.meta = json?.error || null;
+    if (isTokenError(err.meta)) systemAlerts.tokenExpired(err.meta);
+    throw err;
+  }
+  return json.id;
+}
+
+// Imagen generada en el servidor (Buffer). En el Probador y en el demo no se sube a Meta: se muestra desde
+// previewUrl (una ruta del panel con sesión). En producción se sube y se envía por id.
+export async function sendImageBuffer(toPhone, buffer, { mimeType = 'image/png', caption = '', previewUrl = null, ...options } = {}) {
+  if ((testMode() || isDemoMode()) && !options.fetchImpl) {
+    return sendWhatsAppMessage(toPhone, caption, { ...options, type: 'image', media: { link: previewUrl }, caption });
+  }
+  const id = await uploadMedia(buffer, mimeType, options);
+  return sendWhatsAppMessage(toPhone, caption, { ...options, type: 'image', media: { id }, caption });
+}
+
 // Mensaje de ubicación (se abre en la app de mapas del paciente). Cuenta como mensaje de sesión (ventana de 24 h).
 export function sendLocationMessage(toPhone, { latitude, longitude, name, address }, options = {}) {
   return sendWhatsAppMessage(toPhone, `[ubicación] ${name || ''}`.trim(), {
@@ -329,6 +365,8 @@ export default {
   sendLocationMessage,
   sendButtonsMessage,
   sendListMessage,
+  sendImageBuffer,
+  uploadMedia,
   markMessageAsRead,
   sendTypingIndicator,
 };

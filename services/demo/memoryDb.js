@@ -13,6 +13,7 @@ export const UNIQUE_KEYS = {
   leads: [['telefono']],
   chat_sessions: [['id']],
   clinic_settings: [['clinic_id']],
+  appointments: [['clinic_id', 'code']],
 };
 
 function parseOr(filter) {

@@ -63,7 +63,38 @@ export function validateClinic(clinic) {
     const color = clinic.colors?.[key];
     if (color !== undefined && !/^#[0-9a-f]{6}$/i.test(color)) errors.push(`colors.${key} debe ser un color #RRGGBB`);
   }
-  return [...errors, ...validateEditable(clinic), ...validateCatalog(clinic)];
+  return [...errors, ...validateEditable(clinic), ...validateCatalog(clinic), ...validateBooking(clinic)];
+}
+
+// Modo de agendamiento: "solicitud" (recepción confirma; por defecto) o "confirmacion_directa" (el bot reserva
+// en la agenda del panel y confirma; solo si esa es la ÚNICA agenda de la clínica).
+export const BOOKING_MODES = ['solicitud', 'confirmacion_directa'];
+export const bookingModeOf = (c) => (c?.bookingMode === 'confirmacion_directa' ? 'confirmacion_directa' : 'solicitud');
+
+function validateBooking(c) {
+  const errors = [];
+  if (c.bookingMode !== undefined && !BOOKING_MODES.includes(c.bookingMode)) errors.push(`"bookingMode" debe ser ${BOOKING_MODES.join(' o ')}`);
+  if (c.appointmentCodePrefix !== undefined && !/^[A-Z]{2,4}$/.test(String(c.appointmentCodePrefix))) {
+    errors.push('"appointmentCodePrefix" debe tener de 2 a 4 letras mayúsculas (ej. "DV")');
+  }
+  if (c.specialists !== undefined) {
+    const keys = new Set((c.treatments || []).map((t) => t.key));
+    if (!Array.isArray(c.specialists) || c.specialists.length > 20) errors.push('"specialists" debe ser una lista (máximo 20)');
+    else c.specialists.forEach((s, i) => {
+      if (!isText(s?.name, 60)) errors.push(`specialists[${i}] necesita un nombre (máximo 60 caracteres)`);
+      if (s?.treatments !== undefined && (!Array.isArray(s.treatments) || s.treatments.some((k) => !keys.has(k)))) {
+        errors.push(`specialists[${i}].treatments debe listar claves de tratamientos existentes`);
+      }
+    });
+  }
+  return errors;
+}
+
+// Especialista para un tratamiento: el primero que lo atiende (o que atiende todo). null si no hay.
+export function specialistFor(treatmentKey, c = clinic) {
+  const list = Array.isArray(c.specialists) ? c.specialists : [];
+  return list.find((s) => treatmentKey && s.treatments?.includes(treatmentKey))
+    || list.find((s) => !s.treatments?.length) || null;
 }
 
 // Catálogo visual (treatments[].images) y pack de evaluación (evaluationPack). Ambos opcionales.
@@ -204,7 +235,7 @@ export default clinic;
 export const EDITABLE_FIELDS = [
   'name', 'botName', 'tone', 'emojiLevel', 'workingHours', 'workingHoursText', 'holidays', 'treatments', 'promotions',
   'campaign', 'paymentMethods', 'financingText', 'address', 'mapsUrl', 'reviewUrl', 'faq', 'welcomeCaption',
-  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack',
+  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack', 'bookingMode', 'specialists',
 ];
 // Objetos que se combinan por clave (un día del horario, una foto); el resto se reemplaza entero.
 const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media'];

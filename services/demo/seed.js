@@ -208,6 +208,11 @@ export function buildDemoData(clinic, now = new Date()) {
       });
     }
   }
+  // La demo muestra la confirmación directa con pase de cita (como si el dueño la activara en Configuración).
+  // El archivo de la clínica sigue en "solicitud", el valor seguro por defecto.
+  data.clinic_settings = [{
+    clinic_id: clinic.id, data: { bookingMode: 'confirmacion_directa' }, updated_at: iso(now), updated_by: 'demo',
+  }];
   return data;
 }
 
