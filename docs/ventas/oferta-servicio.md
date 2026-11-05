@@ -3,15 +3,22 @@
 **Para clínicas dentales que pagan anuncios de "Enviar mensaje" y no alcanzan a responder a tiempo, sobre todo de noche.**
 Solo lo que el sistema ya hace hoy:
 
-- **Responde en segundos, también de noche:** con los precios "desde" y la campaña de la clínica. De noche avisa que la
-  clínica está cerrada y deja la solicitud lista para que recepción la confirme al abrir.
-- **Solicitudes de cita con disponibilidad real:** ofrece 3 horarios libres según el horario y la agenda de la clínica.
-  Dice "solicitud de cita… Recepción te la confirmará"; nunca promete un horario bloqueado.
-- **Avisos a recepción** por WhatsApp: cada solicitud nueva, cambio o cancelación.
+- **Responde en segundos, también de noche**, con los precios "desde", la campaña y las preguntas frecuentes de la
+  clínica, y entiende cómo escriben los pacientes ("frenillos", "cuanto sale", "precio pls").
+- **Muestra el tratamiento con imágenes** (las que la clínica sube en el panel) y la **tarjeta del pack de evaluación**
+  con qué incluye y su precio. Nunca inventa precios ni promociones: todo sale de lo que la clínica configura.
+- **Horarios libres reales en botones:** el paciente agenda con un toque.
+- **Dos modos de agendamiento:** *solicitud* (recepción confirma; recomendado) o *confirmación directa* (el bot reserva
+  sin dobles citas y envía un **pase de cita** con QR), solo si la agenda del panel es la única de la clínica.
+- **Recordatorios** 48 h y 2 h antes (configurables) con botones Confirmo / Reprogramar.
+- **Ficha a recepción y al doctor** en cada cita nueva, sin diagnósticos.
 - **Urgencias a una persona:** ante dolor fuerte, sangrado, hinchazón, fiebre o golpe no diagnostica, pausa el bot y
   avisa a recepción de inmediato. Se presenta como asistente virtual.
-- **Recordatorios** 24 h y 2 h antes (confirmar o reprogramar), **reactivación** de quien no agendó.
-- **Panel** de recepción: bandeja en vivo, agenda, ficha del paciente y Probador. **Reporte semanal** al dueño.
+- **Seguimiento respetuoso** si el paciente no responde (máximo 3 mensajes; se detiene si dice "no").
+- **Promociones a pacientes anteriores** solo a quienes dieron su permiso, máximo una cada 14 días.
+- **Audios del paciente** transcritos (opcional, con el plan pagado de Gemini).
+- **Panel** para recepción y el dueño: bandeja en vivo, agenda, métricas medidas, reporte semanal, **Mi clínica** (la
+  clínica cambia precios, horarios, imágenes y promociones sin programar), Campañas y Probador.
 
 ## Precio
 
@@ -27,7 +34,7 @@ confirmadas** que llegaron por el asistente. Si no, se devuelven los S/ 400.
 | Supabase (base de datos), plan gratuito | US$ 0 | VERIFICAR los límites del plan gratuito; Pro si se supera |
 | cron-job.org (tareas programadas) | US$ 0 | Plan gratuito |
 | **Total** | **≈ US$ 8–11 ≈ S/ 30–42** | Tipo de cambio S/ 3,75: VERIFICAR |
-| WhatsApp (Meta) | **Lo paga la clínica a Meta, con su tarjeta** | Cobro por mensaje desde el 1/7/2025. Responder dentro de las 24 h con texto libre = servicio. Plantillas (recordatorios, reporte) = utility, con cobro en la ventana desde el 1/10/2026 ([Meta](https://developers.facebook.com/docs/whatsapp/pricing)). Tarifas de Perú en USD: **VERIFICAR** en el rate card oficial |
+| WhatsApp (Meta) | **Lo paga la clínica a Meta, con su tarjeta** | Cobro por mensaje desde el 1/7/2025. Responder dentro de las 24 h con texto libre = servicio. Plantillas de utilidad (recordatorios, ficha al doctor, reporte) y de marketing (seguimiento del día 3, promociones: solo con permiso del paciente), con cobro en la ventana desde el 1/10/2026 ([Meta](https://developers.facebook.com/docs/whatsapp/pricing)). Tarifas de Perú en USD: **VERIFICAR** en el rate card oficial |
 
 | Opción | Mensualidad | Incluye | Margen aprox. |
 |---|---|---|---|

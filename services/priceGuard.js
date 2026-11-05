@@ -11,17 +11,22 @@ export function parseSoles(raw) {
 }
 
 export function configuredAmounts(clinic, today) {
+  // Solo montos: campos de precio y cifras escritas después de "S/" en los textos de la configuración. Así una fecha
+  // (2026), una duración (60 min) o un conteo nunca cuentan como un precio permitido.
   const numbers = new Set();
-  const collect = (value) => {
-    for (const m of JSON.stringify(value ?? '').replace(/(\d)[.,](\d{3})/g, '$1$2').matchAll(/\d+(?:\.\d+)?/g)) numbers.add(Number(m[0]));
+  const add = (value) => { if (typeof value === 'number' && Number.isFinite(value)) numbers.add(value); };
+  const fromText = (value) => {
+    for (const m of JSON.stringify(value ?? '').matchAll(/S\/\s*([\d][\d.,]*)/g)) numbers.add(parseSoles(m[1]));
   };
-  for (const t of clinic.treatments || []) { numbers.add(Number(t.priceFrom)); collect(t.financing); collect(t.description); }
-  collect(clinic.campaign);
-  collect(clinic.faq);
-  collect(clinic.evaluationPack);
-  collect(clinic.financingText);
-  collect(clinic.paymentMethods);
-  collect(activePromotions(today, clinic));
+  for (const t of clinic.treatments || []) { add(Number(t.priceFrom)); fromText(t.financing); fromText(t.description); }
+  add(clinic.evaluationPack?.price);
+  add(clinic.evaluationPack?.promotion?.price);
+  fromText(clinic.evaluationPack);
+  fromText(clinic.campaign);
+  fromText(clinic.faq);
+  fromText(clinic.financingText);
+  fromText(clinic.paymentMethods);
+  fromText(activePromotions(today, clinic));
   return numbers;
 }
 

@@ -2,12 +2,13 @@ import defaultCampaigns, { CONFIRM_WORD, SEGMENT_TYPES } from '../services/campa
 import activeClinic, { activePromotions } from '../config/clinic.config.js';
 import { localParts } from '../services/appointmentService.js';
 import { now as clockNow } from '../services/clock.js';
+import { describeError } from '../services/safeLog.js';
 
 // Pestaña 📣 Campañas (solo el dueño): promociones a pacientes anteriores con permiso de promociones.
 
 function fail(res, error, fallback) {
   const status = Number(error?.status) || 500;
-  if (status >= 500 && status !== 503) console.error(`[Campañas] ${fallback}:`, error?.message || error);
+  if (status >= 500 && status !== 503) console.error(`[Campañas] ${fallback}:`, describeError(error));
   return res.status(status).json({ error: status === 500 ? fallback : error.message, errors: error?.errors || undefined });
 }
 

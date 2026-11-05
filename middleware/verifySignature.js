@@ -3,7 +3,10 @@ import config from '../config/env.js';
 
 export default function verifySignature(options = {}) {
   const appSecret = config.whatsapp?.appSecret || process.env.WHATSAPP_APP_SECRET || null;
-  const enforce = String(process.env.ENFORCE_WHATSAPP_SIGNATURE || 'false').toLowerCase() === 'true';
+  // Producción cierra por defecto: sin la variable, solo Meta (con la firma de WHATSAPP_APP_SECRET) puede llamar al
+  // webhook. Así nadie puede falsificar un "borrar mis datos" de un paciente. Se desactiva solo con "false" explícito.
+  const explicit = String(process.env.ENFORCE_WHATSAPP_SIGNATURE ?? '').trim().toLowerCase();
+  const enforce = explicit ? explicit === 'true' : process.env.NODE_ENV === 'production';
 
   return async (req, res, next) => {
     try {

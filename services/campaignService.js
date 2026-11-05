@@ -94,6 +94,10 @@ export function createCampaigns({
     return data || [];
   };
   const today = () => localParts(clinic.timezone, now()).date;
+  // Todas las filas (PostgREST corta en 1000): audiencia y reporte exactos aunque la clínica tenga mucho historial.
+  const all = (makeQuery) => fetchAllRows(makeQuery).catch((error) => {
+    throw (/campaign/.test(String(error?.message || '')) ? httpError(503, 'Falta la tabla de campañas: ejecuta migrations/20261109_campaigns.sql') : error);
+  });
 
   // Teléfonos del segmento (antes de aplicar las reglas de permiso).
   async function segmentPhones(client, segment) {
@@ -103,11 +107,11 @@ export function createCampaigns({
       const inbound = await fetchAllRows(() => client.from('messages').select('phone, content, created_at')
         .eq('role', 'user').gte('created_at', since).order('created_at', { ascending: true }));
       const asked = new Set(inbound.filter((m) => findTreatments(m.content || '').some((t) => t.key === segment.treatmentKey)).map((m) => digits(m.phone)));
-      const booked = new Set((await rows(client.from('appointments').select('sender_phone').eq('clinic_id', clinic.id).gte('created_at', since)))
+      const booked = new Set((await all(() => client.from('appointments').select('sender_phone').eq('clinic_id', clinic.id).gte('created_at', since).order('created_at')))
         .map((a) => digits(a.sender_phone)));
       return [...asked].filter((p) => p && !booked.has(p));
     }
-    const appts = await rows(client.from('appointments').select('sender_phone, status, appointment_date, created_at').eq('clinic_id', clinic.id));
+    const appts = await all(() => client.from('appointments').select('sender_phone, status, appointment_date, created_at').eq('clinic_id', clinic.id).order('created_at'));
     if (segment.type === 'asistio_hace') {
       const cutoff = addDays(today(), -segment.months * 30);
       const attended = new Set(appts.filter((a) => a.status === 'asistio' && a.appointment_date <= cutoff).map((a) => digits(a.sender_phone)));
@@ -124,8 +128,8 @@ export function createCampaigns({
   async function lastPromotions(client, phones) {
     if (!phones.length) return new Map();
     const since = new Date(now() - PROMO_INTERVAL_DAYS * DAY_MS).toISOString();
-    const sent = await rows(client.from('campaign_recipients').select('phone, sent_at, status')
-      .eq('clinic_id', clinic.id).in('phone', phones).gte('sent_at', since));
+    const sent = await all(() => client.from('campaign_recipients').select('phone, sent_at, status')
+      .eq('clinic_id', clinic.id).in('phone', phones).gte('sent_at', since).order('sent_at'));
     const map = new Map();
     for (const r of sent.filter((s) => s.status === 'enviado')) {
       if (!map.has(digits(r.phone)) || map.get(digits(r.phone)) < r.sent_at) map.set(digits(r.phone), r.sent_at);
@@ -241,7 +245,7 @@ export function createCampaigns({
     for (const campaign of due) {
       result.campaigns += 1;
       if (campaign.status === 'programada') await setStatus(client, campaign.id, { status: 'enviando' });
-      const done = new Set((await rows(client.from('campaign_recipients').select('phone').eq('campaign_id', campaign.id))).map((r) => digits(r.phone)));
+      const done = new Set((await all(() => client.from('campaign_recipients').select('phone, sent_at').eq('campaign_id', campaign.id).order('sent_at'))).map((r) => digits(r.phone)));
       const { eligible } = await audience(campaign.segment);
       const pending = eligible.filter((p) => !done.has(p));
       const names = new Map((await rows(client.from('leads').select('telefono, nombre').in('telefono', [...pending, ...pending.map((p) => p.slice(-9))])))
@@ -268,7 +272,7 @@ export function createCampaigns({
     const client = await db();
     const [campaign] = await rows(client.from('campaigns').select('*').eq('id', id).eq('clinic_id', clinic.id));
     if (!campaign) throw httpError(404, 'Campaña no encontrada.');
-    const recipients = await rows(client.from('campaign_recipients').select('*').eq('campaign_id', id));
+    const recipients = await all(() => client.from('campaign_recipients').select('*').eq('campaign_id', id).order('sent_at'));
     const sent = recipients.filter((r) => r.status === 'enviado');
     const wamids = sent.map((r) => r.wamid).filter(Boolean);
     const statuses = wamids.length ? await rows(client.from('messages').select('whatsapp_message_id, status').in('whatsapp_message_id', wamids)) : [];
@@ -283,7 +287,7 @@ export function createCampaigns({
       const inbound = await rows(client.from('messages').select('phone, created_at').eq('role', 'user').in('phone', phones).gte('created_at', firstSent));
       replies = new Set(inbound.filter((m) => m.created_at > sentAt.get(digits(m.phone))
         && new Date(m.created_at) - new Date(sentAt.get(digits(m.phone))) < 7 * DAY_MS).map((m) => digits(m.phone))).size;
-      const appts = await rows(client.from('appointments').select('sender_phone, created_at, status').eq('clinic_id', clinic.id).in('sender_phone', phones).gte('created_at', firstSent));
+      const appts = await all(() => client.from('appointments').select('sender_phone, created_at, status').eq('clinic_id', clinic.id).in('sender_phone', phones).gte('created_at', firstSent).order('created_at'));
       appointments = appts.filter((a) => a.status !== 'cancelada' && a.created_at > sentAt.get(digits(a.sender_phone))
         && new Date(a.created_at) - new Date(sentAt.get(digits(a.sender_phone))) < 14 * DAY_MS).length;
     }

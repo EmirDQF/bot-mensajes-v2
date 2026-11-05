@@ -1,4 +1,5 @@
 import defaultSettings from '../services/clinicSettings.js';
+import { describeError } from '../services/safeLog.js';
 import activeClinic, { mergeClinic, pickEditable } from '../config/clinic.config.js';
 import { packCardPng } from '../services/cards/packCard.js';
 import { appointmentPassPng } from '../services/cards/appointmentPass.js';
@@ -15,7 +16,7 @@ const SAMPLE_PASS = {
 
 function fail(res, error, fallback) {
   const status = Number(error?.status) || 500;
-  if (status >= 500 && status !== 503) console.error(`[Config] ${fallback}:`, error?.message || error);
+  if (status >= 500 && status !== 503) console.error(`[Config] ${fallback}:`, describeError(error));
   return res.status(status).json({ error: status === 500 ? fallback : error.message, errors: error?.errors || undefined });
 }
 

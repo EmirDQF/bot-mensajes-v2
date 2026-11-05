@@ -541,7 +541,8 @@ async function intakeMessage(from, rawMessage, value, context) {
   await recordInbox({
     phone: from, sender: 'patient', text: heard?.text ? `🎤 (transcripción) ${heard.text}` : text || null, type: mediaType || 'text',
     // Con transcripción activada no se guarda ninguna referencia al audio.
-    mediaId: mediaType && !heard ? message[mediaType]?.id || null : null, wamid: message.id || null,
+    // Si no se pudo transcribir (falló o es muy largo), se conserva para que recepción lo escuche en el panel.
+    mediaId: mediaType && !heard?.text ? message[mediaType]?.id || null : null, wamid: message.id || null,
     contactName: value?.contacts?.[0]?.profile?.name || null, at: context.sentAt,
   });
   context.botPaused = await handoffService.isPaused(from);
