@@ -87,11 +87,19 @@ const realFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input?.url || input);
   if (url.includes('graph.facebook.com')) {
+    // Subida de una imagen generada (pase de cita): el cuerpo es FormData, no JSON.
+    if (typeof init.body !== 'string') {
+      return new Response(JSON.stringify({ id: `media.sim.${outbox.length}` }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     const body = init.body ? JSON.parse(init.body) : {};
     if (body.to) {
+      // Mensajes con botones o lista (horarios): el texto va en interactive.body.
+      const action = body.interactive?.action;
+      const buttons = action?.buttons?.map((b) => b.reply?.title) || action?.sections?.flatMap((s) => s.rows.map((r) => r.title)) || null;
       outbox.push({
         to: String(body.to), type: body.type || 'text', template: body.template?.name || null,
-        text: body.text?.body || body.image?.caption || '', image: body.image?.link || null, location: body.location || null,
+        text: body.text?.body || body.interactive?.body?.text || body.image?.caption || '', buttons,
+        image: body.image?.link || (body.image?.id ? `pase-de-cita-${body.image.id}.png` : null), location: body.location || null,
       });
     }
     return new Response(JSON.stringify({ messages: [{ id: `wamid.sim.${outbox.length}` }] }), {
@@ -215,7 +223,8 @@ function globalChecks(botTexts) {
   const joined = botTexts.join('\n');
   const prices = [...joined.matchAll(/S\/\s*([\d.,]+)/g)].map((m) => m[1].replace(/[.,](?=\d{3}\b)/g, '').replace(/[.,]$/, ''));
   const invented = prices.filter((p) => !allowedPrices.has(String(Number(p))));
-  const percent = joined.match(/\d+\s*%/);
+  // Sin los enlaces: "Orqu%C3%ADdeas" en la URL del mapa no es un porcentaje.
+  const percent = joined.replace(/https?:\/\/\S+/g, '').match(/\d+\s*%/);
   return [
     check('Sin precios inventados', !invented.length && !percent, invented.length ? `precios fuera de la config: ${invented.join(', ')}` : percent ? `porcentaje inventado: ${percent[0]}` : ''),
     check('No promete bloquear el horario', !PROMISES_LOCK.test(joined), joined.match(PROMISES_LOCK)?.[0]),
@@ -401,8 +410,20 @@ const SCENARIOS = [
     setup: () => { forceGeminiDown = true; },
     teardown: () => { forceGeminiDown = false; },
     turns: [text('¿Cuánto cuesta el blanqueamiento?')],
+    // Pregunta de precio: la respuesta sin IA (services/quickAnswers.js) ya la resuelve, así que no hace falta alerta.
     checks: ({ bot, reception }) => [
       check('El paciente recibe horarios aunque la IA falle', has(bot, slotList)),
+      check('Responde el precio configurado sin IA (S/ 350)', has(bot, /350/)),
+      check('Sin alerta: la respuesta sin IA resolvió la pregunta', !reception.some((t) => /no pudo responder con IA/.test(t))),
+    ],
+  },
+  {
+    n: 39, needsGemini: false, title: 'Gemini caído y una pregunta sin dato configurado', time: DAY,
+    setup: () => { forceGeminiDown = true; },
+    teardown: () => { forceGeminiDown = false; },
+    turns: [text('¿Atienden con seguro Pacífico?')],
+    checks: ({ bot, reception }) => [
+      check('El paciente recibe un aviso (no se queda sin respuesta)', bot.length > 0),
       check('Recepción recibe la alerta de falla', reception.some((t) => /no pudo responder con IA/.test(t))),
     ],
   },
@@ -654,7 +675,8 @@ for (const scenario of selected) {
         if (msg.location) locations.push(msg.location);
         if (msg.text) all.push(msg.text);
         if (msg.text && !welcome) bot.push(msg.text);
-        transcript.push({ who: 'bot', text: msg.text, image: msg.image ? path.basename(msg.image) : null });
+        const buttons = msg.buttons?.length ? `\n[Botones: ${msg.buttons.join(' | ')}]` : '';
+        transcript.push({ who: 'bot', text: `${msg.text}${buttons}`, image: msg.image ? path.basename(msg.image) : null });
       } else if (msg.to === RECEPTION) {
         reception.push(msg.text);
         transcript.push({ who: 'reception', text: msg.text });

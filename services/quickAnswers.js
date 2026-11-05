@@ -9,7 +9,8 @@ const formatSoles = (value) => `S/ ${Number(value).toLocaleString('es-PE')}`;
 const INTENTS = {
   precio: /\b(?:precios?|cu[aá]nto|cuesta|costo|valor|tarifa|inicial)\b/i,
   ubicacion: /\b(?:d[oó]nde|direcci[oó]n|ubicaci[oó]n|ubicad[oa]s?|quedan?|c[oó]mo llego|local|sede|mapa)\b/i,
-  horario: /\b(?:horarios?|atienden|abren|cierran|hasta qu[eé] hora|qu[eé] d[ií]as)\b/i,
+  // "¿atienden con seguro…?" no es una pregunta de horario: solo "atienden hoy / los sábados / a qué hora…".
+  horario: /\b(?:horarios?|abren|cierran|hasta qu[eé] hora|qu[eé] d[ií]as|atienden\s+(?:hoy|ma[nñ]ana|los|el|domingos?|s[aá]bados?|feriados?|de|a\s+qu[eé]|en\s+la|todos))\b/i,
   campana: /\b(?:promo(?:ci[oó]n|ciones)?|campa[nñ]a|descuentos?|ofertas?)\b/i,
   pago: /\b(?:pagos?|pagar|tarjetas?|yape|plin|efectivo|cuotas?|financ\w*|transferencia)\b/i,
 };
@@ -45,6 +46,8 @@ function paymentAnswer(clinic) {
 export function quickAnswer(message, { clinic, today }) {
   const text = String(message || '');
   if (!text.trim() || !clinic) return null;
+  // Seguros, convenios o EPS no están en la configuración: sin IA no se responde a medias, se avisa a recepción.
+  if (/\b(?:seguros?|aseguradora|eps|convenios?|p[oó]liza)\b/i.test(text)) return null;
   const builders = {
     precio: () => (INTENTS.precio.test(text) || (findTreatment(text) && /\?/.test(text)) ? priceAnswer(text, clinic) : null),
     ubicacion: () => (INTENTS.ubicacion.test(text) ? locationAnswer(clinic) : null),

@@ -277,9 +277,9 @@ describe('Fase 1.5: LEAD_ATASCADO (pide un dato por mensaje y no repite)', () =>
   it('el siguiente dato que falta va en orden y de a uno', () => {
     assert.equal(nextMissingField({}), 'tratamiento');
     assert.equal(nextMissingField({ motivo: 'brackets' }), 'nombre');
-    assert.equal(nextMissingField({ motivo: 'brackets', nombre: 'Ana Torres' }), 'distrito');
-    assert.equal(nextMissingField({ motivo: 'brackets', nombre: 'Ana Torres', distrito: 'Surco' }), 'horario');
-    assert.equal(nextMissingField({ motivo: 'brackets', nombre: 'Ana Torres', distrito: 'Surco', fechaHoraISO: 'x' }), null);
+    // Agente top: el distrito ya no se pregunta (frenaba el agendamiento); se guarda si el paciente lo dice.
+    assert.equal(nextMissingField({ motivo: 'brackets', nombre: 'Ana Torres' }), 'horario');
+    assert.equal(nextMissingField({ motivo: 'brackets', nombre: 'Ana Torres', fechaHoraISO: 'x' }), null);
     for (const field of ['tratamiento', 'nombre', 'distrito', 'horario']) {
       assert.equal((questionFor(field).match(/\?/g) || []).length, 1, `${field}: una sola pregunta`);
     }
@@ -302,7 +302,7 @@ describe('Fase 1.5: LEAD_ATASCADO (pide un dato por mensaje y no repite)', () =>
     const client = { async generateContent(request) { prompt = request.systemInstruction; return sdkResult('Listo. ¿De qué distrito nos escribes?'); } };
     await gemini.obtenerRespuestaIA(id, 'Me llamo Rosa Díaz y quiero una limpieza', { client });
     assert.match(prompt, /YA RESPONDIDO[^\n]*Rosa Díaz/);
-    assert.match(prompt, /PRÓXIMO DATO[^\n]*distrito/i);
+    assert.match(prompt, /PRÓXIMO DATO[^\n]*(?:día|hora|horario)/i);
   });
 
   it('si el modelo afirma una cita que no existe, pide solo el dato que falta (no la plantilla de 3)', async () => {

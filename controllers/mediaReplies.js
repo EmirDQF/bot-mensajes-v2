@@ -4,6 +4,7 @@ import { claimMediaSend, completeMediaSend, hasMediaBeenSent, markMediaAsSent } 
 import { evaluationPackText } from '../services/catalog.js';
 import { packCardUrl } from '../services/cards/packCard.js';
 import { describeError } from '../services/safeLog.js';
+import { createExpiringMap } from '../services/expiringMap.js';
 import { recordInbox, recordBotReply } from './conversationStore.js';
 
 // Imágenes que envía la asistente: catálogo por tratamiento, fotos pedidas y tarjeta del pack de evaluación.
@@ -12,9 +13,19 @@ import { recordInbox, recordBotReply } from './conversationStore.js';
 const PHOTO_GAP_MS = 300;
 const PACK_KEY = 'evaluation-pack';
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Respaldo en memoria (7 días): si la tabla whatsapp_media_sends falla o no existe, igual no se repiten imágenes.
+const sentInMemory = createExpiringMap({ ttlMs: 7 * 24 * 60 * 60 * 1000 });
+const sentKeys = (from) => sentInMemory.get(from) || new Set();
+const rememberSent = (from, imageKey) => sentInMemory.set(from, new Set([...sentKeys(from), imageKey]));
+
+// "borrar mis datos" / reset: también se olvida lo enviado en memoria.
+export function forgetSentMedia(phone) {
+  sentInMemory.delete(String(phone || '').replace(/\D/g, ''));
+}
 
 // Reserva el envío; si la consulta falla se envía igual (mejor repetir una foto que no mandarla).
 async function claim(from, imageKey) {
+  if (sentKeys(from).has(imageKey)) return { claimed: false, id: null };
   try {
     if (await hasMediaBeenSent(from, imageKey)) return { claimed: false, id: null };
     return await claimMediaSend({ recipient: from, imageKey });
@@ -25,6 +36,7 @@ async function claim(from, imageKey) {
 }
 
 async function finish(from, imageKey, claimId, failure = null) {
+  if (!failure) rememberSent(from, imageKey);
   try {
     if (claimId) await completeMediaSend(claimId, failure ? 'failed' : 'sent', failure ? failure?.message || String(failure) : null);
     if (!failure) await markMediaAsSent(from, imageKey);

@@ -21,7 +21,7 @@ const hasValue = (value) => typeof value === 'string' ? value.trim().length >= 2
 export function nextMissingField(lead = {}) {
   if (!hasValue(lead.motivo || lead.tratamiento)) return 'tratamiento';
   if (!hasValue(lead.nombre)) return 'nombre';
-  if (!hasValue(lead.distrito)) return 'distrito';
+  // El distrito no hace falta para la cita: se guarda si el paciente lo dice, pero no se pregunta (menos fricción).
   if (!lead.fechaHoraISO && !lead.slot) return 'horario';
   return null;
 }

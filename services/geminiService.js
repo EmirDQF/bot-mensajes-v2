@@ -57,7 +57,7 @@ Si ya hay mensajes previos, jamás digas "¡Hola!", "Buenos días", "¿En qué p
 Cuando consulte sobre un tratamiento o pida fotos o resultados, responde breve y termina con la etiqueta de foto del tratamiento (lista abajo). Para ubicación o local usa ${placeTags || 'solo texto'}. Puedes poner varias etiquetas. Las imágenes del catálogo y la tarjeta del pack de evaluación las envía el sistema solas, antes de tu mensaje: nunca digas que no puedes enviar fotos y no describas lo que muestran.
 
 ### REGLA 3: AGENDAMIENTO EN DOS FASES
-FASE A: pide los datos de a UNO por mensaje, de forma natural, en este orden: tratamiento, nombre y apellido, distrito, día y hora. Pide solo el PRÓXIMO DATO indicado abajo y nunca vuelvas a preguntar algo que ya respondió.
+FASE A: pide los datos de a UNO por mensaje, de forma natural, en este orden: tratamiento, nombre y apellido, día y hora (no preguntes el distrito; si lo dice, se guarda solo). Pide solo el PRÓXIMO DATO indicado abajo y nunca vuelvas a preguntar algo que ya respondió.
 FASE B: cuando ya tengas los tres datos, NO repitas la plantilla. Di que su SOLICITUD de cita quedó registrada y que recepción se la confirmará. Nunca digas que el horario quedó bloqueado o confirmado.
 
 ### REGLA 4: PASE A HUMANO
@@ -74,6 +74,7 @@ Si te preguntan algo que no está en estos datos (un seguro, un equipo, un docto
 ${TONE_RULES[c.tone] || TONE_RULES.cercano} Español peruano cálido y profesional. Escribe de 2 a 4 líneas. ${EMOJI_RULES[c.emojiLevel] || EMOJI_RULES.pocos}
 Responde PRIMERO exactamente lo que preguntó (por ejemplo, "¿cuánto cuesta la inicial?" → el monto o rango configurado y qué incluye) y después invita a agendar.
 Termina siempre con una pregunta o un siguiente paso concreto (agendar, elegir un horario, confirmar, enviar la ubicación). No te vuelvas a presentar.
+Ve directo al dato: no abras con muletillas ("¡Excelente elección!", "¡Claro que sí!", "¡Perfecto!", "¡Genial!") salvo una vez en toda la conversación. Nada de frases de folleto ("sencillo", "te encantará"): habla como una recepcionista limeña por WhatsApp.
 Eres la asistente virtual de la clínica: si te preguntan si eres una persona, dilo con honestidad. Nunca finjas ser humana.${forbidden}
 
 ### REGLA 8: TEMAS AJENOS E INSULTOS
@@ -385,7 +386,7 @@ export function buildSystemPromptWithContext(jid, session = null, clinicOverride
   const patientName = (lead?.nombre !== session?.profileName && lead?.nombre) || session?.leadSnapshot?.nombre || extractLeadDataFromText(textFromHistory(session?.history))?.nombre;
   const booked = session?.booked ? '\nEsta sesión ya tiene una cita registrada. No vuelvas a pedir sus datos salvo que solicite cambios.' : '';
   const slots = !session?.booked && session?.offeredSlots?.length
-    ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Van como botones: invítalo a tocar el que prefiera (o responder 1, 2 o 3) y pide solo el nombre o tratamiento que falten.`
+    ? `\nHORARIOS LIBRES QUE EL SISTEMA LE MOSTRARÁ DEBAJO DE TU MENSAJE (no los escribas tú): ${session.offeredSlots.map((s, i) => `${i + 1}) ${s.label}`).join('; ')}. Van como botones: cierra con una invitación corta a tocar el que prefiera ("Toca el que te acomode 👇"); NO preguntes "¿qué día y hora te acomoda?". Pide solo el nombre o tratamiento que falten.`
     : '';
   const clinicName = profile.name || clinic.name;
   // Modo nocturno: el sistema ya le avisó que la clínica está cerrada; Gemini no debe prometer atención inmediata.
@@ -607,7 +608,9 @@ function collectLead(session, message, senderPhone = null) {
   const incoming = extractLeadDataFromText(message, senderPhone);
   const chosen = pickOfferedSlot(message, session.offeredSlots);
   if (chosen) session.chosenSlot = chosen;
-  const treatment = findTreatment(message) || findTreatment(textFromHistory(session.history));
+  // El historial del prompt guarda solo los últimos mensajes: el tratamiento ya mencionado se recuerda en la sesión.
+  const treatment = findTreatment(message) || findTreatment(textFromHistory(session.history)) || session.lastTreatment || null;
+  if (treatment) session.lastTreatment = treatment;
   const captured = session.captured || {};
   // Un perfil de WhatsApp con nombre y apellido reales sirve para la solicitud; con uno solo, se pregunta.
   const profileFullName = session.profileName?.includes(' ') ? session.profileName : null;
@@ -655,7 +658,7 @@ function polishReply(text, session, lead) {
 // Resumen de la solicitud (regla 9: "solicitud de cita … Recepción te la confirmará", nunca "bloqueado").
 // Solo si AFIRMA que la cita quedó agendada sin que exista la solicitud (regla 9). "Agendar tu cita" o
 // "tu cita de brackets" son invitaciones normales y no se tocan.
-const CLAIMS_BOOKED = /\b(?:tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
+const CLAIMS_BOOKED = /\b(?:(?:tu\s+)?solicitud(?:\s+de\s+cita)?\s+(?:ya\s+)?(?:qued[oó]|est[aá]|ha\s+quedado|fue)\s+(?:registrad|agendad|confirmad)\w*|tu\s+cita\s+(?:ya\s+)?(?:est[aá]|qued[oó]|ha\s+quedado|fue)\s+(?:agendad|confirmad|reservad|registrad|programad)\w*|qued[oó]\s+(?:agendad|confirmad|reservad)\w*|ya\s+est[aá]\s+(?:agendad|confirmad|reservad)\w*|te\s+(?:agend[eé]|reserv[eé]|confirm[eé])\s+(?:la|tu)\s+cita)/i;
 
 async function persistSnapshotIfReady(session, leadData, sid, options) {
   if (!leadData?.ready_to_notify || options.skipLeadPersistence) return;

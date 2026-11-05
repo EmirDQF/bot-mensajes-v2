@@ -1,17 +1,11 @@
 # Reporte de QA conversacional
 
-> **Pendiente (2026-11-04, rama `mejora/recepcionista-experta`):** se agregaron los escenarios 30–34 (anuncio de
-> brackets, "¿dónde quedan?", agendamiento paso a paso, seguro no configurado y tono de la respuesta). Este equipo
-> no tiene `GEMINI_API_KEY`, así que el reporte de abajo es el de la corrida anterior (29 escenarios) y **todavía no
-> mide los cambios de esta rama**. Para regenerarlo: define `GEMINI_API_KEY` y corre `npm run simulate`; se
-> sobrescribe este archivo con las 34 conversaciones.
-
-Generado por `npm run simulate` (scripts/simulate-conversations.js) el 2026-09-28.
+Generado por `npm run simulate` (scripts/simulate-conversations.js) el 2026-11-05.
 Clínica: **Clínica Dental Denvari** · asistente **Camila** · modelo `gemini-3.5-flash-lite`.
 Conversaciones reales contra Gemini; WhatsApp y Supabase son falsos (nada sale a Meta ni a la base real).
 Hora simulada: jueves 1 de octubre de 2026, 10:30 p. m. (clínica cerrada) o 10:00 a. m. (abierta).
 
-**Resultado: 29/29 escenarios correctos · 26 llamadas a Gemini en esta corrida.**
+**Resultado: 39/39 escenarios correctos · 35 llamadas a Gemini en esta corrida.**
 
 Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos y tuteo), sin precios inventados
 (todo monto "S/" debe existir en config/clinics) y sin prometer que el horario quedó bloqueado.
@@ -20,11 +14,11 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 |---|---|---|---|---|
 | 1 | Precio de brackets | ✅ correcto | — | 1 |
 | 2 | "bravkets" / "frenillo" (errores de tipeo) | ✅ correcto | — | 2 |
-| 3 | "¿Aceptan Yape/Plin?" | ✅ correcto | — | 2 |
+| 3 | "¿Aceptan Yape/Plin?" | ✅ correcto | — | 1 |
 | 4 | "¿Hay descuento?" | ✅ correcto | — | 1 |
 | 5 | Paciente indeciso | ✅ correcto | — | 1 |
-| 6 | Pide cita a las 11 p. m. | ✅ correcto | — | 2 |
-| 7 | Elige "la 2" | ✅ correcto | — | 2 |
+| 6 | Pide cita a las 11 p. m. | ✅ correcto | — | 1 |
+| 7 | Elige "la 2" | ✅ correcto | — | 1 |
 | 8 | Cancelar | ✅ correcto | — | 0 |
 | 9 | Reprogramar | ✅ correcto | — | 0 |
 | 10 | "Quiero hablar con una persona" | ✅ correcto | — | 0 |
@@ -35,6 +29,7 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 | 15 | Audio o sticker | ✅ correcto | — | 0 |
 | 16 | Anuncio + inicial de brackets + cita el sábado (10:30 p. m.) | ✅ correcto | — | 1 |
 | 17 | Gemini caído: respuesta de respaldo (10:30 p. m.) | ✅ correcto | — | 0 |
+| 39 | Gemini caído y una pregunta sin dato configurado | ✅ correcto | — | 0 |
 | 18 | Ráfaga de 4 mensajes seguidos (10:30 p. m.) | ✅ correcto | — | 1 |
 | 19 | "Tengo los dientes chuecos" | ✅ correcto | — | 1 |
 | 20 | Evento en 1 mes (boda) | ✅ correcto | — | 1 |
@@ -47,6 +42,15 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 | 27 | "¿Eres un robot?" | ✅ correcto | — | 1 |
 | 28 | Paciente que escribe en inglés | ✅ correcto | — | 1 |
 | 29 | Urgencia antes que recomendación | ✅ correcto | — | 0 |
+| 30 | Llega de un anuncio de brackets | ✅ correcto | — | 1 |
+| 31 | "¿Dónde quedan?" | ✅ correcto | — | 1 |
+| 32 | Agendamiento paso a paso (un dato por mensaje) | ✅ correcto | — | 3 |
+| 33 | Pregunta por un seguro que la clínica no tiene configurado | ✅ correcto | — | 1 |
+| 34 | Tono: "¿cuánto cuesta la inicial?" | ✅ correcto | — | 1 |
+| 35 | Informal: "precio pls" de frenillos | ✅ correcto | — | 1 |
+| 36 | Informal: "cuanto sale sacar muela" | ✅ correcto | — | 1 |
+| 37 | Informal: "diente postizo" + "a cuanto" | ✅ correcto | — | 1 |
+| 38 | Catálogo + pack (como el video de referencia) | ✅ correcto | — | 2 |
 
 ## Conversaciones
 
@@ -66,16 +70,19 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: La ortodoncia (brackets metálicos y estéticos) está desde S/ 1,800, con cuota inicial S/ 0 y mensualidades desde S/ 150. ¿Lo buscas más por estética o por la mordida? 😊  
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: Los brackets cuestan desde S/ 1,800 y tenemos cuota inicial S/ 0 con mensualidades desde S/ 150.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ viernes, 2 de octubre a las 9:00 a. m.  
 > 2️⃣ viernes, 2 de octubre a las 11:00 a. m.  
 > 3️⃣ viernes, 2 de octubre a las 1:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
->
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 11:00 a. m. | Vie 2 · 1:00 p. m.]
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -106,20 +113,22 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Claro que sí! La ortodoncia (brackets metálicos y estéticos) está desde S/ 1,800, con cuota inicial S/ 0 y mensualidades desde S/ 150. 🦷 ¿Lo buscas más por estética o por la mordida?  
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: Los brackets (ortodoncia metálicos y estéticos) están desde S/ 1,800 con cuota inicial S/ 0 y mensualidades desde S/ 150. Incluyen nuestra evaluación digital 3D sin costo de campaña. ✨  
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ viernes, 2 de octubre a las 9:00 a. m.  
 > 2️⃣ viernes, 2 de octubre a las 11:00 a. m.  
 > 3️⃣ viernes, 2 de octubre a las 1:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
->
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 11:00 a. m. | Vie 2 · 1:00 p. m.]
 >
 > **Paciente**: y el frenillo en cuántas cuotas se paga?
 >
-> **Camila**: Las mensualidades de los brackets son desde S/ 150 y las puedes pagar mes a mes sin intereses con tarjeta o en efectivo. 💳 ¿Te gustaría agendar tu evaluación digital 3D sin costo para este viernes? Puedes elegir el horario 1, 2 o 3 aquí abajito.
+> **Camila**: Las mensualidades de los brackets van desde S/ 150 y las puedes pagar mes a mes sin intereses con tarjeta o efectivo. 💳 ¿A nombre de quién registro tu solicitud (nombre y apellido)?
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -146,7 +155,9 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Sí, aceptamos Yape y Plin! También tarjetas de débito, crédito y efectivo. 💳 ¿Te gustaría que te agendemos una evaluación sin costo?
+> **Camila**: Sí, aceptamos pagos con Yape, Plin, tarjetas de crédito/débito y efectivo. 💳  
+>   
+> ¿Te gustaría agendar una evaluación para hoy o prefieres otro día?
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -172,7 +183,9 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Tenemos una evaluación digital 3D sin costo y la ventaja de pagar con cuota inicial de S/ 0, además de partes fraccionadas sin intereses. 💳 ¿Te gustaría agendar una evaluación para ver tu caso?
+> **Camila**: Contamos con la campaña de evaluación digital 3D sin costo, que incluye radiografía panorámica y escaneo intraoral. Además, brindamos facilidades de pago en cuotas sin intereses con tarjeta o en efectivo.  
+>   
+> ¿Qué tratamiento tenías en mente consultar?
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -198,7 +211,11 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Te entiendo perfectamente, es una inversión importante. Recuerda que ese precio es referencial "desde S/ 2,500" y el costo exacto lo define el doctor en la evaluación, además puedes pagarlo en cómodas cuotas. ¿Te gustaría que te escriba mañana para resolver cualquier duda que tengas? 😊
+> **Camila**: Los implantes dentales son desde S/ 2,500, pero recuerda que es un precio referencial y contamos con pago en cuotas tras la evaluación para facilitarlo.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?
+>
+> **Camila**: _[imagen implantes.png]_ Clínica Dental Denvari 🦷
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -227,16 +244,23 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Por lo que me cuentas, lo indicado es una evaluación de limpieza dental (profilaxis); el doctor confirma el mejor tratamiento. El precio es desde S/ 80 🦷 Puedes elegir uno de estos horarios respondiendo 1, 2 o 3: 1) Viernes 2 de octubre a las 9:00 a. m. 2) Viernes 2 de octubre a las 11:00 a. m. 3) Viernes 2 de octubre a las 1:00 p. m. Por favor, indícanos también tu nombre y apellido para dejar tu solicitud lista.  
+> **Camila**: _[imagen evaluation-pack.png?v=de792fefba69]_ 🦷 *Evaluación digital 3D*  
+> Incluye:  
+> ✅ Radiografía panorámica  
+> ✅ Escaneo intraoral 3D  
+> ✅ Plan de tratamiento  
+> 💰 ~S/ 50~ *Sin costo* · Precio de campaña (hasta el jueves, 31 de diciembre)  
+> 📋 Solo trae tu DNI: la radiografía te la tomamos aquí.
+>
+> **Camila**: La limpieza dental (profilaxis) está desde S/ 80 e incluye evaluación. ¿A nombre de quién registro la solicitud (nombre y apellido)?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ viernes, 2 de octubre a las 9:00 a. m.  
 > 2️⃣ viernes, 2 de octubre a las 11:00 a. m.  
 > 3️⃣ viernes, 2 de octubre a las 1:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
->
-> **Camila**: _[imagen limpieza.png]_ Clínica Dental Denvari 🦷
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 11:00 a. m. | Vie 2 · 1:00 p. m.]
 >
 > **Paciente**: Soy Rosa Díaz, hoy a las 11 pm
 >
@@ -247,7 +271,8 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 > 2️⃣ viernes, 2 de octubre a las 11:00 a. m.  
 > 3️⃣ viernes, 2 de octubre a las 1:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 11:00 a. m. | Vie 2 · 1:00 p. m.]
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -276,14 +301,25 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Con mucho gusto coordinamos tu cita! Por favor indícanos: 📌 Nombre y apellido: 📌 Tratamiento que deseas realizarte: 📌 Día y hora de preferencia:  
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: _[imagen evaluation-pack.png?v=de792fefba69]_ 🦷 *Evaluación digital 3D*  
+> Incluye:  
+> ✅ Radiografía panorámica  
+> ✅ Escaneo intraoral 3D  
+> ✅ Plan de tratamiento  
+> 💰 ~S/ 50~ *Sin costo* · Precio de campaña (hasta el jueves, 31 de diciembre)  
+> 📋 Solo trae tu DNI: la radiografía te la tomamos aquí.
+>
+> **Camila**: Para avanzar con tu solicitud de ortodoncia, ¿a nombre de quién la registro (nombre y apellido)?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ viernes, 2 de octubre a las 9:00 a. m.  
 > 2️⃣ viernes, 2 de octubre a las 11:00 a. m.  
 > 3️⃣ viernes, 2 de octubre a las 1:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 11:00 a. m. | Vie 2 · 1:00 p. m.]
 >
 > **Paciente**: la 2, soy Carlos Ramírez
 >
@@ -292,12 +328,22 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 > 📱 +51000000107 (wa.me/51000000107)  
 > 🩺 Ortodoncia (brackets metálicos y estéticos)  
 > 📅 viernes, 2 de octubre a las 11:00 a. m.  
+> 🦷 Interés: Ortodoncia (brackets metálicos y estéticos)  
+> 🔔 Recordatorio: programado (48 h y 2 h antes) ✅  
+> 💬 Conversación: http://localhost:3000/panel#chat=51000000107  
+>   
+> 💬 Resumen:  
+> Consultó: "Quiero agendar una evaluación de ortodoncia"  
+> Tratamiento: Ortodoncia (brackets metálicos y estéticos) · escribió con la clínica cerrada  
 >   
 > Escríbele al paciente para confirmar la cita.
 >
-> **Camila**: ¡Listo, Carlos Ramírez! Tu solicitud de cita para Ortodoncia (brackets metálicos y estéticos) el viernes, 2 de octubre a las 11:00 a. m. quedó registrada en Calle Las Orquídeas 450, San Isidro, Lima (dirección de demostración). Recepción te la confirmará.
+> **Camila**: ¡Listo, Carlos Ramírez! Tu solicitud de cita para Ortodoncia (brackets metálicos y estéticos) el viernes, 2 de octubre a las 11:00 a. m. quedó registrada en Calle Las Orquídeas 450, San Isidro, Lima (dirección de demostración).  
+> Referencia: A media cuadra del parque principal (referencia de demostración)  
+> Cómo llegar: https://maps.google.com/?q=Calle+Las+Orqu%C3%ADdeas+450+San+Isidro+Lima  
+> Recepción te la confirmará.
 >
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> **Camila**: 
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -320,7 +366,8 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 > 👤 Lucía Paredes  
 > 📱 +51000000108 (wa.me/51000000108)  
 > 🩺 Limpieza dental (profilaxis)  
-> 📅 viernes, 2 de octubre a las 4:00 p. m.
+> 📅 viernes, 2 de octubre a las 4:00 p. m.  
+> 💬 Conversación: http://localhost:3000/panel#chat=51000000108
 >
 > **Camila**: Listo, cancelamos tu cita del viernes, 2 de octubre a las 4:00 p. m. Cuando quieras volver a agendar, escríbeme "quiero una cita" 😊
 >
@@ -348,7 +395,8 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 > 2️⃣ jueves, 1 de octubre a las 1:00 p. m.  
 > 3️⃣ jueves, 1 de octubre a las 3:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Jue 1 · 11:00 a. m. | Jue 1 · 1:00 p. m. | Jue 1 · 3:00 p. m.]
 >
 > **Paciente**: 1
 >
@@ -356,7 +404,8 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 > 👤 Lucía Paredes  
 > 📱 +51000000109 (wa.me/51000000109)  
 > 🩺 Limpieza dental (profilaxis)  
-> 📅 jueves, 1 de octubre a las 11:00 a. m.
+> 📅 jueves, 1 de octubre a las 11:00 a. m.  
+> 💬 Conversación: http://localhost:3000/panel#chat=51000000109
 >
 > **Camila**: ¡Listo! Tu solicitud de cambio quedó registrada para el jueves, 1 de octubre a las 11:00 a. m. en Calle Las Orquídeas 450, San Isidro, Lima (dirección de demostración). Recepción te la confirmará.
 >
@@ -450,7 +499,7 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Solo puedo ayudarte con la atención dental de Clínica Dental Denvari. ¿Te gustaría agendar una evaluación o tienes alguna duda sobre nuestros tratamientos? 😊
+> **Camila**: Solo puedo ayudarte con la atención dental en Clínica Dental Denvari. ¿Te gustaría agendar una evaluación para algún tratamiento? 😊
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -476,7 +525,7 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Lamento mucho si te has sentido así. Soy un asistente virtual de la clínica y estoy aquí para ayudarte con cualquier duda o coordinar tu atención. ¿Hay algo en lo que pueda asistirte? 📲
+> **Camila**: Lamento mucho que tengas esa impresión. Soy la asistente virtual de la clínica y estoy aquí para ayudarte con cualquier consulta o duda que tengas sobre nuestros servicios. ¿En qué puedo asistirte?
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -502,7 +551,9 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Por lo que me cuentas, lo indicado es una evaluación con el doctor para que confirme el mejor tratamiento. Recuerda que no puedo recetar medicamentos. Si la molestia es fuerte o empeora, te sugiero acudir a la clínica o a emergencias. ¿Te gustaría agendar una evaluación? 🦷
+> **Camila**: Por lo que me cuentas, lo indicado es una evaluación con el doctor para revisar esa muela y confirmar el tratamiento. No puedo recetar medicamentos, pero si la molestia es fuerte puedes acudir a la clínica o a emergencias si empeora.  
+>   
+> ¿Te gustaría agendar una evaluación? 🦷
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -555,28 +606,37 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 
 > **Paciente**: Buenas noches, vi su anuncio, ¿cuánto es la inicial de brackets y tienen cita el sábado?
 >
-> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari. Soy Camila, tu asistente virtual.  
 >   
-> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+> Vi que te interesa Ortodoncia (brackets metálicos y estéticos): está desde S/ 1,800 (Cuota inicial S/ 0 y mensualidades desde S/ 150). El costo exacto lo define el doctor en la evaluación.  
 >   
-> Cuéntame:  
-> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
-> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+> ¿Te propongo horarios para tu evaluación o prefieres que te cuente más del tratamiento?  
 >   
 > 🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo y te dejo la solicitud de cita lista; recepción te la confirma a primera hora.  
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Con gusto! Para la ortodoncia (brackets) la cuota inicial es S/ 0 y el costo es desde S/ 1,800. Sí tenemos citas disponibles este sábado. ¿Cuál de estos horarios prefieres (1, 2 o 3) y cuál es tu nombre completo? 😊  
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: _[imagen evaluation-pack.png?v=de792fefba69]_ 🦷 *Evaluación digital 3D*  
+> Incluye:  
+> ✅ Radiografía panorámica  
+> ✅ Escaneo intraoral 3D  
+> ✅ Plan de tratamiento  
+> 💰 ~S/ 50~ *Sin costo* · Precio de campaña (hasta el jueves, 31 de diciembre)  
+> 📋 Solo trae tu DNI: la radiografía te la tomamos aquí.
+>
+> **Camila**: La cuota inicial de ortodoncia es S/ 0 según nuestra campaña vigente, y las mensualidades van desde S/ 150. El costo exacto se define en la evaluación. Sí tenemos citas este sábado.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ sábado, 3 de octubre a las 9:00 a. m.  
 > 2️⃣ sábado, 3 de octubre a las 11:00 a. m.  
 > 3️⃣ sábado, 3 de octubre a las 1:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
->
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Sáb 3 · 9:00 a. m. | Sáb 3 · 11:00 a. m. | Sáb 3 · 1:00 p. m.]
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -606,24 +666,55 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Gracias por escribirnos! 😊 Te comparto los horarios más cercanos para tu evaluación:  
+> **Camila**: Blanqueamiento dental: desde S/ 350 (Pago único o en 2 cuotas). El costo exacto lo define el doctor en la evaluación.  
+>   
+> ¿Te propongo horarios para tu evaluación?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ viernes, 2 de octubre a las 9:00 a. m.  
 > 2️⃣ viernes, 2 de octubre a las 12:00 p. m.  
 > 3️⃣ viernes, 2 de octubre a las 2:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 12:00 p. m. | Vie 2 · 2:00 p. m.]
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ El paciente recibe horarios aunque la IA falle
+- ✅ Responde el precio configurado sin IA (S/ 350)
+- ✅ Sin alerta: la respuesta sin IA resolvió la pregunta
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 39. Gemini caído y una pregunta sin dato configurado ✅
+
+> **Paciente**: ¿Atienden con seguro Pacífico?
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: ¡Gracias por escribirnos! 🙏 Tuve un inconveniente para responderte en este momento; ya avisé al equipo de la clínica para que te escriba por aquí.
 >
 > **🔔 Alerta a recepción**: ⚠️ El asistente no pudo responder con IA (Clínica Dental Denvari)  
-> 📱 +51000000117 (wa.me/51000000117)  
-> 💬 "¿Cuánto cuesta el blanqueamiento?"  
+> 📱 +51000000139 (wa.me/51000000139)  
+> 💬 "¿Atienden con seguro Pacífico?"  
 >   
 > Escríbele al paciente. Si se repite, revisa GEMINI_API_KEY y la cuota de Gemini (npm run preflight).
 >
 
 - ✅ El bot respondió (además de la bienvenida)
-- ✅ El paciente recibe horarios aunque la IA falle
+- ✅ El paciente recibe un aviso (no se queda sin respuesta)
 - ✅ Recepción recibe la alerta de falla
 - ✅ Sin precios inventados
 - ✅ No promete bloquear el horario
@@ -654,16 +745,19 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Hola! Con gusto te cuento que para los brackets tenemos cuota inicial S/ 0 y mensualidades desde S/ 150 (precio total desde S/ 1,800). Además, sí atendemos los sábados de 9:00 a. m. a 2:00 p. m. 🦷 ¿Lo buscas más por estética o por la mordida?  
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: La cuota inicial de ortodoncia es S/ 0 y los brackets cuestan desde S/ 1,800. Sí atendemos los sábados de 9:00 a. m. a 2:00 p. m.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ viernes, 2 de octubre a las 9:00 a. m.  
 > 2️⃣ viernes, 2 de octubre a las 12:00 p. m.  
 > 3️⃣ viernes, 2 de octubre a las 2:00 p. m.  
 >   
-> Responde 1, 2 o 3 👆
->
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 12:00 p. m. | Vie 2 · 2:00 p. m.]
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -690,16 +784,19 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Por lo que me cuentas, lo indicado es una evaluación de ortodoncia (brackets o alineadores); el doctor confirma el mejor tratamiento. Ortodoncia (brackets metálicos y estéticos) es desde S/ 1,800; el costo exacto se define en la evaluación. ¿Lo buscas más por estética o por la mordida? 😊  
+> **Camila**: Por lo que me cuentas, lo indicado es una evaluación de ortodoncia (brackets o alineadores); el doctor confirma el mejor tratamiento. Ortodoncia (brackets metálicos y estéticos) es desde S/ 1,800; el costo exacto se define en la evaluación.  
+>   
+> ¿Lo buscas más por estética o por la mordida?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ jueves, 1 de octubre a las 11:30 a. m.  
 > 2️⃣ jueves, 1 de octubre a las 1:30 p. m.  
 > 3️⃣ jueves, 1 de octubre a las 3:30 p. m.  
 >   
-> Responde 1, 2 o 3 👆
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Jue 1 · 11:30 a. m. | Jue 1 · 1:30 p. m. | Jue 1 · 3:30 p. m.]
 >
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -727,11 +824,11 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Muchas felicidades por tu matrimonio! 💍 Por lo que me cuentas, lo indicado es una evaluación de carillas y diseño de sonrisa o blanqueamiento; el doctor confirma el mejor tratamiento. Las carillas están desde S/ 450 por pieza y el blanqueamiento desde S/ 350, y contamos con pago en cuotas. ¿Para qué fecha exacta es tu evento?
+> **Camila**: _[imagen carillas-antes-despues.png]_ ✨ *Carillas:* cambio estético en color, forma y tamaño. Ilustración referencial: no es un paciente real.
 >
-> **Camila**: _[imagen carillas.png]_ Clínica Dental Denvari 🦷
->
-> **Camila**: _[imagen blanqueamiento.png]_ Clínica Dental Denvari 🦷
+> **Camila**: ¡Qué gran noticia tu matrimonio! Muchas felicidades. Para un evento así, lo indicado es una evaluación de carillas y diseño de sonrisa; el doctor confirma el mejor tratamiento. Cuesta desde S/ 450 por pieza y tenemos pagos en cuotas.  
+>   
+> ¿A nombre de quién registro tu solicitud (nombre y apellido)?
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -758,13 +855,13 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: El implante dental está desde S/ 2,500 y puedes pagarlo en cuotas tras la evaluación. 😊
+> **Camila**: El implante dental está desde S/ 2,500 y puedes pagarlo en cuotas tras la evaluación. ¿A nombre de quién registro la solicitud (nombre y apellido)? 🦷
 >
 > **Camila**: _[imagen implantes.png]_ Clínica Dental Denvari 🦷
 >
 > **Paciente**: uff, está caro
 >
-> **Camila**: Te entiendo perfectamente. Recuerda que es un precio referencial "desde" y el costo exacto se define en la evaluación. Además, contamos con facilidades de pago en cuotas tras la evaluación. ¿Te gustaría agendar una evaluación digital 3D sin costo para revisarlo? 🦷
+> **Camila**: El costo exacto se define en la evaluación y recuerda que tenemos pagos en cuotas sin intereses para facilitarlo. ¿A nombre de quién registro tu solicitud (nombre y apellido)? 💳
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -791,14 +888,17 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Por lo que me cuentas, lo indicado es una evaluación de odontopediatría; el doctor confirma el mejor tratamiento. Odontopediatría (niños) es desde S/ 60; el costo exacto se define en la evaluación. ¿Gustas que reservemos una cita hoy mismo? Puedes elegir uno de los horarios disponibles aquí abajo. 😊  
+> **Camila**: Por lo que me cuentas, lo indicado es una evaluación de odontopediatría; el doctor confirma el mejor tratamiento. Odontopediatría (niños) es desde S/ 60; el costo exacto se define en la evaluación.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?  
 >   
 > 📅 Horarios disponibles:  
 > 1️⃣ jueves, 1 de octubre a las 11:30 a. m.  
 > 2️⃣ jueves, 1 de octubre a las 1:30 p. m.  
 > 3️⃣ jueves, 1 de octubre a las 3:30 p. m.  
 >   
-> Responde 1, 2 o 3 👆
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Jue 1 · 11:30 a. m. | Jue 1 · 1:30 p. m. | Jue 1 · 3:30 p. m.]
 >
 > **Camila**: _[imagen odontopediatria.png]_ Clínica Dental Denvari 🦷
 >
@@ -852,7 +952,7 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Claro que sí! Durante este mes tenemos una evaluación digital 3D sin costo y una limpieza dental con evaluación incluida (válida hasta el sábado 31 de octubre). 😊 ¿Te gustaría agendar una cita para aprovechar la promoción?
+> **Camila**: Tenemos la evaluación digital 3D sin costo, que incluye radiografía panorámica y escaneo intraoral. 🦷 ¿Te gustaría agendar una para aprovecharla?
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -879,9 +979,11 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: ¡Hola, Carmen! Qué gusto saludarte de nuevo. Como ya tienes lista tu evaluación, lo que sigue es coordinar el inicio de tu tratamiento con brackets. Por favor indícanos: 📌 Nombre y apellido: 📌 Tratamiento que deseas realizarte: 📌 Día y hora de preferencia:
+> **Camila**: Hola, Carmen. Como ya tienes tu evaluación lista, lo que toca es agendar la colocación de tus brackets.  
+>   
+> ¿Qué día y hora te gustaría venir? 😊
 >
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -908,7 +1010,9 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: El blanqueamiento dental cuesta desde S/ 299 y puedes pagarlo al contado o en 2 cuotas. Además, la evaluación digital 3D hoy es sin costo. ¿Te gustaría agendar una evaluación para ver tu caso? 😊
+> **Camila**: El blanqueamiento dental cuesta desde S/ 299 y puedes pagarlo en efectivo, Yape, Plin o tarjeta.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?
 >
 > **Camila**: _[imagen blanqueamiento.png]_ Clínica Dental Denvari 🦷
 >
@@ -937,7 +1041,7 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Soy una asistente virtual de la clínica. Estoy aquí para ayudarte a agendar tu cita y resolver tus dudas con gusto. 😊 ¿En qué te puedo ayudar hoy?
+> **Camila**: Soy la asistente virtual de la clínica. ¿En qué puedo ayudarte hoy? 🦷
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -963,9 +1067,11 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 >   
 > 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
 >
-> **Camila**: Hello! Braces start from S/ 1,800, with S/ 0 down payment and monthly installments starting from S/ 150. Our 3D digital evaluation is currently free. Would you prefer them more for aesthetics or because of your bite?
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
 >
-> **Camila**: _[imagen ortodoncia.png]_ Clínica Dental Denvari 🦷
+> **Camila**: Los brackets metálicos y estéticos cuestan desde S/ 1,800, con cuota inicial S/ 0 y mensualidades desde S/ 150.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)? 📲
 >
 
 - ✅ El bot respondió (además de la bienvenida)
@@ -998,6 +1104,373 @@ Cada escenario revisa: que sea correcto (checks propios), tono (mensajes cortos 
 - ✅ Deriva como urgencia (no vende ortodoncia)
 - ✅ Pausa el bot y alerta de URGENCIA
 - ✅ Sin llamar a Gemini
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 30. Llega de un anuncio de brackets ✅
+
+> **Paciente**: Hola, quiero más información
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari. Soy Camila, tu asistente virtual.  
+>   
+> Vi que te interesa Ortodoncia (brackets metálicos y estéticos): está desde S/ 1,800 (Cuota inicial S/ 0 y mensualidades desde S/ 150). El costo exacto lo define el doctor en la evaluación.  
+>   
+> ¿Te propongo horarios para tu evaluación o prefieres que te cuente más del tratamiento?  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: Tenemos la campaña de ortodoncia con cuota inicial S/ 0 y brackets metálicos o estéticos desde S/ 1,800, además de la evaluación digital 3D sin costo.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?
+>
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ La primera respuesta habla del anuncio (ortodoncia y su precio)
+- ✅ No pregunta qué tratamiento busca
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 31. "¿Dónde quedan?" ✅
+
+> **Paciente**: Hola, ¿dónde quedan exactamente?
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: Estamos en Calle Las Orquídeas 450, San Isidro, Lima, a media cuadra del parque principal.  
+>   
+> Puedes ver la ubicación exacta aquí: https://maps.google.com/?q=Calle+Las+Orqu%C3%ADdeas+450+San+Isidro+Lima 🗺️  
+>   
+> ¿Te gustaría agendar una evaluación para visitarnos?
+>
+> **Camila**: _[imagen fachada.png]_ Clínica Dental Denvari 🦷
+>
+> **Camila**: _[imagen ubicacion.png]_ Clínica Dental Denvari 🦷
+>
+> **Camila**: 
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ Da la dirección y el mapa
+- ✅ Envía el mensaje de ubicación (la clínica tiene coordenadas)
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 32. Agendamiento paso a paso (un dato por mensaje) ✅
+
+> **Paciente**: quiero una cita para limpieza
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: _[imagen evaluation-pack.png?v=de792fefba69]_ 🦷 *Evaluación digital 3D*  
+> Incluye:  
+> ✅ Radiografía panorámica  
+> ✅ Escaneo intraoral 3D  
+> ✅ Plan de tratamiento  
+> 💰 ~S/ 50~ *Sin costo* · Precio de campaña (hasta el jueves, 31 de diciembre)  
+> 📋 Solo trae tu DNI: la radiografía te la tomamos aquí.
+>
+> **Camila**: La limpieza dental (profilaxis) está desde S/ 80.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?  
+>   
+> 📅 Horarios disponibles:  
+> 1️⃣ jueves, 1 de octubre a las 11:30 a. m.  
+> 2️⃣ jueves, 1 de octubre a las 1:30 p. m.  
+> 3️⃣ jueves, 1 de octubre a las 3:30 p. m.  
+>   
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Jue 1 · 11:30 a. m. | Jue 1 · 1:30 p. m. | Jue 1 · 3:30 p. m.]
+>
+> **Paciente**: Ana Torres
+>
+> **Camila**: Toca el horario que mejor te acomode 👇
+>
+> **Camila**: _[imagen limpieza.png]_ Clínica Dental Denvari 🦷
+>
+> **Paciente**: Surco
+>
+> **Camila**: Toca el horario que mejor te acomode 👇
+>
+> **Paciente**: 1
+>
+> **🔔 Alerta a recepción**: 🦷 Nueva solicitud de cita — Clínica Dental Denvari  
+> 👤 Ana Torres  
+> 📱 +51000000132 (wa.me/51000000132)  
+> 🩺 Limpieza dental (profilaxis)  
+> 📅 jueves, 1 de octubre a las 11:30 a. m.  
+> 🦷 Interés: Limpieza dental (profilaxis)  
+> 🔔 Recordatorio: programado (48 h y 2 h antes) ✅  
+> 💬 Conversación: http://localhost:3000/panel#chat=51000000132  
+>   
+> 💬 Resumen:  
+> Consultó: "quiero una cita para limpieza"  
+> Tratamiento: Limpieza dental (profilaxis) · Distrito: Surco  
+>   
+> Escríbele al paciente para confirmar la cita.
+>
+> **Camila**: ¡Listo, Ana Torres! Tu solicitud de cita para Limpieza dental (profilaxis) el jueves, 1 de octubre a las 11:30 a. m. quedó registrada en Calle Las Orquídeas 450, San Isidro, Lima (dirección de demostración).  
+> Referencia: A media cuadra del parque principal (referencia de demostración)  
+> Cómo llegar: https://maps.google.com/?q=Calle+Las+Orqu%C3%ADdeas+450+San+Isidro+Lima  
+> Recepción te la confirmará.
+>
+> **Camila**: 
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ No vuelve a pedir el nombre ya respondido
+- ✅ Una sola pregunta por mensaje
+- ✅ Guarda la solicitud
+- ✅ El resumen trae el mapa y "Recepción te la confirmará"
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 33. Pregunta por un seguro que la clínica no tiene configurado ✅
+
+> **Paciente**: ¿Atienden con seguro Rímac?
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: No trabajamos directamente con seguros como Rímac, pero te entregamos la boleta o factura para que puedas solicitar el reembolso en tu aseguradora.  
+>   
+> ¿Qué tratamiento te interesa realizarte?
+>
+> **🔔 Alerta a recepción**: ⚠️ Pregunta que la asistente no pudo responder (Clínica Dental Denvari)  
+> 📱 +51000000133 (wa.me/51000000133)  
+> 💬 "¿Atienden con seguro Rímac?"  
+>   
+> Respóndele al paciente por este chat. Si es una pregunta frecuente, agrégala a las preguntas frecuentes en el panel.
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ No inventa que acepta el seguro
+- ✅ Avisa a recepción para que responda
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 34. Tono: "¿cuánto cuesta la inicial?" ✅
+
+> **Paciente**: Hola
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Paciente**: ¿cuánto cuesta la inicial de los brackets?
+>
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: La cuota inicial de la ortodoncia es S/ 0 por nuestra campaña vigente, y las mensualidades van desde S/ 150. ¿A nombre de quién registro la solicitud (nombre y apellido)?
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ Responde primero el monto (S/ 0 o S/ 1,800)
+- ✅ Máximo 1 emoji
+- ✅ De 2 a 4 líneas
+- ✅ Termina con una pregunta o un siguiente paso
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 35. Informal: "precio pls" de frenillos ✅
+
+> **Paciente**: info de los frenillos precio pls
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: La ortodoncia con brackets está desde S/ 1,800 con cuota inicial S/ 0 y mensualidades desde S/ 150. ¿A nombre de quién registro tu solicitud (nombre y apellido)?
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ Entiende "frenillos" como ortodoncia
+- ✅ Da el precio desde S/ 1,800
+- ✅ Envía el catálogo de ortodoncia
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 36. Informal: "cuanto sale sacar muela" ✅
+
+> **Paciente**: cuanto sale sacarme una muela q me molesta
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: Por lo que me cuentas, lo indicado es una evaluación con el doctor. Una extracción dental está desde S/ 80. 🦷  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ Habla de extracción o de evaluación
+- ✅ No diagnostica ni receta
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 37. Informal: "diente postizo" + "a cuanto" ✅
+
+> **Paciente**: hola a cuanto el diente postizo
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🌙 Ahora la clínica está cerrada, pero yo te ayudo ya mismo y te dejo la solicitud de cita lista; recepción te la confirma a primera hora.  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: Los implantes dentales están desde S/ 2,500 y el costo exacto se define en la evaluación con el doctor.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?  
+>   
+> 📅 Horarios disponibles:  
+> 1️⃣ viernes, 2 de octubre a las 9:00 a. m.  
+> 2️⃣ viernes, 2 de octubre a las 12:00 p. m.  
+> 3️⃣ viernes, 2 de octubre a las 2:00 p. m.  
+>   
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Vie 2 · 9:00 a. m. | Vie 2 · 12:00 p. m. | Vie 2 · 2:00 p. m.]
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ Entiende "diente postizo" como implante
+- ✅ Da el precio desde S/ 2,500
+- ✅ Sin precios inventados
+- ✅ No promete bloquear el horario
+- ✅ No finge ser humana
+- ✅ No diagnostica
+- ✅ Tono: mensajes cortos de WhatsApp
+- ✅ Tono: tutea (no "usted")
+
+### 38. Catálogo + pack (como el video de referencia) ✅
+
+> **Paciente**: Hola! Vi su anuncio y me interesa mucho. Quiero mejorar mi sonrisa, ¿me dan información de ortodoncia o carillas por favor?
+>
+> **Camila**: _[imagen logo.png]_ ¡Hola! 👋 Te damos la bienvenida a Clínica Dental Denvari 🦷✨  
+>   
+> Soy Camila, tu asistente virtual. Este mes tenemos campaña: evaluación digital 3D sin costo, cuota inicial S/ 0 y pago en cuotas.  
+>   
+> Cuéntame:  
+> 👉 ¿Qué tratamiento o molestia dental quieres solucionar?  
+> 👉 ¿O prefieres que te proponga de una vez horarios para tu evaluación? 📅  
+>   
+> 🔒 Aviso de privacidad (Ley 29733): guardamos tu nombre, número y los datos de tu cita solo para agendarte y recordarte tu atención. Puedes pedir que los eliminemos escribiendo "borrar mis datos".
+>
+> **Camila**: _[imagen ortodoncia-metalicos-vs-zafiro.png]_ 🦷 *Ortodoncia:* brackets metálicos (máxima resistencia) o de zafiro (casi invisibles). Corregimos la posición y la mordida paso a paso.
+>
+> **Camila**: _[imagen carillas-antes-despues.png]_ ✨ *Carillas:* cambio estético en color, forma y tamaño. Ilustración referencial: no es un paciente real.
+>
+> **Camila**: Para ortodoncia, el precio es desde S/ 1,800 con cuota inicial S/ 0, y para carillas el precio es desde S/ 450 por pieza. La evaluación digital 3D hoy es sin costo.  
+>   
+> ¿A nombre de quién registro la solicitud (nombre y apellido)?
+>
+> **Paciente**: Qué buenas fotos! Me llaman los brackets de zafiro y quizás carillas. ¿Tengo que llevar radiografías? ¿Qué necesito, qué días tienen espacio, cuánto cuesta empezar y cómo agendo?
+>
+> **Camila**: _[imagen evaluation-pack.png?v=de792fefba69]_ 🦷 *Evaluación digital 3D*  
+> Incluye:  
+> ✅ Radiografía panorámica  
+> ✅ Escaneo intraoral 3D  
+> ✅ Plan de tratamiento  
+> 💰 ~S/ 50~ *Sin costo* · Precio de campaña (hasta el jueves, 31 de diciembre)  
+> 📋 Solo trae tu DNI: la radiografía te la tomamos aquí.
+>
+> **Camila**: No necesitas traer nada, aquí te tomamos la radiografía panorámica y el escaneo 3D sin costo. Empezar tiene cuota inicial S/ 0 y los brackets son desde S/ 1,800. Atendemos de lunes a viernes de 9 a. m. a 8 p. m. y sábados hasta las 2 p. m.  
+>   
+> 📅 Horarios disponibles:  
+> 1️⃣ jueves, 1 de octubre a las 12:00 p. m.  
+> 2️⃣ jueves, 1 de octubre a las 2:00 p. m.  
+> 3️⃣ jueves, 1 de octubre a las 4:00 p. m.  
+>   
+> Toca el horario que prefieras 👇 o responde 1, 2 o 3.  
+> [Botones: Jue 1 · 12:00 p. m. | Jue 1 · 2:00 p. m. | Jue 1 · 4:00 p. m.]
+>
+
+- ✅ El bot respondió (además de la bienvenida)
+- ✅ Envía el catálogo de ortodoncia y de carillas
+- ✅ Envía la tarjeta del pack una sola vez
+- ✅ Ofrece horarios
 - ✅ Sin precios inventados
 - ✅ No promete bloquear el horario
 - ✅ No finge ser humana

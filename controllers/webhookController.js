@@ -26,6 +26,7 @@ import { describeError } from '../services/safeLog.js';
 import { aiFallbackReply, createNoAiAlert, createReceptionQuestionAlert, formatSlotList } from '../services/aiFallback.js';
 import { sendClinicLocation, wantsLocation } from '../services/clinicLocation.js';
 import { quickAnswer } from '../services/quickAnswers.js';
+import { guardPrices } from '../services/priceGuard.js';
 import {
   adReferrals, chatSessionHistoryCache, dataDeletionFilters, deletePatientRows, digitsOf, getAdReferral, getBotNotes,
   recordBotReply, recordInbox, sanitizeReferral, sendReply,
@@ -34,7 +35,7 @@ import {
   DEFAULT_AFTER_HOURS_NOTICE, GREETING_ONLY, UNSUPPORTED_REPLIES, afterHoursNotice, buildWelcomeCaption, forgetWelcome,
   greetFirstContact, hasPreviousConversation, takeAfterHoursNotice,
 } from './firstContact.js';
-import { sendEvaluationPack, sendImages } from './mediaReplies.js';
+import { forgetSentMedia, sendEvaluationPack, sendImages } from './mediaReplies.js';
 import { sendWithSlotPicker } from '../services/slotButtons.js';
 import { confirmedBookingText, sendAppointmentPass } from './bookingReplies.js';
 import { interestOf, notifyDoctor } from '../services/doctorAlert.js';
@@ -57,6 +58,7 @@ async function hardResetUserSession(phone) {
     chatSessionHistoryCache.delete(rawDigits);
     chatSessionHistoryCache.delete(shortPhone);
     forgetWelcome(rawDigits);
+    forgetSentMedia(rawDigits);
     await deletePatientRows(rawDigits);
     console.log(`[Privacidad] Datos del paciente eliminados (***${rawDigits.slice(-4)})`);
     return true;
@@ -296,11 +298,21 @@ async function saveLeadFromReply(from, messageText, geminiResult) {
   }
 }
 
+// La lista de horarios ya dice "Toca el horario que prefieras 👇": se quita la pregunta repetida del modelo
+// ("¿Qué día y hora te acomodan?", "Toca el que prefieras 👇").
+export function withoutSlotQuestion(text) {
+  const lines = String(text || '').split('\n').map((line) => line.split(/(?<=[.!?👇])\s+/u)
+    .filter((part) => !/^¿[^?]*\b(?:d[ií]as?|horas?|horarios?)\b[^?]*\?$|^toca\b/iu.test(part.trim()))
+    .join(' '));
+  const kept = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return kept || String(text || '').trim();
+}
+
 // Fase B: nombre + tratamiento + horario → se guarda la cita y se avisa a recepción. Si el horario ya no
 // sirve, el texto cambia por las alternativas. Devuelve { text, appointmentOutcome }.
 async function applyAppointmentRequest(from, jid, geminiResult, text, offeredSlots) {
   if (!geminiResult.appointmentRequest) {
-    return { text: offeredSlots?.length ? `${text}${formatSlotList(offeredSlots)}`.trim() : text, appointmentOutcome: null, slots: offeredSlots };
+    return { text: offeredSlots?.length ? `${withoutSlotQuestion(text)}${formatSlotList(offeredSlots)}`.trim() : text, appointmentOutcome: null, slots: offeredSlots };
   }
   const appointmentOutcome = await persistAgendaPayload(geminiResult.appointmentRequest, {
     phone: from, adReferral: await getAdReferral(from), summary: geminiService.conversationSummary(jid),
@@ -329,11 +341,17 @@ function buildBotReply(geminiResult, messageText, recommendation) {
   // Freno final: si el modelo diagnostica o receta, se envía la recomendación segura de la clínica.
   const safeReply = enforceNoDiagnosis(stripInstructionTags(botReplyText), recommendation);
   if (safeReply.replaced) console.warn('[Gemini] Respuesta con diagnóstico reemplazada por la recomendación de evaluación');
+  // Freno final: ninguna cifra "S/ …" que no esté en la configuración (p. ej. "S/ 1,50" en vez de "S/ 150").
+  const today = localParts(activeClinic.timezone, clockNow()).date;
+  const priced = guardPrices(safeReply.text, {
+    clinic: activeClinic, today, fallback: quickAnswer(expandColloquial(messageText), { clinic: activeClinic, today })?.text || null,
+  });
+  if (priced.replaced) console.warn(`[Gemini] Se quitó un precio que no está en la configuración (${priced.invented.length})`);
   const inferredKey = inferPhotoKeyFromMessage(messageText);
   const mediaKeys = inferredKey && !requestedMediaKeys.includes(inferredKey) ? [...requestedMediaKeys, inferredKey] : requestedMediaKeys;
   const catalog = imagesForKeys(catalogKeysForMessage(messageText));
   const photos = imagesForKeys(mediaKeys).filter((item) => !catalog.some((c) => c.url === item.url));
-  return { text: safeReply.text, catalog, photos };
+  return { text: priced.text, catalog, photos };
 }
 
 // "no", "stop", "no me escriban"…: se guarda como opt-out (con fecha) y no recibe más seguimientos ni promociones.
