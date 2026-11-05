@@ -5,6 +5,8 @@ import clinic, {
 import { getSupabase } from './supabaseClient.js';
 import liveEvents from './liveEvents.js';
 import { readiness } from './clinicReadiness.js';
+import { PHOTO_TYPES, detectImageType } from './imageType.js';
+import { prefetchImage } from './cards/remoteImages.js';
 
 // Configuración editable por el dueño desde el panel. La base es config/clinics/<id>.js; en Supabase
 // (clinic_settings) se guardan solo los cambios, que pasan por el MISMO validador de la clínica.
@@ -14,20 +16,10 @@ import { readiness } from './clinicReadiness.js';
 export const MEDIA_BUCKET = 'clinic-media';
 export const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 const TTL_MS = 5 * 60 * 1000;
-const PHOTO_TYPES = {
-  'image/jpeg': { ext: 'jpg', magic: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
-  'image/png': { ext: 'png', magic: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
-  'image/webp': { ext: 'webp', magic: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP' },
-};
-
 const httpError = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra });
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-// Tipo real del archivo según sus primeros bytes (no se confía en la extensión ni en el encabezado).
-export function detectImageType(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return null;
-  return Object.entries(PHOTO_TYPES).find(([, t]) => t.magic(buffer))?.[0] || null;
-}
+export { detectImageType };
 
 // Teléfonos de solo lectura para el panel: "+51 9•• ••• 678".
 export function maskPhone(raw) {
@@ -66,6 +58,8 @@ export function createClinicSettings({
         overrides = saved;
         meta = { updatedAt: data?.updated_at || null, updatedBy: data?.updated_by || null, source: Object.keys(saved).length ? 'panel' : 'base' };
       }
+      // Logo subido desde el panel: se descarga para dibujarlo en el pack, el pase y el catálogo.
+      await prefetchImage(clinic.media?.logo);
       warned = false;
     } catch (error) {
       if (!warned) console.warn('[Config] No se pudo leer clinic_settings; se usa la configuración base (¿falta migrations/20260929_clinic_settings.sql?):', error?.message || error);
@@ -142,6 +136,7 @@ export function createClinicSettings({
     overrides = next;
     meta = { updatedAt: at, updatedBy: by, source: Object.keys(next).length ? 'panel' : 'base' };
     loadedAt = now();
+    if (changed.includes('media')) await prefetchImage(clinic.media?.logo);
     events.publish('settings', { fields: changed, by });
     return snapshot();
   }

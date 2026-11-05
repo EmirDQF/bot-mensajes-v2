@@ -8,7 +8,7 @@ process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test';
 
 const { default: clinic, BASE_CLINIC, validateClinic, isWithinMarketingHours } = await import('../config/clinic.config.js');
 const {
-  createCampaigns, exclusionReason, estimateCost, promotionText, renderPromotionMessage, validateSegment, PROMO_INTERVAL_DAYS, BATCH_SIZE,
+  createCampaigns, exclusionReason, estimateCost, promotionText, renderPromotionMessage, validateSegment, PROMO_INTERVAL_DAYS, BATCH_SIZE, MAX_CONSECUTIVE_FAILURES,
 } = await import('./campaignService.js');
 const { createContactPreferences } = await import('./contactPreferences.js');
 const { createMarketingConsent, shouldAskMarketing } = await import('../controllers/marketingConsent.js');
@@ -34,7 +34,7 @@ function setup(tables = {}, { failCode = null } = {}) {
   const sent = [];
   const whatsapp = {
     async sendTemplateMessage(to, name, params) {
-      if (failCode && failCode.phone === to) throw Object.assign(new Error('meta'), { meta: { code: failCode.code } });
+      if (failCode && (failCode.phone === to || failCode.phone === '*')) throw Object.assign(new Error('meta'), { meta: { code: failCode.code } });
       sent.push({ to, name, params });
       return { messages: [{ id: `wamid.${to}` }] };
     },
@@ -153,6 +153,31 @@ describe('campaña de punta a punta', () => {
     assert.equal(result.paused, 1);
     assert.equal(db.data.campaigns[0].status, 'pausada');
     assert.match(db.data.campaigns[0].status_reason, /131048/);
+  });
+
+  it('se detiene si la plantilla no existe o está pausada (fallaría con todos)', async () => {
+    const t = tables();
+    t.contact_preferences.push(optIn('51944444444'));
+    const { db, sent, campaigns } = setup(t, { failCode: { phone: '*', code: 132001 } });
+    await campaigns.create({ name: 'T', segment: SEGMENT, promotionIndex: 0, confirmation: 'ENVIAR' });
+    const result = await campaigns.runCampaigns();
+    assert.equal(result.paused, 1);
+    assert.equal(result.failed, 1, 'no sigue intentando con el resto');
+    assert.equal(sent.length, 0);
+    assert.match(db.data.campaigns[0].status_reason, /132001/);
+  });
+
+  it('se detiene tras 3 fallas seguidas sin código conocido (Meta caído)', async () => {
+    const t = tables();
+    t.messages.push(asked('51977777777', 'brackets'), asked('51988888888', 'brackets'));
+    t.contact_preferences.push(optIn('51944444444'), optIn('51977777777'), optIn('51988888888'));
+    const { db, campaigns } = setup(t, { failCode: { phone: '*', code: 500 } });
+    await campaigns.create({ name: 'F', segment: SEGMENT, promotionIndex: 0, confirmation: 'ENVIAR' });
+    const result = await campaigns.runCampaigns();
+    assert.equal(result.failed, MAX_CONSECUTIVE_FAILURES);
+    assert.equal(result.paused, 1);
+    assert.equal(db.data.campaigns[0].status, 'pausada');
+    assert.match(db.data.campaigns[0].status_reason, /seguidos fallaron/);
   });
 
   it('si Meta dice que el paciente ya no acepta marketing (131050), queda como opt-out y sigue con los demás', async () => {

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Resvg } from '@resvg/resvg-js';
+import { cachedImageDataUri } from './remoteImages.js';
 
 // SVG → PNG en el servidor (sin navegador). Usa solo la fuente Inter de assets/fonts (licencia OFL):
 // el resultado es igual en Windows y en Render, sin depender de las fuentes del sistema.
@@ -38,8 +39,10 @@ export function wrapText(text, maxChars, maxLines = 3) {
   return kept;
 }
 
-// Logo local (media/<id>/logo.png) como data URI para incrustarlo en el SVG. null si no hay archivo local.
+// Logo como data URI para incrustarlo en el SVG: archivo local (media/<id>/logo.png) o el subido desde el panel
+// (ya descargado por remoteImages.prefetchImage). null si no hay.
 export function localImageDataUri(clinicId, file) {
+  if (/^https:\/\//i.test(String(file || ''))) return cachedImageDataUri(file);
   if (!file || /^https?:\/\//i.test(file) || file.includes('..')) return null;
   const full = path.join(process.cwd(), 'media', clinicId, file);
   try {

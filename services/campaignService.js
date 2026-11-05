@@ -22,8 +22,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const PROMO_INTERVAL_DAYS = 14;
 export const BATCH_SIZE = Math.max(1, Number(process.env.CAMPAIGN_BATCH_SIZE || 40));
 export const CONFIRM_WORD = 'ENVIAR';
-// Calidad, límites de envío o cuenta restringida: se pausa la campaña entera.
-export const STOP_CODES = new Set([4, 80007, 130429, 131048, 131056, 368, 131031]);
+// Calidad, límites de envío, cuenta restringida, token vencido o sin permiso y plantilla con problemas (no existe,
+// parámetros, pausada o desactivada): fallaría con todos, así que se pausa la campaña entera.
+export const STOP_CODES = new Set([
+  4, 80007, 130429, 131048, 131056, 368, 131031,
+  190, 10, 200,
+  132000, 132001, 132005, 132007, 132012, 132015, 132016,
+]);
+// Fallas seguidas sin código conocido (Meta caído, red): también se pausa en vez de seguir intentando.
+export const MAX_CONSECUTIVE_FAILURES = 3;
 // Meta ya no le entrega promociones a ese paciente (o lo bloqueó): opt-out y se sigue con los demás.
 const OPT_OUT_CODES = new Set([131026, 131050]);
 // Meta limitó el marketing a ese usuario por hoy: se omite.
@@ -251,10 +258,16 @@ export function createCampaigns({
       const names = new Map((await rows(client.from('leads').select('telefono, nombre').in('telefono', [...pending, ...pending.map((p) => p.slice(-9))])))
         .map((l) => [digits(l.telefono).slice(-9), l.nombre]));
       let stopped = null;
+      let consecutive = 0;
       for (const phone of pending.slice(0, BATCH_SIZE)) {
         const outcome = await sendOne(client, campaign, phone, names.get(phone.slice(-9)));
+        consecutive = outcome === 'fallido' || outcome?.stop ? consecutive + 1 : 0;
         if (outcome === 'enviado') result.sent += 1;
         else if (outcome?.stop) { stopped = outcome.stop; result.failed += 1; break; } else if (outcome === 'fallido') result.failed += 1;
+        if (consecutive >= MAX_CONSECUTIVE_FAILURES) {
+          stopped = `${MAX_CONSECUTIVE_FAILURES} envíos seguidos fallaron: se pausó la campaña (revisa la plantilla y el token en npm run meta:check)`;
+          break;
+        }
       }
       if (stopped) {
         await setStatus(client, campaign.id, { status: 'pausada', status_reason: stopped });

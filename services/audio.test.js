@@ -117,6 +117,20 @@ describe('webhook: el audio se responde como si lo hubiera escrito', () => {
     assert.equal(sent.some((m) => m.text === UNSUPPORTED_REPLIES.audio), false);
   });
 
+  it('síntoma dicho por audio: si el modelo diagnostica, se reemplaza por la recomendación de evaluación', async () => {
+    useInMemorySupabase(createMemoryDb());
+    process.env.GEMINI_PAID_TIER = 'true';
+    stub({ transcript: 'me duele un poquito la muela cuando tomo algo frío', reply: 'Tienes una caries profunda, necesitas una endodoncia.' });
+    const phone = `${TEST_PHONE_PREFIX}8804`;
+    const sent = [];
+    await say(phone, textMessage(phone, 'hola'), sent);
+    sent.length = 0;
+    await say(phone, audioMessage(phone), sent);
+    const replies = sent.filter((m) => m.to === phone && m.text).map((m) => m.text).join('\n');
+    assert.ok(replies.length > 0, 'responde al audio');
+    assert.doesNotMatch(replies, /tienes una caries|necesitas una endodoncia/i, 'nunca diagnostica, tampoco por audio');
+  });
+
   it('"stop" dicho por audio queda como opt-out', async () => {
     useInMemorySupabase(createMemoryDb());
     process.env.GEMINI_PAID_TIER = 'true';
