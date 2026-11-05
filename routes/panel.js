@@ -75,6 +75,8 @@ router.get('/report', panel, getReport);
 router.get('/settings', owner, settings.get);
 router.put('/settings', owner, settings.save);
 router.post('/settings/reset', owner, settings.reset);
+router.post('/settings/undo', owner, settings.undo);
+router.post('/settings/preview', owner, settings.preview);
 router.get('/settings/audit', owner, settings.audit);
 
 // Probador (solo el dueño): el flujo real con WhatsApp falso y hora simulada.

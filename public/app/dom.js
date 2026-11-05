@@ -44,7 +44,7 @@ export function safeUrl(value) {
 // Fotos y tarjetas de la clínica llegan con la URL pública completa (en local, http://localhost…):
 // en el panel se muestran desde el mismo servidor (/media o /cards).
 export function imageSrc(value) {
-  const local = String(value || '').match(/^https?:\/\/[^/]+(\/(?:media|cards)\/.+)$/i);
+  const local = String(value || '').match(/^https?:\/\/[^/]+(\/(?:media|cards|demo-media)\/.+)$/i);
   return local ? local[1] : safeUrl(value);
 }
 

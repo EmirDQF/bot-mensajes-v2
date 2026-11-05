@@ -1,4 +1,15 @@
 import defaultSettings from '../services/clinicSettings.js';
+import activeClinic, { mergeClinic, pickEditable } from '../config/clinic.config.js';
+import { packCardPng } from '../services/cards/packCard.js';
+import { appointmentPassPng } from '../services/cards/appointmentPass.js';
+import { localParts } from '../services/appointmentService.js';
+import { now as clockNow } from '../services/clock.js';
+
+// Pase de ejemplo para la vista previa (datos inventados, nunca de un paciente).
+const SAMPLE_PASS = {
+  id: 'ejemplo', code: 'EJ-0000', status: 'confirmada', patient_name: 'Paciente de ejemplo', treatment: 'Evaluación',
+  appointment_date: '2026-12-01', appointment_time: '16:30',
+};
 
 // Pestaña ⚙️ Configuración (solo el dueño). Todas las escrituras quedan en clinic_settings_audit.
 
@@ -40,6 +51,28 @@ export function createSettingsController({ settings = defaultSettings } = {}) {
         return res.json(await settings.auditLog(Math.min(200, Number(req.query.limit) || 50)));
       } catch (error) {
         return fail(res, error, 'No se pudo leer el historial');
+      }
+    },
+    // Vista previa en vivo (sin guardar): tarjeta del pack o pase de ejemplo con los datos del formulario.
+    async preview(req, res) {
+      try {
+        const draft = mergeClinic(activeClinic, pickEditable(req.body?.draft || {}));
+        const today = localParts(draft.timezone, clockNow()).date;
+        const kind = req.body?.kind === 'pass' ? 'pass' : 'pack';
+        const specialist = draft.specialists?.[0]?.name || null;
+        const png = kind === 'pass' ? appointmentPassPng({ ...SAMPLE_PASS, specialist }, draft) : packCardPng(draft, today);
+        if (!png) return res.status(404).json({ error: 'Completa el título y qué incluye el pack para ver la vista previa.' });
+        res.setHeader('Cache-Control', 'no-store');
+        return res.type('image/png').send(png);
+      } catch (error) {
+        return fail(res, error, 'No se pudo generar la vista previa');
+      }
+    },
+    async undo(req, res) {
+      try {
+        return res.json(await settings.undoLast(by(req)));
+      } catch (error) {
+        return fail(res, error, 'No se pudo deshacer el último cambio');
       }
     },
     async photo(req, res) {

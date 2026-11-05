@@ -152,7 +152,10 @@ export function specialistFor(treatmentKey, c = clinic) {
 
 // Catálogo visual (treatments[].images) y pack de evaluación (evaluationPack). Ambos opcionales.
 const MEDIA_FILE = /^(?!.*\.\.)[\w-]+(?:\/[\w-]+)*\.(?:png|jpe?g|webp)$/i;
-export const isMediaRef = (value) => typeof value === 'string' && (MEDIA_FILE.test(value) || /^https:\/\/\S+$/i.test(value));
+// Archivo de media/<id>/, URL https (Supabase Storage) o, en npm run demo, una foto subida al Storage en memoria.
+const DEMO_MEDIA = /^\/demo-media\/[\w./-]+$/;
+export const isMediaRef = (value) => typeof value === 'string' && !value.includes('..')
+  && (MEDIA_FILE.test(value) || /^https:\/\/\S+$/i.test(value) || DEMO_MEDIA.test(value));
 export const MAX_TREATMENT_IMAGES = 6;
 
 function validateCatalog(c) {
@@ -222,6 +225,8 @@ function validateEditable(c) {
       if (!isText(p?.title, 120)) errors.push(`promotions[${i}] necesita un título (máximo 120 caracteres)`);
       if (p?.description !== undefined && typeof p.description !== 'string') errors.push(`promotions[${i}].description debe ser texto`);
       if (p?.validUntil && !DATE.test(p.validUntil)) errors.push(`promotions[${i}].validUntil debe ser AAAA-MM-DD`);
+      if (p?.validFrom && !DATE.test(p.validFrom)) errors.push(`promotions[${i}].validFrom debe ser AAAA-MM-DD`);
+      if (p?.validFrom && p?.validUntil && p.validFrom > p.validUntil) errors.push(`promotions[${i}]: la fecha de inicio es posterior a la de fin`);
     });
   }
   for (const field of ['paymentMethods', 'forbiddenPhrases', 'quickReplies']) {
@@ -289,6 +294,8 @@ export const EDITABLE_FIELDS = [
   'name', 'botName', 'tone', 'emojiLevel', 'workingHours', 'workingHoursText', 'holidays', 'treatments', 'promotions',
   'campaign', 'paymentMethods', 'financingText', 'address', 'mapsUrl', 'reviewUrl', 'faq', 'welcomeCaption',
   'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack', 'bookingMode', 'specialists', 'reminders', 'followUps', 'googleRating',
+  // Panel "Mi clínica": datos de ubicación, duración de la cita y prefijo del código de cita.
+  'addressReference', 'latitude', 'longitude', 'slotMinutes', 'appointmentCodePrefix',
 ];
 // Objetos que se combinan por clave (un día del horario, una foto); el resto se reemplaza entero.
 const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media', 'reminders', 'followUps'];
@@ -331,7 +338,8 @@ export function activeTreatments(c = clinic) {
 
 // Promociones vigentes: activas y sin vencer (validUntil incluido). Una vencida nunca se menciona.
 export function activePromotions(today, c = clinic) {
-  return (c.promotions || []).filter((p) => p.active !== false && (!p.validUntil || p.validUntil >= today));
+  return (c.promotions || []).filter((p) => p.active !== false && (!p.validUntil || p.validUntil >= today)
+    && (!p.validFrom || p.validFrom <= today));
 }
 
 // ---------- Teléfonos (siempre desde variables de entorno) ----------
@@ -361,7 +369,7 @@ export function getPublicBaseUrl() {
 }
 
 // Una foto puede ser un archivo de media/<id>/ o una URL https de Supabase Storage (subida desde el panel).
-const isRemote = (value) => /^https:\/\//i.test(String(value || ''));
+const isRemote = (value) => /^https:\/\//i.test(String(value || '')) || DEMO_MEDIA.test(String(value || ''));
 
 // Ruta relativa (/media/<id>/<archivo>) o URL remota para el panel; mediaUrl() la vuelve absoluta para WhatsApp.
 export function mediaPath(key) {
@@ -374,16 +382,17 @@ export function mediaFilePath(file) {
   return isRemote(file) ? file : `/media/${clinic.id}/${file}`;
 }
 
+// URL absoluta para WhatsApp (las rutas /media y /demo-media se sirven desde este servidor).
+const absolute = (path) => (/^https:\/\//i.test(path) ? path : `${getPublicBaseUrl()}${path}`);
+
 export function mediaFileUrl(file) {
   const path = mediaFilePath(file);
-  if (!path) return null;
-  return isRemote(path) ? path : `${getPublicBaseUrl()}${path}`;
+  return path ? absolute(path) : null;
 }
 
 export function mediaUrl(key) {
   const path = mediaPath(key);
-  if (!path) return null;
-  return isRemote(path) ? path : `${getPublicBaseUrl()}${path}`;
+  return path ? absolute(path) : null;
 }
 
 // ---------- Tratamientos y sinónimos ----------

@@ -30,11 +30,11 @@ export function panelMediaUrl({ media_id: mediaId, media_url: mediaUrl }) {
   if (mediaId && /^\d+$/.test(String(mediaId))) return `/api/panel/media/${mediaId}`;
   if (!mediaUrl) return null;
   const value = String(mediaUrl);
-  const local = value.match(/^https?:\/\/[^/]+(\/(?:media|cards)\/.+)$/i);
+  const local = value.match(/^https?:\/\/[^/]+(\/(?:media|cards|demo-media)\/.+)$/i);
   if (local) return local[1];
   // El pase de cita se genera en una ruta del panel con sesión (nunca en una URL pública).
   const passPath = /^\/api\/panel\/appointments\/[\w-]+\/pass\.png$/.test(value);
-  return /^https:\/\//i.test(value) || /^\/(?:media|cards)\//.test(value) || passPath ? value : null;
+  return /^https:\/\//i.test(value) || /^\/(?:media|cards|demo-media)\//.test(value) || passPath ? value : null;
 }
 
 // Fila de messages → mensaje del panel. Las filas antiguas (sin sender) se deducen por el rol.

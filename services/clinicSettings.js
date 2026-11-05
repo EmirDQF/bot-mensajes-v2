@@ -4,6 +4,7 @@ import clinic, {
 } from '../config/clinic.config.js';
 import { getSupabase } from './supabaseClient.js';
 import liveEvents from './liveEvents.js';
+import { readiness } from './clinicReadiness.js';
 
 // Configuración editable por el dueño desde el panel. La base es config/clinics/<id>.js; en Supabase
 // (clinic_settings) se guardan solo los cambios, que pasan por el MISMO validador de la clínica.
@@ -86,6 +87,7 @@ export function createClinicSettings({
       effective: clinic,
       editable: EDITABLE_FIELDS,
       meta,
+      readiness: readiness(clinic, env),
       phones: {
         CLINIC_PHONE: maskPhone(env.CLINIC_PHONE),
         RECEPTION_ALERT_PHONE: maskPhone(env.RECEPTION_ALERT_PHONE),
@@ -100,21 +102,25 @@ export function createClinicSettings({
     return client;
   }
 
-  async function persist(next, by, fields, before) {
+  async function persist(next, by, fields, before, action = 'cambio') {
     const client = await db();
     const at = new Date(now()).toISOString();
     const { error } = await client.from('clinic_settings')
       .upsert({ clinic_id: clinicId, data: next, updated_at: at, updated_by: by }, { onConflict: 'clinic_id' });
     if (error) throw httpError(503, `No se pudo guardar la configuración (${error.message || error.code}). ¿Ejecutaste migrations/20260929_clinic_settings.sql?`);
     const after = mergeClinic(BASE_CLINIC, next);
-    const rows = fields.map((field) => ({ clinic_id: clinicId, changed_by: by, field, before: before[field] ?? null, after: after[field] ?? null, changed_at: at }));
-    const { error: auditError } = await client.from('clinic_settings_audit').insert(rows);
+    const rows = fields.map((field) => ({ clinic_id: clinicId, changed_by: by, field, before: before[field] ?? null, after: after[field] ?? null, changed_at: at, action }));
+    let { error: auditError } = await client.from('clinic_settings_audit').insert(rows);
+    if (auditError && /action/.test(String(auditError.message || '')) && ['PGRST204', '42703'].includes(auditError.code)) {
+      // Sin migrations/20261108_clinic_settings_history.sql: el historial se guarda sin el tipo de acción.
+      ({ error: auditError } = await client.from('clinic_settings_audit').insert(rows.map(({ action: _a, ...row }) => row)));
+    }
     if (auditError) throw httpError(503, `El cambio no se aplicó: no se pudo registrar la auditoría (${auditError.message || auditError.code}).`);
     return at;
   }
 
   // Guarda cambios de uno o varios campos. Lo que queda igual a la base deja de ser un cambio.
-  async function save(patch, by) {
+  async function save(patch, by, { action = 'cambio' } = {}) {
     const changes = pickEditable(patch);
     const fields = Object.keys(changes);
     if (!fields.length) throw httpError(400, 'No hay cambios que guardar.');
@@ -131,7 +137,7 @@ export function createClinicSettings({
     const changed = fields.filter((field) => !same(clinic[field], after[field]));
     if (!changed.length) return snapshot();
     const before = structuredClone(clinic);
-    const at = await persist(next, by, changed, before);
+    const at = await persist(next, by, changed, before, action);
     apply(next);
     overrides = next;
     meta = { updatedAt: at, updatedBy: by, source: Object.keys(next).length ? 'panel' : 'base' };
@@ -148,7 +154,7 @@ export function createClinicSettings({
     if (!toReset.length) return snapshot();
     const next = Object.fromEntries(Object.entries(overrides).filter(([key]) => !toReset.includes(key)));
     const before = structuredClone(clinic);
-    const at = await persist(next, by, toReset, before);
+    const at = await persist(next, by, toReset, before, 'restaurar');
     apply(next);
     overrides = next;
     meta = { updatedAt: at, updatedBy: by, source: Object.keys(next).length ? 'panel' : 'base' };
@@ -162,6 +168,20 @@ export function createClinicSettings({
       .eq('clinic_id', clinicId).order('changed_at', { ascending: false }).limit(limit);
     if (error) throw httpError(503, `No se pudo leer el historial (${error.message || error.code}).`);
     return data || [];
+  }
+
+  // Deshace el último guardado (todas las filas del historial con la misma fecha): vuelve a los valores de antes,
+  // pasando por la misma validación. Queda registrado como "deshacer".
+  async function undoLast(by) {
+    const client = await db();
+    const { data, error } = await client.from('clinic_settings_audit').select('*')
+      .eq('clinic_id', clinicId).order('changed_at', { ascending: false }).limit(50);
+    if (error) throw httpError(503, `No se pudo leer el historial (${error.message || error.code}).`);
+    if (!data?.length) throw httpError(400, 'No hay cambios para deshacer.');
+    const at = data[0].changed_at;
+    const batch = data.filter((row) => row.changed_at === at);
+    const changes = Object.fromEntries(batch.map((row) => [row.field, row.before ?? BASE_CLINIC[row.field] ?? null]));
+    return save(changes, by, { action: 'deshacer' });
   }
 
   async function ensureBucket(client) {
@@ -192,7 +212,7 @@ export function createClinicSettings({
     return { url: data.publicUrl, path, contentType: detected };
   }
 
-  return { load, ensureFresh, snapshot, save, reset, auditLog, uploadPhoto };
+  return { load, ensureFresh, snapshot, save, reset, auditLog, uploadPhoto, undoLast };
 }
 
 const clinicSettings = createClinicSettings();

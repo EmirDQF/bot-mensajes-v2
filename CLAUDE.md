@@ -65,6 +65,7 @@ node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo 
 | Ficha del paciente para recepción y el doctor (`DOCTOR_ALERT_PHONE`, opcional): interés, cita, recordatorio y enlace `/panel#chat=<tel>` | `services/patientCard.js`, `services/doctorAlert.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
 | Panel de recepción | `public/panel.html`, `public/app/*.js` (main, inbox, live, views, config, tester), `controllers/panelController.js`, `services/panelDataService.js` |
+| Panel "Mi clínica" (solo el dueño): secciones en `public/app/clinic/`, indicador "Configuración completa", vista previa del pack y del pase, deshacer el último cambio | `public/app/config.js`, `controllers/settingsController.js`, `services/clinicSettings.js`, `services/clinicReadiness.js` |
 | Etiquetas de fotos `[ENVIAR_FOTO: x]` | `services/mediaTags.js` |
 | Catálogo visual por tratamiento (`treatments[].images`) y pack de evaluación (`evaluationPack`) | `services/catalog.js`, envío en `controllers/mediaReplies.js` |
 | Imágenes generadas en el servidor (SVG → PNG con `@resvg/resvg-js` y la fuente Inter de `assets/fonts/`) | `services/cards/` (tarjeta del pack en `GET /cards/evaluation-pack.png`) |
