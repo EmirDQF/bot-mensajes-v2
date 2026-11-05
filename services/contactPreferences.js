@@ -87,7 +87,14 @@ export function createContactPreferences({ getClient = getDefaultClient, clinic 
     getMany,
     // reason: "paciente" (dijo no/stop), "bloqueo" (Meta no puede entregarle), "recepcion" (desde el panel).
     optOut: (phone, reason = 'paciente') => save(phone, { followups_opt_out_at: stamp(), opt_out_reason: reason, marketing_opt_out_at: stamp() }),
-    optInMarketing: (phone, source = 'paciente') => save(phone, { marketing_opt_in_at: stamp(), marketing_opt_in_source: source, marketing_opt_out_at: null }),
+    // Opt-in con fecha, origen y el texto exacto que aceptó (config/legalTexts.js).
+    optInMarketing: (phone, source = 'paciente', acceptedText = null) => save(phone, {
+      marketing_opt_in_at: stamp(), marketing_opt_in_source: source, marketing_opt_out_at: null,
+      ...(acceptedText ? { marketing_opt_in_text: acceptedText } : {}),
+    }),
+    // Respondió "No" a la pregunta: no recibe promociones y nunca se le vuelve a preguntar.
+    declineMarketing: (phone) => save(phone, { marketing_opt_out_at: stamp() }),
+    markMarketingAsked: (phone) => save(phone, { marketing_asked_at: stamp() }),
     markMinor: (phone) => save(phone, { minor_at: stamp() }),
   };
 }

@@ -31,7 +31,7 @@ npm run meta:check             # token (permanente/temporal), número, WABA, app
 npm run meta:subscribe         # suscribe la app al WABA
 npm run meta:templates         # envía a aprobación las plantillas de config/whatsappTemplates.js
 npm run db:print               # "PEGA N° X" del SQL que Supabase no tiene (db:migrate lo aplica con SUPABASE_DB_URL)
-npm run crons:setup            # crea/actualiza las 6 tareas de cron-job.org (CRONJOB_API_KEY)
+npm run crons:setup            # crea/actualiza las 7 tareas de cron-job.org (CRONJOB_API_KEY)
 npm run smoke:prod -- <URL>    # prueba de extremo a extremo contra producción
 node --check <archivo.js>      # verificación rápida de sintaxis
 pwsh scripts/generate-demo-media.ps1   # ilustraciones de la demo (o -ClinicId/-ClinicName para otra clínica)
@@ -62,6 +62,8 @@ node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo 
 | Seguimiento ético (`followUps`: 3 h, ~22 h, día 3 con opt-in; máx. 3; reglas de parada) | `services/followUpService.js` |
 | Opt-out ("no", "stop", bloqueo), opt-in de marketing con fecha y menor de edad | `services/contactPreferences.js` (tabla `contact_preferences`) |
 | Textos legales y de consentimiento (un solo archivo para el abogado) | `config/legalTexts.js` |
+| Permiso de promociones (una sola vez, Sí/No, después de agendar) | `controllers/marketingConsent.js` |
+| Campañas de promociones: segmentos, opt-in, 14 días, costo, envío por lotes (`POST /jobs/campaigns`) y reporte | `services/campaignService.js`, `controllers/campaignController.js`, `public/app/campaigns.js` |
 | Ficha del paciente para recepción y el doctor (`DOCTOR_ALERT_PHONE`, opcional): interés, cita, recordatorio y enlace `/panel#chat=<tel>` | `services/patientCard.js`, `services/doctorAlert.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
 | Panel de recepción | `public/panel.html`, `public/app/*.js` (main, inbox, live, views, config, tester), `controllers/panelController.js`, `services/panelDataService.js` |

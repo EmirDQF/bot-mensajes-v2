@@ -301,7 +301,7 @@ describe('webhook: modo solicitud vs confirmación directa', () => {
 describe('demo y panel', () => {
   it('la demo activa la confirmación directa desde la configuración (el archivo sigue en "solicitud")', () => {
     const data = buildDemoData(BASE_CLINIC, NOW);
-    assert.deepEqual(data.clinic_settings[0].data, { bookingMode: 'confirmacion_directa' });
+    assert.equal(data.clinic_settings[0].data.bookingMode, 'confirmacion_directa');
     assert.equal(BASE_CLINIC.bookingMode, 'solicitud');
   });
 

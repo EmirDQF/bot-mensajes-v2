@@ -65,7 +65,7 @@ export function validateClinic(clinic) {
   }
   return [
     ...errors, ...validateEditable(clinic), ...validateCatalog(clinic), ...validateBooking(clinic), ...validateReminders(clinic),
-    ...validateFollowUps(clinic),
+    ...validateFollowUps(clinic), ...validateMarketingPrice(clinic),
   ];
 }
 
@@ -141,6 +141,22 @@ function validateFollowUps(c) {
     }
   }
   return errors;
+}
+
+// Promociones (pestaña Campañas): tarifa de Meta por mensaje de marketing que el dueño verifica y escribe.
+// Sin tarifa no se puede programar una campaña (el costo estimado se muestra antes de enviar).
+function validateMarketingPrice(c) {
+  const p = c.marketingPrice;
+  if (p === undefined || p === null) return [];
+  const ok = p && typeof p.amount === 'number' && p.amount >= 0 && p.amount <= 5 && ['USD', 'PEN'].includes(p.currency || 'USD');
+  return ok ? [] : ['"marketingPrice" debe ser { amount: número entre 0 y 5, currency: "USD" o "PEN" }'];
+}
+
+// Las promociones solo salen de 9:00 a 20:00 (hora de la clínica).
+export function isWithinMarketingHours(c, instant) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: c.timezone, hour: '2-digit', hourCycle: 'h23' }).formatToParts(instant);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+  return hour >= 9 && hour < 20;
 }
 
 // Especialista para un tratamiento: el primero que lo atiende (o que atiende todo). null si no hay.
@@ -295,7 +311,7 @@ export const EDITABLE_FIELDS = [
   'campaign', 'paymentMethods', 'financingText', 'address', 'mapsUrl', 'reviewUrl', 'faq', 'welcomeCaption',
   'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack', 'bookingMode', 'specialists', 'reminders', 'followUps', 'googleRating',
   // Panel "Mi clínica": datos de ubicación, duración de la cita y prefijo del código de cita.
-  'addressReference', 'latitude', 'longitude', 'slotMinutes', 'appointmentCodePrefix',
+  'addressReference', 'latitude', 'longitude', 'slotMinutes', 'appointmentCodePrefix', 'marketingPrice',
 ];
 // Objetos que se combinan por clave (un día del horario, una foto); el resto se reemplaza entero.
 const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media', 'reminders', 'followUps'];

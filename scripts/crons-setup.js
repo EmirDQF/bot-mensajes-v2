@@ -1,4 +1,4 @@
-// npm run crons:setup — crea o actualiza en cron-job.org las 6 tareas del bot (idempotente: se reconocen
+// npm run crons:setup — crea o actualiza en cron-job.org las 7 tareas del bot (idempotente: se reconocen
 // por el título "<clinica> · <tarea>"). --dry-run por defecto; --apply para ejecutar.
 // Sin CRONJOB_API_KEY imprime la tabla para crearlas a mano. Nunca imprime CRON_SECRET ni la clave.
 // API: https://docs.cron-job.org/rest-api.html (requestMethod 0 = GET, 1 = POST; -1 = "todos").
@@ -15,6 +15,7 @@ export const CRON_JOBS = [
   { key: 'follow-ups', method: 'POST', path: '/jobs/follow-ups', secret: true, when: 'Cada hora (minuto 0); incluye la reactivación', schedule: { minutes: [0], hours: ALL, wdays: ALL } },
   { key: 'daily-summary', method: 'POST', path: '/jobs/daily-summary', secret: true, when: 'Todos los días 12:30 UTC (7:30 Lima)', schedule: { minutes: [30], hours: [12], wdays: ALL } },
   { key: 'weekly-report', method: 'POST', path: '/jobs/weekly-report', secret: true, when: 'Lunes 13:00 UTC (8:00 Lima)', schedule: { minutes: [0], hours: [13], wdays: [1] } },
+  { key: 'campaigns', method: 'POST', path: '/jobs/campaigns', secret: true, when: 'Cada 15 minutos (envía de 9:00 a 20:00 Lima)', schedule: { minutes: every(15), hours: ALL, wdays: ALL } },
   { key: 'health-deep', method: 'GET', path: '/health/deep', secret: true, when: 'Cada 12 horas', schedule: { minutes: [5], hours: [0, 12], wdays: ALL } },
 ];
 
@@ -79,7 +80,7 @@ async function main() {
   const { apply } = parseArgs();
   const { default: clinic } = await import('../config/clinic.config.js');
   if (!env.CRONJOB_API_KEY) {
-    console.log('Sin CRONJOB_API_KEY: crea estas 6 tareas a mano en https://cron-job.org → Create cronjob');
+    console.log('Sin CRONJOB_API_KEY: crea estas 7 tareas a mano en https://cron-job.org → Create cronjob');
     console.log('(o crea la clave en cron-job.org → Settings → API y vuelve a correr npm run crons:setup -- --apply)\n');
     console.log(manualTable(env.PUBLIC_BASE_URL || env.RENDER_EXTERNAL_URL));
     return 0;

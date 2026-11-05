@@ -41,6 +41,7 @@ import { confirmedBookingText, sendAppointmentPass } from './bookingReplies.js';
 import { interestOf, notifyDoctor } from '../services/doctorAlert.js';
 import contactPreferences, { detectMinor, detectOptOut } from '../services/contactPreferences.js';
 import { answersFollowUp } from '../services/followUpService.js';
+import marketingConsent from './marketingConsent.js';
 import { DATA_DELETION_REPLY, OPT_OUT_CONFIRMATION } from '../config/legalTexts.js';
 
 export { aiFallbackReply, formatSlotList };
@@ -386,6 +387,12 @@ async function processBatch(from, buffer) {
 
   const handoffReason = detectHandoff(messageText);
   if (handoffReason) return replyHandoff(from, messageText, handoffReason, buffer.context);
+  // Respuesta a "¿quieres recibir promociones?" (Sí/No): se guarda y no pasa a la IA.
+  const consentReply = await marketingConsent.handleAnswer(from, messageText);
+  if (consentReply) {
+    await sendReply(from, messageText, consentReply);
+    return;
+  }
   if (await handleOptOut(from, messageText)) return;
 
   // Cancelar / reprogramar / responder un recordatorio se resuelve sin Gemini.
@@ -448,6 +455,8 @@ async function processBatch(from, buffer) {
   await sendImages(from, photos);
   // "¿Dónde quedan?" o solicitud registrada: mensaje de ubicación (si la clínica tiene coordenadas).
   if (wantsLocation(messageText) || appointmentOutcome?.status === 'saved') await sendClinicLocation(from);
+  // Después de agendar, una sola vez: permiso para promociones (opt-in de marketing).
+  if (justBooked) await marketingConsent.askAfterBooking(from);
   if (geminiResult.askReception) await alertReceptionQuestion(from, messageText);
   // Lead score de la bandeja (nunca lanza).
   void leadInsights.observe(from, {

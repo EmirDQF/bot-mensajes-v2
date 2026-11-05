@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import express from 'express';
 import defaultJobs from '../services/jobsService.js';
 import defaultReport from '../services/reportService.js';
+import defaultCampaigns from '../services/campaignService.js';
 
 // Endpoints para un cron externo (Render Cron Job, cron-job.org…). Requieren el header
 // "x-cron-secret: <CRON_SECRET>" (o "Authorization: Bearer <CRON_SECRET>").
@@ -16,7 +17,7 @@ export function requireCronSecret(req, res, next) {
   return next();
 }
 
-export function createJobsRouter(jobs = defaultJobs, report = defaultReport) {
+export function createJobsRouter(jobs = defaultJobs, report = defaultReport, campaigns = defaultCampaigns) {
   const router = express.Router();
   const run = (name, task) => async (req, res) => {
     try {
@@ -35,6 +36,8 @@ export function createJobsRouter(jobs = defaultJobs, report = defaultReport) {
     ...(await jobs.runFollowUps()), reactivation: await jobs.runReactivation(),
   })));
   router.post('/reactivation', requireCronSecret, run('reactivation', () => jobs.runReactivation()));
+  // Campañas de promociones: un lote por campaña programada, de 9:00 a 20:00 (se detiene ante errores de calidad de Meta).
+  router.post('/campaigns', requireCronSecret, run('campaigns', () => campaigns.runCampaigns()));
   // Lunes 8:00 a. m. (Lima): reporte de los 7 días anteriores al dueño, con la línea de la garantía.
   // Opcional: ?from=AAAA-MM-DD&to=AAAA-MM-DD (por ejemplo, la semana de garantía desde la instalación).
   router.post('/weekly-report', requireCronSecret, run('weekly-report', async (req) => {

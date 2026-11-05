@@ -12,6 +12,7 @@ const VIEWS = {
   metrics: { label: 'Métricas', load: loadMetrics },
   report: { label: 'Reporte', load: loadReport },
   config: { label: 'Mi clínica', owner: true, load: () => import('./config.js').then((m) => m.loadConfig(session)) },
+  campaigns: { label: 'Campañas', owner: true, load: () => import('./campaigns.js').then((m) => m.loadCampaigns()) },
   tester: { label: 'Probador', owner: true, load: () => import('./tester.js').then((m) => m.loadTester(session)) },
 };
 const LIVE_LABEL = { live: 'En vivo', reconnecting: 'Reconectando…', polling: 'Sin conexión en vivo: actualizando cada 5 s' };
@@ -78,7 +79,7 @@ function buildTabs() {
     .map(([key, view]) => h('button', {
       type: 'button', role: 'tab', id: `tab-${key}`, class: 'tab', 'aria-controls': `view-${key}`, 'aria-selected': 'false', dataset: { view: key },
       onclick: () => showView(key),
-    }, { inbox: '💬 ', agenda: '📅 ', metrics: '📊 ', report: '📈 ', config: '🏥 ', tester: '🧪 ' }[key], view.label)));
+    }, { inbox: '💬 ', agenda: '📅 ', metrics: '📊 ', report: '📈 ', config: '🏥 ', campaigns: '📣 ', tester: '🧪 ' }[key], view.label)));
 }
 
 function showView(key) {

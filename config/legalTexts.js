@@ -18,4 +18,19 @@ export const FOLLOW_UP_OPT_OUT_LINE = 'Responde NO para no recibir más mensajes
 // escribirle. Solo se guarda el número y la fecha (tabla contact_preferences).
 export const OPT_OUT_RETENTION_NOTE = 'Conservamos solo tu número y la fecha en que pediste no recibir mensajes, para respetar tu decisión.';
 
-export default { DATA_DELETION_REPLY, OPT_OUT_CONFIRMATION, FOLLOW_UP_OPT_OUT_LINE, OPT_OUT_RETENTION_NOTE };
+// ---------- Permiso para promociones (opt-in de marketing) ----------
+// Se pregunta UNA sola vez, después de que el paciente agenda. Se guarda la fecha y este texto exacto
+// (contact_preferences.marketing_opt_in_text). A quien responde "No" nunca se le vuelve a preguntar.
+export const MARKETING_OPT_IN_QUESTION = '¿Te gustaría recibir por WhatsApp nuestras promociones y campañas? '
+  + 'Máximo una cada 14 días y puedes darte de baja cuando quieras respondiendo NO.';
+export const MARKETING_OPT_IN_BUTTONS = { yes: 'Sí, quiero', no: 'No, gracias' };
+export const MARKETING_OPT_IN_YES_REPLY = '¡Listo! 🙌 Te avisaremos de nuestras promociones (máximo una cada 14 días). Para darte de baja, responde NO a cualquiera de ellas.';
+export const MARKETING_OPT_IN_NO_REPLY = 'Entendido 👍 No te enviaremos promociones. Seguiremos escribiéndote solo sobre tus citas.';
+
+// Línea final obligatoria de la plantilla de promociones (marketing).
+export const PROMOTION_OPT_OUT_LINE = 'Responde NO para no recibir más promociones.';
+
+export default {
+  DATA_DELETION_REPLY, OPT_OUT_CONFIRMATION, FOLLOW_UP_OPT_OUT_LINE, OPT_OUT_RETENTION_NOTE,
+  MARKETING_OPT_IN_QUESTION, MARKETING_OPT_IN_BUTTONS, MARKETING_OPT_IN_YES_REPLY, MARKETING_OPT_IN_NO_REPLY, PROMOTION_OPT_OUT_LINE,
+};

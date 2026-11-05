@@ -4,7 +4,7 @@
 // body/category/buttons/example son lo que npm run meta:templates envía a aprobación (idioma "es"; Meta
 // no ofrece es_PE). Los ejemplos salen de la clínica activa (c): cero datos fijos de un cliente.
 
-import { FOLLOW_UP_OPT_OUT_LINE } from './legalTexts.js';
+import { FOLLOW_UP_OPT_OUT_LINE, PROMOTION_OPT_OUT_LINE } from './legalTexts.js';
 
 const env = (key, fallback) => process.env[key] || fallback;
 
@@ -50,6 +50,18 @@ export const TEMPLATES = {
     body: `Hola 👋 Te escribe {{1}}. ¿Sigues interesado en {{2}}? Si quieres, te proponemos horarios para tu evaluación. ${FOLLOW_UP_OPT_OUT_LINE}`,
     buttons: ['Quiero una cita', 'NO'],
     example: (c) => [c.name, c.treatments[0]?.name || 'tu evaluación'],
+  },
+  // Promoción a pacientes anteriores (pestaña Campañas). MARKETING: solo a quien dio permiso de promociones,
+  // máximo una cada 14 días. La línea de baja sale de config/legalTexts.js.
+  promotion: {
+    name: env('WA_TEMPLATE_PROMOTION', 'promocion_pacientes'),
+    language: 'es',
+    // {{1}} nombre · {{2}} clínica · {{3}} promoción (título, detalle y fecha de fin)
+    params: ({ patient, clinicName, promotion }) => [patient, clinicName, promotion],
+    category: 'MARKETING',
+    body: `Hola {{1}} 👋 Te escribe {{2}}. {{3}} Si te interesa, responde "quiero una cita" y te proponemos horarios. ${PROMOTION_OPT_OUT_LINE}`,
+    buttons: ['Quiero una cita', 'NO'],
+    example: (c) => ['Ana', c.name, 'Blanqueamiento 2x1 hasta el 30 de noviembre.'],
   },
   reactivation: {
     name: env('WA_TEMPLATE_REACTIVATION', 'reactivacion_paciente'),

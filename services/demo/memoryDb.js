@@ -15,6 +15,7 @@ export const UNIQUE_KEYS = {
   chat_sessions: [['id']],
   clinic_settings: [['clinic_id']],
   appointments: [['clinic_id', 'code']],
+  campaign_recipients: [['campaign_id', 'phone']],
 };
 
 function parseOr(filter) {

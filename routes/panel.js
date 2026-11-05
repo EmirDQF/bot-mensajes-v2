@@ -3,6 +3,7 @@ import { getAgenda, setAppointmentStatus, getMetrics, getReport, getSession } fr
 import inbox from '../controllers/inboxController.js';
 import settings from '../controllers/settingsController.js';
 import tester from '../controllers/testerController.js';
+import campaignsController from '../controllers/campaignController.js';
 import { login, logout, requirePanel, sessionFor } from '../middleware/panelAuth.js';
 import appointmentService from '../services/appointmentService.js';
 import { appointmentPassPng } from '../services/cards/appointmentPass.js';
@@ -76,6 +77,13 @@ router.get('/settings', owner, settings.get);
 router.put('/settings', owner, settings.save);
 router.post('/settings/reset', owner, settings.reset);
 router.post('/settings/undo', owner, settings.undo);
+
+// Campañas de promociones (solo el dueño)
+router.get('/campaigns', owner, campaignsController.list);
+router.post('/campaigns/preview', owner, campaignsController.preview);
+router.post('/campaigns', owner, campaignsController.create);
+router.post('/campaigns/:id/cancel', owner, campaignsController.cancel);
+router.get('/campaigns/:id/report', owner, campaignsController.report);
 router.post('/settings/preview', owner, settings.preview);
 router.get('/settings/audit', owner, settings.audit);
 

@@ -202,8 +202,9 @@ describe('go-live: db:migrate', () => {
 describe('go-live: crons:setup', () => {
   const env = { PUBLIC_BASE_URL: 'https://bot.onrender.com/', CRON_SECRET: 'cron-secret-largo-0123456789abcdef', CRONJOB_API_KEY: 'cronjob-key-123' };
 
-  it('las 6 tareas con su horario (13:00 UTC = 8:00 Lima) y el header solo donde hace falta', () => {
-    assert.equal(CRON_JOBS.length, 6);
+  // Agente top (Fase 7): + la tarea de campañas de promociones.
+  it('las 7 tareas con su horario (13:00 UTC = 8:00 Lima) y el header solo donde hace falta', () => {
+    assert.equal(CRON_JOBS.length, 7);
     const opts = { baseUrl: env.PUBLIC_BASE_URL, cronSecret: env.CRON_SECRET, clinicId: 'demo' };
     const weekly = buildJob(CRON_JOBS.find((j) => j.key === 'weekly-report'), opts);
     assert.equal(weekly.url, 'https://bot.onrender.com/jobs/weekly-report');
@@ -228,7 +229,7 @@ describe('go-live: crons:setup', () => {
     const live = fakeFetch(routes());
     const results = await setupCrons(env, { apply: true, clinicId: 'demo', fetchImpl: live, delayMs: 0 });
     assert.equal(live.calls.filter((c) => c.method === 'PATCH').length, 1);
-    assert.equal(live.calls.filter((c) => c.method === 'PUT').length, 5);
+    assert.equal(live.calls.filter((c) => c.method === 'PUT').length, CRON_JOBS.length - 1);
     assert.ok(results.every((r) => r.status === 'ok'));
     assert.equal(live.calls[0].headers.Authorization, 'Bearer cronjob-key-123');
     assert.ok(!allText(results).includes(env.CRON_SECRET));

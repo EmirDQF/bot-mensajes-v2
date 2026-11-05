@@ -210,9 +210,20 @@ export function buildDemoData(clinic, now = new Date()) {
   }
   // La demo muestra la confirmación directa con pase de cita (como si el dueño la activara en Configuración).
   // El archivo de la clínica sigue en "solicitud", el valor seguro por defecto.
+  // Para la pestaña Campañas: una promoción de ejemplo (clínica ficticia) y pacientes inventados que dieron permiso
+  // de promociones. La tarifa de Meta no se inventa: el dueño la escribe en la pestaña.
   data.clinic_settings = [{
-    clinic_id: clinic.id, data: { bookingMode: 'confirmacion_directa' }, updated_at: iso(now), updated_by: 'demo',
+    clinic_id: clinic.id,
+    data: {
+      bookingMode: 'confirmacion_directa',
+      promotions: [{ title: 'Blanqueamiento 2x1 (promoción de demostración)', description: 'Dos sesiones al precio de una', validUntil: addDays(today, 30), active: true }],
+    },
+    updated_at: iso(now), updated_by: 'demo',
   }];
+  data.contact_preferences = [103, 109, 110, 112].map((n) => ({
+    clinic_id: clinic.id, phone: phoneOf(n), marketing_asked_at: iso(minutesAgo(60 * 24 * 3)), marketing_opt_in_at: iso(minutesAgo(60 * 24 * 3)),
+    marketing_opt_in_source: 'paciente', updated_at: iso(minutesAgo(60 * 24 * 3)),
+  }));
   return data;
 }
 

@@ -96,6 +96,27 @@ ofrece horarios en botones.
 
 ---
 
+## 2d. `promocion_pacientes` — Categoría: **Marketing** (nueva)
+
+Variable de entorno para otro nombre: `WA_TEMPLATE_PROMOTION`. La usa la pestaña **Campañas**: solo llega a pacientes
+con permiso de promociones (opt-in guardado con fecha y texto), nunca a menores ni a quien pidió no recibir mensajes,
+máximo una cada 14 días por paciente, de 9:00 a 20:00. La última frase sale de `config/legalTexts.js`.
+
+**Cuerpo:**
+
+```
+Hola {{1}} 👋 Te escribe {{2}}. {{3}} Si te interesa, responde "quiero una cita" y te proponemos horarios. Responde NO para no recibir más promociones.
+```
+
+**Botones (respuesta rápida):** `Quiero una cita` · `NO`
+
+**Ejemplos:** {{1}} Ana · {{2}} Clínica Dental Denvari · {{3}} Blanqueamiento 2x1: Dos sesiones al precio de una. Válida hasta el lunes, 30 de noviembre.
+
+Qué hace el bot con la respuesta: "NO" → opt-out con fecha (no recibe más promociones ni seguimientos); "Quiero una cita" →
+horarios en botones.
+
+---
+
 ## 3. `reactivacion_paciente` — Categoría: **Marketing**
 
 Variable de entorno para otro nombre: `WA_TEMPLATE_REACTIVATION`
@@ -180,6 +201,7 @@ Todas las tareas `/jobs/*` son `POST` con el header `x-cron-secret: <CRON_SECRET
 | Recordatorios (48 h y 2 h por defecto) | `/jobs/reminders` | cada 15 min | `*/15 * * * *` |
 | Resumen diario 8:00 a. m. Lima | `/jobs/daily-summary` | diario | `0 13 * * *` |
 | Seguimiento (3 h, ~22 h, día 3) y reactivación | `/jobs/follow-ups` | cada hora | `0 * * * *` |
+| Campañas de promociones (envía de 9:00 a 20:00) | `/jobs/campaigns` | cada 15 min | `*/15 * * * *` |
 | Reporte semanal (lunes 8:00 a. m. Lima) | `/jobs/weekly-report` | lunes | `0 13 * * 1` |
 
 Comando de ejemplo para un Render Cron Job:
