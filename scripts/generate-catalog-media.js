@@ -15,6 +15,12 @@ export function writeCatalogMedia(target, { root = process.cwd(), log = console.
   for (const item of items) {
     fs.writeFileSync(path.join(root, 'media', target.id, item.file), renderPng(item.svg, { width: 1080 }));
     log(`✅ media/${target.id}/${item.file}`);
+    // El bot solo envía lo que está en treatments[].images: si falta, se dice qué agregar.
+    const treatment = target.treatments.find((t) => t.key === item.key);
+    if (!treatment?.images?.some((img) => img.file === item.file)) {
+      log(`   → agrega en el tratamiento "${item.key}" de config/clinics/${target.id}.js (o súbela en Mi clínica):`);
+      log(`     images: [{ file: '${item.file}', caption: ${JSON.stringify(item.caption)} }],`);
+    }
   }
   return items.map(({ svg: _svg, ...rest }) => rest);
 }

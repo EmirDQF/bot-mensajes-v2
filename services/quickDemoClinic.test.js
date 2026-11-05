@@ -90,6 +90,11 @@ describe('scripts/quick-demo-clinic.js (demo personalizada para un prospecto)', 
     assert.throws(() => buildQuickDemoClinic({ ...PROSPECT, colors: { primary: 'morado' } }), /#RRGGBB/);
     assert.throws(() => buildQuickDemoClinic({ ...PROSPECT, pack: { includes: '' } }), /al menos un ítem/);
     assert.throws(() => buildQuickDemoClinic({ ...PROSPECT, promotion: { text: 'X', validUntil: '15/12/2026' } }), /AAAA-MM-DD/);
+    // El id va a rutas de archivos: nada fuera de config/clinics/ ni media/ (revisión de seguridad).
+    for (const id of ['../../scripts/evil', 'demo-../../x', 'denvari', 'demo-a/b', 'C:\\temp\\x']) {
+      assert.throws(() => buildQuickDemoClinic({ ...PROSPECT, id }), /id inválido/, id);
+    }
+    assert.strictEqual(buildQuickDemoClinic({ ...PROSPECT, id: 'demo-mi-prueba' }).id, 'demo-mi-prueba');
   });
 
   it('horario: rangos de días, refrigerio, "cerrado" y texto legible', () => {

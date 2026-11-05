@@ -158,7 +158,9 @@ export function buildQuickDemoClinic({
   const workingHours = parseHours(hours);
   const priced = new Map(parsePrices(prices));
   const promo = parsePromotion(promotion);
-  const clinicId = id || demoIdFor(clinicName);
+  // Un id del JSON va directo a rutas de archivos: solo "demo-" + letras, números y guiones (nada de "../").
+  const clinicId = id ? String(id).trim() : demoIdFor(clinicName);
+  if (!/^demo-[a-z0-9-]{1,40}$/.test(clinicId)) throw new Error('id inválido: usa "demo-" + letras minúsculas, números y guiones (ej. demo-sonrisa-perfecta)');
   const base = demo.treatments.filter((t) => priced.has(t.key))
     // Sin el catálogo de la demo: sus textos son de Denvari. El catálogo se regenera con los datos del prospecto.
     .map(({ images, ...t }) => ({ ...t, priceFrom: priced.get(t.key), financing: NEUTRAL_FINANCING }));

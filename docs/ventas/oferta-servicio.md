@@ -1,17 +1,22 @@
 # Recepcionista 24/7 para pacientes de Meta Ads
 
 **Para clínicas dentales que pagan anuncios de "Enviar mensaje" y no alcanzan a responder a tiempo, sobre todo de noche.**
-Solo lo que el sistema ya hace hoy:
+Solo lo que el sistema ya hace hoy. Antes de la reunión, mándale un video de 1 minuto con **su** clínica (su nombre,
+logo, colores, precios y horario): `docs/demo-script.md`, sección "Video de un prospecto en 5 minutos".
 
 - **Responde en segundos, también de noche**, con los precios "desde", la campaña y las preguntas frecuentes de la
   clínica, y entiende cómo escriben los pacientes ("frenillos", "cuanto sale", "precio pls").
-- **Muestra el tratamiento con imágenes** (las que la clínica sube en el panel) y la **tarjeta del pack de evaluación**
-  con qué incluye y su precio. Nunca inventa precios ni promociones: todo sale de lo que la clínica configura.
+- **Muestra el tratamiento con imágenes** (las que la clínica sube en el panel, o ilustraciones de ortodoncia y
+  carillas con sus colores marcadas "Imagen referencial") y la **tarjeta del pack de evaluación** con qué incluye y su
+  precio, con el logo y los colores de la clínica. Nunca inventa precios ni promociones: todo sale de lo que la clínica
+  configura.
+- **Responde ordenado, como una recepcionista:** a "¿qué necesito, cuánto cuesta empezar y cómo agendo?" contesta en
+  un solo mensaje por bloques (qué llevar, inversión y planes, horarios).
 - **Horarios libres reales en botones:** el paciente agenda con un toque.
 - **Dos modos de agendamiento:** *solicitud* (recepción confirma; recomendado) o *confirmación directa* (el bot reserva
   sin dobles citas y envía un **pase de cita** con QR), solo si la agenda del panel es la única de la clínica.
 - **Recordatorios** 48 h y 2 h antes (configurables) con botones Confirmo / Reprogramar.
-- **Ficha a recepción y al doctor** en cada cita nueva, sin diagnósticos.
+- **Ficha a recepción y al doctor** en cada cita nueva (paciente, interés, cita y recordatorio), sin diagnósticos.
 - **Urgencias a una persona:** ante dolor fuerte, sangrado, hinchazón, fiebre o golpe no diagnostica, pausa el bot y
   avisa a recepción de inmediato. Se presenta como asistente virtual.
 - **Seguimiento respetuoso** si el paciente no responde (máximo 3 mensajes; se detiene si dice "no").

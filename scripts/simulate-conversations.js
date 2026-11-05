@@ -237,7 +237,8 @@ function globalChecks(botTexts) {
 
 // ---------- 8. Escenarios ----------
 const has = (texts, re) => texts.some((t) => re.test(t));
-const slotList = /Horarios disponibles:/;
+// Lista de horarios: la normal ("Horarios disponibles:") o el bloque de la primera visita ("📅 *¿Cómo agendamos?*").
+const slotList = /Horarios disponibles:|¿Cómo agendamos\?/;
 const phoneFor = (n) => `51000000${String(100 + n).padStart(3, '0')}`;
 
 function seedPreviousChat(phone) {
@@ -312,7 +313,8 @@ const SCENARIOS = [
     checks: ({ bot, phone, reception }) => {
       const saved = appointmentsOf(phone)[0];
       return [
-        check('Guarda la solicitud en el 2.º horario ofrecido (viernes 11:00)', saved?.appointment_date === '2026-10-02' && saved?.appointment_time === '11:00', saved ? `${saved.appointment_date} ${saved.appointment_time}` : 'sin cita'),
+        // Horarios separados ≥ 3 h y máximo 2 por día: el 2.º ofrecido es el viernes a las 12:00.
+        check('Guarda la solicitud en el 2.º horario ofrecido (viernes 12:00)', saved?.appointment_date === '2026-10-02' && saved?.appointment_time === '12:00', saved ? `${saved.appointment_date} ${saved.appointment_time}` : 'sin cita'),
         check('La cita queda marcada after_hours', saved?.after_hours === true),
         check('Dice "solicitud … Recepción te la confirmará"', has(bot, /solicitud de cita[\s\S]*Recepción te la confirmará/)),
         check('Avisa a recepción', reception.some((t) => /Nueva solicitud de cita/.test(t))),

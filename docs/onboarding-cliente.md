@@ -26,7 +26,7 @@ Mándalo por WhatsApp o correo apenas cierres. Sin estos datos no se instala.
 | 13 | **Pack de evaluación** | Qué incluye la primera visita, su precio y, si hay, la promoción con su fecha de fin. |
 | 14 | **Imágenes por tratamiento** | Las que quieren mostrar (comparaciones, antes/después **solo con consentimiento escrito**). JPG, PNG o WebP de hasta 2 MB. |
 | 15 | **Especialistas** | Solo nombres de quienes atienden de verdad en la clínica, y qué tratamientos ve cada uno (opcional: sale en el pase de cita). |
-| 16 | **Celular del doctor** | Opcional: recibe la ficha de cada cita nueva (`DOCTOR_ALERT_PHONE`). |
+| 16 | **Celular del doctor** | Opcional: recibe la ficha de cada cita nueva (`DOCTOR_ALERT_PHONE`), con el formato "🟢 ALERTA AL DOCTOR" (plantilla `ficha_cita_doctor` si no le escribió al bot en 24 h). |
 | 17 | **Cómo agendan hoy** | Si la Agenda del panel será su ÚNICA agenda se puede usar *confirmación directa*; si también agendan en un cuaderno o Excel, se queda en *solicitud* (recepción confirma). |
 
 ## 2. Orden de instalación (≈ 55 min)
@@ -34,7 +34,7 @@ Mándalo por WhatsApp o correo apenas cierres. Sin estos datos no se instala.
 | Paso | Tiempo | Qué hacer |
 |---|---|---|
 | 1 | 10 min | (Opcional: también se puede completar todo después en el panel → **🏥 Mi clínica**.) `npm run new-clinic -- <id> "<Nombre>"` (ej. `sonrisa-surco "Clínica Dental Sonrisa"`). Completa cada `TODO` de `config/clinics/<id>.js` con los datos del punto 1. El bot **no arranca** mientras quede algún TODO y el error dice cuáles faltan. |
-| 2 | 5 min | Imágenes en `media/<id>/` con los nombres de `media: {...}`. Sin fotos propias: `pwsh scripts/generate-demo-media.ps1 -ClinicId <id> -ClinicName "<Nombre>" -ShortName "<MARCA>" -AddressLine "<dirección corta>" -AddressNote "" -Footnote "Imagen referencial"`. |
+| 2 | 5 min | Imágenes en `media/<id>/` con los nombres de `media: {...}` (o súbelas después en **🏥 Mi clínica**). Sin fotos propias de ortodoncia o carillas: `node scripts/generate-catalog-media.js <id>` dibuja las ilustraciones del catálogo con sus colores, su nombre y sus precios "desde", marcadas "Imagen referencial" (si el tratamiento aún no las tiene en `images`, el comando imprime la línea que hay que agregar). Para fachada y ubicación: `pwsh scripts/generate-demo-media.ps1 -ClinicId <id> -ClinicName "<Nombre>" -ShortName "<MARCA>" -AddressLine "<dirección corta>" -AddressNote "" -Footnote "Imagen referencial"`. Revisa el resultado con `npm run cards:preview -- <id>` (pack, pase de ejemplo, catálogo y ficha del doctor en `tmp/cards-<id>/`). |
 | 3 | 10 min | **Supabase**: un proyecto por clínica (sus datos no se mezclan con los de otra). `npm run db:print` y pega cada "PEGA N° X" en el SQL Editor (o `npm run db:migrate -- --apply`). |
 | 4 | 10 min | **Render**: Blueprint con `ACTIVE_CLINIC=<id>` y los 3 teléfonos (`docs/deploy.md`, paso 1). |
 | 5 | 10 min | **Meta**: token permanente (`npm run meta:check` → PERMANENTE), webhook a `TU-URL/webhook` + campo `messages` (a mano, una vez), `npm run meta:subscribe -- --apply` y `npm run meta:templates -- --apply` (`docs/go-live.md`, pasos 5-7). |
@@ -48,6 +48,8 @@ Hazla con el dueño o el director al lado, desde **su** celular (no el de recepc
 
 1. Escribe "hola" → llega la bienvenida con el logo y el aviso de privacidad.
 2. "¿Cuánto cuestan los brackets?" → responde con **su** precio "desde" y envía la imagen.
+   Luego "¿Qué necesito, cuánto cuesta empezar y cómo agendo?" → la tarjeta del pack y un mensaje en bloques
+   (📋 qué llevar · 💰 inversión y planes · 📅 horarios) con sus datos.
 3. "Quiero una cita el sábado" → ofrece horarios reales **en botones** → toca uno y da su nombre → recepción (y el
    doctor, si configuraste su número) recibe la ficha de la cita. Si la clínica usa confirmación directa, llega el
    **pase de cita**. Después el bot pregunta una sola vez si quiere recibir promociones. Muéstrale la cita en **Agenda**.
@@ -105,7 +107,8 @@ Con el servicio ya desplegado (Render, Supabase con las migraciones, Meta y cron
 3. **(2 min) Horario:** días, apertura y cierre, refrigerio, feriados y duración de la cita → **Generar texto** → **Guardar**.
 4. **(4 min) Tratamientos:** precio "desde", financiamiento, duración, cómo lo llaman los pacientes, especialista e
    imágenes del catálogo (sube, ordena y escribe el texto de cada una). Borra los que no ofrecen. **Guardar**.
-5. **(2 min) Pack de evaluación** (usa **Actualizar vista previa**) y **Promociones** con fecha de inicio y de fin. **Guardar**.
+5. **(2 min) Pack de evaluación** (usa **Actualizar vista previa**: debe verse su logo y sus colores) y **Promociones**
+   con fecha de inicio y de fin. **Guardar**.
 6. **(1 min) Medios de pago y preguntas frecuentes** (al menos 3). **Guardar**.
 7. **(1 min) Asistente:** nombre, tono, modo de agendamiento (lee la advertencia), recordatorios y seguimiento. **Guardar**.
 8. **(1 min)** El indicador debe decir **"✅ Configuración completa"**. Si falta algo de "Render → Environment", corrígelo

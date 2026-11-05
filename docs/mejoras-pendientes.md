@@ -35,3 +35,17 @@ montos reales y logs del panel con `describeError`. Quedan:
 | M17 | `services/clinicSettings.js` (`ensureBucket`) | El bucket `clinic-media` es público (Meta necesita descargar las fotos para enviarlas). | Cualquier foto subida en Mi clínica queda pública con un nombre aleatorio: nunca subir fotos de pacientes sin consentimiento (regla 12). | Real (intencional) |
 | M18 | `middleware/panelAuth.js:33` | Usa `&` en vez de `&&` al comparar usuario y contraseña. | Funciona hoy (booleans), pero es frágil si cambia `safeEqual`. | Limpieza |
 | M19 | `public/app/clinic/basics.js` | Guardar el horario registra "holidays" como cambiado aunque no haya feriados (vacío vs. sin definir). | Solo ensucia el historial de cambios. | Real (cosmético) |
+
+## Revisión de "igual que el video", quick-demo y fases 6 a 8 (5 de noviembre de 2026)
+
+Revisión con un agente revisor de código y uno de seguridad sobre `dd9b44b..HEAD`, más el webhook, la subida de
+imágenes, el panel, las campañas y los datos de salud. **Sin hallazgos CRÍTICOS ni ALTOS.** El único MEDIO ya está
+corregido. `npm run test:unit` 514/514 y `npm run simulate` 39/39 con Gemini real.
+
+| # | Archivo | Qué pasa | Escenario | ¿Real o posible? |
+|---|---|---|---|---|
+| M20 | ~~`scripts/quick-demo-clinic.js` (`id`)~~ | **Resuelto**: el `id` del JSON iba directo a rutas de archivos; ahora solo acepta `demo-` + letras, números y guiones (test en `quickDemoClinic.test.js`). | Un `prospecto.json` con `"id": "../../scripts/x"` escribía fuera de `config/clinics/`. | — |
+| M21 | `scripts/quick-demo-clinic.js` (`logo`) | Lee la ruta local que diga `logo` en el JSON. Solo se usa si sus bytes son JPG, PNG o WebP de hasta 2 MB. | Riesgo bajo: es una herramienta local; usa solo JSON que tú escribiste. | Posible (bajo) |
+| M22 | `services/firstVisitReply.js` y `services/catalog.js` | El formato del precio del pack (~regular~ *promo*, hasta el …) está en dos lugares. | Si cambia la regla de formato, hay que cambiarla en ambos. | Limpieza |
+| M23 | `controllers/firstContact.js` | La bienvenida va con el logo y el aviso de privacidad; el video muestra un saludo solo de texto. | Se queda así: el aviso lo exige la Ley 29733. El texto se edita en Mi clínica. | Intencional |
+| M24 | Probador | Las respuestas de Gemini varían entre tomas (es la IA real). | Al grabar un video, si una toma sale rara: "➕ Nueva conversación" y repetir. | Real (esperado) |
