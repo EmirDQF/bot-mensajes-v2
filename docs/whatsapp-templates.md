@@ -75,11 +75,32 @@ Nunca lleva síntomas ni diagnósticos: solo nombres de tratamientos de la confi
 
 ---
 
+## 2c. `seguimiento_dia3` — Categoría: **Marketing** (nueva)
+
+Variable de entorno para otro nombre: `WA_TEMPLATE_FOLLOW_UP_DAY3`. Es el tercer y último seguimiento (día 3, fuera
+de la ventana de 24 h). **Solo se envía a pacientes con opt-in de marketing guardado** (`contact_preferences.marketing_opt_in_at`);
+sin opt-in la secuencia termina en el mensaje de las ~22 h. La última frase sale de `config/legalTexts.js`.
+
+**Cuerpo:**
+
+```
+Hola 👋 Te escribe {{1}}. ¿Sigues interesado en {{2}}? Si quieres, te proponemos horarios para tu evaluación. Responde NO para no recibir más mensajes.
+```
+
+**Botones (respuesta rápida):** `Quiero una cita` · `NO`
+
+**Ejemplos:** {{1}} Clínica Dental Denvari · {{2}} Ortodoncia (brackets metálicos y estéticos)
+
+Qué hace el bot con la respuesta: "NO" → guarda el opt-out con fecha y confirma con el texto legal; "Quiero una cita" →
+ofrece horarios en botones.
+
+---
+
 ## 3. `reactivacion_paciente` — Categoría: **Marketing**
 
 Variable de entorno para otro nombre: `WA_TEMPLATE_REACTIVATION`
 
-Se usa para el mensaje de retoma cuando el lead ya salió de la ventana de 24 h (normalmente el seguimiento de las 20 h va como texto libre y no la necesita).
+Se usa para el mensaje de retoma cuando el lead ya salió de la ventana de 24 h (el seguimiento de las 3 h y de las ~22 h va como texto libre y no la necesita; el del día 3 usa `seguimiento_dia3`).
 
 **Cuerpo:**
 
@@ -158,7 +179,7 @@ Todas las tareas `/jobs/*` son `POST` con el header `x-cron-secret: <CRON_SECRET
 |---|---|---|---|
 | Recordatorios (48 h y 2 h por defecto) | `/jobs/reminders` | cada 15 min | `*/15 * * * *` |
 | Resumen diario 8:00 a. m. Lima | `/jobs/daily-summary` | diario | `0 13 * * *` |
-| Seguimiento a las 20 h | `/jobs/follow-ups` | cada hora | `0 * * * *` |
+| Seguimiento (3 h, ~22 h, día 3) y reactivación | `/jobs/follow-ups` | cada hora | `0 * * * *` |
 | Reporte semanal (lunes 8:00 a. m. Lima) | `/jobs/weekly-report` | lunes | `0 13 * * 1` |
 
 Comando de ejemplo para un Render Cron Job:

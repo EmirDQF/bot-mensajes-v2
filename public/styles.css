@@ -373,3 +373,9 @@ a { color: var(--brand); }
 /* Advertencia en Configuración (p. ej. confirmación directa de citas). */
 .hint--warn { background: #fff7ed; border: 1px solid #fdba74; color: var(--warn); border-radius: 10px; padding: 10px 12px; margin: 4px 0 12px; font-size: 14px; }
 .hint--warn[hidden] { display: none; }
+
+/* Configuración: tres campos por fila (una columna en celulares) y casilla con texto. */
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) { .grid-3 { grid-template-columns: 1fr; } }
+.field--check { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; }
+.field--check input { margin-top: 3px; }

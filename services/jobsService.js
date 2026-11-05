@@ -10,18 +10,16 @@ import handoffService from './handoffService.js';
 import messageDedup from './messageDedup.js';
 import { fetchAllRows } from './supabasePaging.js';
 import { isMissingColumn } from './appointmentService.js';
-import { adTreatment } from './adContext.js';
 import { reminderHours } from '../config/clinic.config.js';
+import { createFollowUps } from './followUpService.js';
+import { createContactPreferences } from './contactPreferences.js';
 
 // Tareas programadas. Las dispara un cron externo (Render Cron Job) vía POST /jobs/* con CRON_SECRET;
 // no hay temporizadores internos porque Render duerme el servicio.
 
 const HOUR_MS = 60 * 60 * 1000;
 const WINDOW_MS = 23.5 * HOUR_MS; // margen de seguridad sobre la ventana de 24 h de WhatsApp
-const FOLLOW_UP_AFTER_HOURS = Number(process.env.FOLLOW_UP_AFTER_HOURS || 20);
-// Primer seguimiento (~4 h sin respuesta) y reactivación de pacientes que vinieron hace ~6 meses.
-const FOLLOW_UP_FIRST_HOURS = Number(process.env.FOLLOW_UP_FIRST_HOURS || 4);
-const FOLLOW_UP_FIRST_UNTIL_HOURS = FOLLOW_UP_FIRST_HOURS + 4;
+// Reactivación de pacientes que vinieron hace ~6 meses.
 const REACTIVATION_DAYS = Number(process.env.REACTIVATION_DAYS || 180);
 const REACTIVATION_WINDOW_DAYS = 7;
 // Botones del recordatorio dentro de la ventana de 24 h: los mismos de la plantilla (Confirmo / Reprogramar).
@@ -237,13 +235,13 @@ export function createJobs({
     return { sent: true, channel: channels[0], channels, summary, text };
   }
 
-  // ---------- Seguimientos a leads que no agendaron (~4 h y ~23 h) y reactivación (~6 meses) ----------
-  // follow_ups guarda una fila por paciente y etapa (first, final, reactivation): el índice único evita repetir
-  // aunque el cron se ejecute varias veces. Sin migrations/20261104_follow_up_stages.sql solo corre "final".
-  const STAGES = [
-    { stage: 'first', fromHours: FOLLOW_UP_FIRST_HOURS, toHours: FOLLOW_UP_FIRST_UNTIL_HOURS },
-    { stage: 'final', fromHours: FOLLOW_UP_AFTER_HOURS, toHours: WINDOW_MS / HOUR_MS },
-  ];
+  // ---------- Seguimiento ético (services/followUpService.js) y reactivación (~6 meses) ----------
+  // follow_ups guarda una fila por paciente y etapa: el índice único evita repetir aunque el cron corra varias veces.
+  const followUps = createFollowUps({
+    getClient, whatsapp, appointments, handoff, clinic, now,
+    preferences: createContactPreferences({ getClient, clinic, now }),
+  });
+  const runFollowUps = () => followUps.runFollowUps();
 
   async function sentStages(client, phones) {
     try {
@@ -251,7 +249,7 @@ export function createJobs({
       return { supported: true, done: new Set(rows.map((f) => `${digits(f.phone)}:${f.stage || 'final'}`)) };
     } catch (error) {
       if (!isMissingColumn(error, 'stage')) throw error;
-      console.warn('[Jobs] Falta follow_ups.stage; ejecuta migrations/20261104_follow_up_stages.sql (solo corre el seguimiento de ~23 h)');
+      console.warn('[Jobs] Falta follow_ups.stage; ejecuta migrations/20261104_follow_up_stages.sql (la reactivación no corre hasta entonces)');
       const rows = await query(client.from('follow_ups').select('phone').eq('clinic_id', clinic.id).in('phone', phones));
       return { supported: false, done: new Set(rows.map((f) => `${digits(f.phone)}:final`)) };
     }
@@ -278,72 +276,6 @@ export function createJobs({
     if (!error) return true;
     if (error.code !== '23505') console.error('[Jobs] No se pudo registrar el seguimiento:', error.message || error);
     return false;
-  }
-
-  function followUpText(stage, profile) {
-    const treatment = adTreatment(profile?.ad_referral);
-    const campaign = [clinic.campaign?.evaluation, clinic.campaign?.initialFee].filter(Boolean).join(' y ');
-    if (stage === 'first') {
-      return `¡Hola! Soy ${clinic.botName} de ${clinic.name} 😊 Te escribo por tu consulta${treatment ? ` de ${treatment.name}` : ''}. `
-        + `¿Te propongo 3 horarios para tu evaluación? Solo responde "quiero una cita".`;
-    }
-    return `¡Hola! Soy ${clinic.botName} de ${clinic.name} 😊 ¿Pudiste pensarlo${treatment ? ` lo de ${treatment.name}` : ''}? `
-      + `Seguimos con ${campaign || 'nuestra campaña'}. Si quieres, te propongo 3 horarios para tu evaluación: solo responde "quiero una cita".`;
-  }
-
-  async function runFollowUps() {
-    const current = now();
-    const client = await db();
-    const internal = internalPhones();
-    const since = new Date(current - 24 * HOUR_MS).toISOString();
-    const inbound = await fetchAllRows(() => client.from('messages').select('phone, created_at')
-      .eq('role', 'user').gte('created_at', since).order('created_at', { ascending: true }));
-
-    const lastByPhone = new Map();
-    for (const m of inbound) {
-      const phone = digits(m.phone);
-      if (!phone || internal.has(phone)) continue;
-      const at = new Date(m.created_at);
-      if (!lastByPhone.has(phone) || lastByPhone.get(phone) < at) lastByPhone.set(phone, at);
-    }
-    // Cada paciente cae como mucho en una etapa según las horas desde su último mensaje (siempre dentro de la
-    // ventana gratuita de 24 h).
-    const candidates = [];
-    for (const [phone, at] of lastByPhone) {
-      const hours = (current - at) / HOUR_MS;
-      const match = STAGES.find((s) => hours >= s.fromHours && hours < s.toHours);
-      if (match) candidates.push({ phone, stage: match.stage });
-    }
-    const result = { candidates: candidates.length, sent: 0, skipped: 0, failed: 0 };
-    if (!candidates.length) return result;
-
-    const phones = candidates.map((c) => c.phone);
-    const monthAgo = new Date(current - 30 * 24 * HOUR_MS).toISOString();
-    const withAppointment = new Set((await query(client.from('appointments').select('sender_phone')
-      .eq('clinic_id', clinic.id).in('sender_phone', phones).gte('created_at', monthAgo))).map((a) => digits(a.sender_phone)));
-    const { supported, done } = await sentStages(client, phones);
-    const profiles = await leadProfiles(client, phones);
-
-    for (const { phone, stage } of candidates) {
-      const profile = profiles.get(phone.slice(-9));
-      const skip = withAppointment.has(phone) || done.has(`${phone}:${stage}`) || (!supported && stage !== 'final')
-        || doNotContact(profile) || await handoff.isPaused(phone);
-      if (skip || !(await claimFollowUp(client, phone, stage, supported, current.toISOString()))) {
-        result.skipped += 1;
-        continue;
-      }
-      try {
-        const campaign = [clinic.campaign?.evaluation, clinic.campaign?.initialFee].filter(Boolean).join(' y ');
-        await sendWithWindow(phone, {
-          text: followUpText(stage, profile), template: TEMPLATES.reactivation, params: TEMPLATES.reactivation.params({ clinicName: clinic.name, campaign }),
-        });
-        result.sent += 1;
-      } catch (error) {
-        result.failed += 1;
-        console.error('[Jobs] Seguimiento falló:', error?.message || error);
-      }
-    }
-    return result;
   }
 
   // Pacientes cuya última cita (no cancelada) fue hace ~6 meses y no volvieron: plantilla de reactivación

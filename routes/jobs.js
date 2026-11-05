@@ -30,7 +30,7 @@ export function createJobsRouter(jobs = defaultJobs, report = defaultReport) {
   };
   router.post('/reminders', requireCronSecret, run('reminders', () => jobs.runReminders()));
   router.post('/daily-summary', requireCronSecret, run('daily-summary', () => jobs.runDailySummary()));
-  // Seguimientos (~4 h y ~23 h) y, en la misma tarea de cada hora, la reactivación de los ~6 meses.
+  // Seguimiento ético (3 h, ~22 h y día 3; services/followUpService.js) y, en la misma tarea, la reactivación de los ~6 meses.
   router.post('/follow-ups', requireCronSecret, run('follow-ups', async () => ({
     ...(await jobs.runFollowUps()), reactivation: await jobs.runReactivation(),
   })));

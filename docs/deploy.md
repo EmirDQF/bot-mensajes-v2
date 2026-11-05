@@ -39,7 +39,7 @@ tiempos); aquí está el detalle de cada servicio. Casi todo se hace con scripts
    | `PANEL_OWNER_USER`, `PANEL_OWNER_PASSWORD` | Usuario y contraseña del **dueño** (distintos): además ⚙️ Configuración y 🧪 Probador |
    | `CRON_SECRET` | Una clave larga al azar. Genérala con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `PUBLIC_BASE_URL` | Déjala vacía en Render (usa `RENDER_EXTERNAL_URL`). En tu `.env` local pon **TU-URL**: la usan `crons:setup` y `smoke:prod` |
-   | El resto (`APPOINTMENT_MIN_LEAD_MINUTES`, `FOLLOW_UP_AFTER_HOURS`, `WA_TEMPLATE_*`) | Los valores de `.env.example` |
+   | El resto (`APPOINTMENT_MIN_LEAD_MINUTES`, `DOCTOR_ALERT_PHONE`, `WA_TEMPLATE_*`) | Los valores de `.env.example` |
 
 4. **Apply**. Cuando termine, copia la dirección del servicio (ej. `https://asistente-dental.onrender.com`).
    En esta guía la llamamos **TU-URL**.
@@ -117,7 +117,7 @@ tareas (se reconocen por el título `<clínica> · <tarea>`, así que correrlo d
 |---|---|---|---|---|---|
 | 1 | GET | `TU-URL/health` | — | Cada 10 minutos | Evita que Render se duerma (lo apaga a los 15 min sin tráfico) |
 | 2 | POST | `TU-URL/jobs/reminders` | `x-cron-secret` | Cada 15 minutos | Recordatorios 24 h y 2 h antes de cada cita (con botones Confirmar / Reagendar si el paciente escribió en las últimas 24 h; si no, la plantilla) |
-| 3 | POST | `TU-URL/jobs/follow-ups` | `x-cron-secret` | Cada hora (minuto 0) | Seguimiento a quien no agendó a las ~4 h y a las ~23 h (con el tratamiento del anuncio) y reactivación con plantilla a los ~6 meses de su última cita. Cada uno una sola vez por paciente |
+| 3 | POST | `TU-URL/jobs/follow-ups` | `x-cron-secret` | Cada hora (minuto 0) | Seguimiento ético a quien no agendó: 3 h (2 horarios en botones), ~22 h (resuelve su duda con datos reales) y día 3 (plantilla, solo con opt-in de marketing); máximo 3 y se detiene si dice "no", agenda, pasa a humano o es menor. Además, reactivación con plantilla a los ~6 meses de su última cita |
 | 4 | POST | `TU-URL/jobs/daily-summary` | `x-cron-secret` | Todos los días, 12:30 UTC | Briefing de las 7:30 a. m. de Lima al dueño y a recepción: cifras de ayer + agenda de hoy |
 | 5 | POST | `TU-URL/jobs/weekly-report` | `x-cron-secret` | Lunes, 13:00 UTC | Reporte semanal y línea de la garantía |
 | 6 | GET | `TU-URL/health/deep` | `x-cron-secret` | Cada 12 horas | Consulta la base de datos: Supabase gratis no se pausa y te avisa si se cae |

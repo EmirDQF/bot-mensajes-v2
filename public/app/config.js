@@ -128,6 +128,12 @@ function assistantSection(c) {
   const firstReminder = reminderInput(c.reminders?.firstHours === null ? 0 : c.reminders?.firstHours ?? 48, 96);
   const secondReminder = reminderInput(c.reminders?.secondHours === null ? 0 : c.reminders?.secondHours ?? 2, 6);
   const hoursOrNull = (input) => (Number(input.value) > 0 ? Math.round(Number(input.value)) : null);
+  // Seguimiento ético cuando el paciente no responde (activado por defecto).
+  const fu = { enabled: true, firstHours: 3, secondHours: 22, thirdDays: 3, ...(c.followUps || {}) };
+  const followEnabled = check(fu.enabled);
+  const followFirst = h('input', { type: 'number', min: 1, max: 12, step: 1, value: fu.firstHours, inputmode: 'numeric' });
+  const followSecond = h('input', { type: 'number', min: 2, max: 23, step: 1, value: fu.secondHours, inputmode: 'numeric' });
+  const followDays = h('input', { type: 'number', min: 2, max: 7, step: 1, value: fu.thirdDays, inputmode: 'numeric' });
   bookingMode.addEventListener('change', syncWarning);
   syncWarning();
   const preview = h('div', { class: 'preview', 'aria-live': 'polite' });
@@ -137,7 +143,7 @@ function assistantSection(c) {
   updatePreview();
   return section({
     id: 'assistant', title: '🤖 Clínica y asistente: nombres, tono y bienvenida', open: true,
-    fields: ['name', 'botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice', 'bookingMode', 'reminders'],
+    fields: ['name', 'botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice', 'bookingMode', 'reminders', 'followUps'],
     tryMessage: 'hola',
     body: [
       h('div', { class: 'grid-2' }, field('Nombre de la clínica', clinicName), field('Nombre de la asistente', botName)),
@@ -149,6 +155,11 @@ function assistantSection(c) {
       h('div', { class: 'grid-2' },
         field('Primer recordatorio (horas antes)', firstReminder, 'De 12 a 96 h; 0 = no enviarlo. Por defecto 48 h.'),
         field('Segundo recordatorio (horas antes)', secondReminder, 'De 1 a 6 h; 0 = no enviarlo. Por defecto 2 h.')),
+      h('label', { class: 'field field--check' }, followEnabled, h('span', {}, 'Seguimiento cuando el paciente no responde (máximo 3, se detiene si dice "no", agenda, pasa a humano o es menor de edad)')),
+      h('div', { class: 'grid-3' },
+        field('1.º (horas)', followFirst, 'Con 2 horarios en botones.'),
+        field('2.º (horas)', followSecond, 'Responde la duda más probable.'),
+        field('3.º (días)', followDays, 'Plantilla; solo con permiso de promociones.')),
       h('p', { class: 'field' }, h('span', {}, 'Vista previa')), preview,
     ],
     collect: () => ({
@@ -156,6 +167,9 @@ function assistantSection(c) {
       welcomeCaption: welcome.value.trim(), ...(night.value.trim() ? { afterHoursNotice: night.value.trim() } : {}),
       bookingMode: bookingMode.value,
       reminders: { firstHours: hoursOrNull(firstReminder), secondHours: hoursOrNull(secondReminder) },
+      followUps: {
+        enabled: followEnabled.checked, firstHours: Number(followFirst.value), secondHours: Number(followSecond.value), thirdDays: Number(followDays.value), max: 3,
+      },
     }),
   });
 }

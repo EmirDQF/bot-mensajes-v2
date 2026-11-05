@@ -63,7 +63,10 @@ export function validateClinic(clinic) {
     const color = clinic.colors?.[key];
     if (color !== undefined && !/^#[0-9a-f]{6}$/i.test(color)) errors.push(`colors.${key} debe ser un color #RRGGBB`);
   }
-  return [...errors, ...validateEditable(clinic), ...validateCatalog(clinic), ...validateBooking(clinic), ...validateReminders(clinic)];
+  return [
+    ...errors, ...validateEditable(clinic), ...validateCatalog(clinic), ...validateBooking(clinic), ...validateReminders(clinic),
+    ...validateFollowUps(clinic),
+  ];
 }
 
 // Modo de agendamiento: "solicitud" (recepción confirma; por defecto) o "confirmacion_directa" (el bot reserva
@@ -108,6 +111,35 @@ function validateReminders(c) {
   if (firstHours !== null && !(Number.isInteger(firstHours) && firstHours >= 12 && firstHours <= 96)) errors.push('reminders.firstHours debe ser un entero de 12 a 96 (o null para no enviarlo)');
   // Hasta 6 h: el recordatorio corto siempre cae el mismo día de la cita ("es hoy a las…").
   if (secondHours !== null && !(Number.isInteger(secondHours) && secondHours >= 1 && secondHours <= 6)) errors.push('reminders.secondHours debe ser un entero de 1 a 6 (o null para no enviarlo)');
+  return errors;
+}
+
+// Seguimiento cuando el paciente no responde (activado por defecto): 3 h y ~22 h dentro de la ventana de 24 h
+// (texto libre) y el día 3 con una plantilla de marketing (solo con opt-in). Máximo 3 por conversación.
+export const DEFAULT_FOLLOW_UPS = { enabled: true, firstHours: 3, secondHours: 22, thirdDays: 3, max: 3 };
+export function followUpSettings(c = clinic) {
+  return { ...DEFAULT_FOLLOW_UPS, ...(c?.followUps || {}), max: Math.min(3, c?.followUps?.max ?? DEFAULT_FOLLOW_UPS.max) };
+}
+
+function validateFollowUps(c) {
+  const errors = [];
+  if (c.followUps !== undefined) {
+    if (!c.followUps || typeof c.followUps !== 'object') return ['"followUps" debe ser un objeto'];
+    const f = followUpSettings(c);
+    if (typeof f.enabled !== 'boolean') errors.push('followUps.enabled debe ser sí/no');
+    if (!(Number.isInteger(f.firstHours) && f.firstHours >= 1 && f.firstHours <= 12)) errors.push('followUps.firstHours debe ser un entero de 1 a 12');
+    // Antes de las 23,5 h: el segundo va con texto libre dentro de la ventana de 24 h de WhatsApp.
+    if (!(Number.isInteger(f.secondHours) && f.secondHours > f.firstHours && f.secondHours <= 23)) errors.push('followUps.secondHours debe ser un entero mayor que firstHours y de hasta 23');
+    if (!(Number.isInteger(f.thirdDays) && f.thirdDays >= 2 && f.thirdDays <= 7)) errors.push('followUps.thirdDays debe ser un entero de 2 a 7');
+    if (!(Number.isInteger(c.followUps.max ?? 3) && (c.followUps.max ?? 3) >= 1 && (c.followUps.max ?? 3) <= 3)) errors.push('followUps.max debe ser de 1 a 3');
+  }
+  // Calificación de Google (opcional): solo se menciona si está aquí, con su número de reseñas.
+  if (c.googleRating !== undefined && c.googleRating !== null) {
+    const r = c.googleRating;
+    if (!(typeof r?.value === 'number' && r.value >= 1 && r.value <= 5 && Number.isInteger(r?.count) && r.count > 0)) {
+      errors.push('"googleRating" debe ser { value: 1 a 5, count: número de reseñas }');
+    }
+  }
   return errors;
 }
 
@@ -256,10 +288,10 @@ export default clinic;
 export const EDITABLE_FIELDS = [
   'name', 'botName', 'tone', 'emojiLevel', 'workingHours', 'workingHoursText', 'holidays', 'treatments', 'promotions',
   'campaign', 'paymentMethods', 'financingText', 'address', 'mapsUrl', 'reviewUrl', 'faq', 'welcomeCaption',
-  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack', 'bookingMode', 'specialists', 'reminders',
+  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack', 'bookingMode', 'specialists', 'reminders', 'followUps', 'googleRating',
 ];
 // Objetos que se combinan por clave (un día del horario, una foto); el resto se reemplaza entero.
-const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media', 'reminders'];
+const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media', 'reminders', 'followUps'];
 
 export function mergeClinic(base, overrides = {}) {
   const merged = structuredClone(base);

@@ -209,7 +209,8 @@ describe('seguimiento: etiqueta "no contactar"', () => {
     const whatsapp = { async sendTextMessage(to, text) { sent.push({ to, text }); }, async sendTemplateMessage() {} };
     const jobs = createJobs({ getClient: () => db, whatsapp, handoff: { async isPaused() { return false; } }, now: () => NOW });
     const result = await jobs.runFollowUps();
-    assert.deepEqual(result, { candidates: 2, sent: 1, skipped: 1, failed: 0 });
+    assert.deepEqual([result.candidates, result.sent, result.skipped, result.failed], [2, 1, 1, 0]);
+    assert.deepEqual(result.stopped, { opt_out: 1 });
     assert.deepEqual(sent.map((s) => s.to), ['51911111111']);
   });
 });

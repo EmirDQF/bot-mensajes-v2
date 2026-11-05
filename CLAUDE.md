@@ -58,7 +58,10 @@ node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo 
 | Modo demo: Supabase en memoria, pacientes inventados, bloqueo en producción | `services/demo/` (`scripts/demo.js`) |
 | Probador del panel (flujo real, WhatsApp falso, hora simulada) | `controllers/testerController.js`, `public/app/tester.js`, `services/testContext.js` |
 | Recomendación de evaluación sin diagnosticar, lead score, notas para el bot | `services/recommendationService.js` (ficha: `PUT /api/panel/conversations/:phone/profile`) |
-| Recordatorios configurables (`reminders`, por defecto 48 h y 2 h; botones Confirmo/Reprogramar), briefing 7:30, seguimientos, reactivación 6 meses | `services/jobsService.js` + `routes/jobs.js` |
+| Recordatorios configurables (`reminders`, por defecto 48 h y 2 h; botones Confirmo/Reprogramar), briefing 7:30, reactivación 6 meses | `services/jobsService.js` + `routes/jobs.js` |
+| Seguimiento ético (`followUps`: 3 h, ~22 h, día 3 con opt-in; máx. 3; reglas de parada) | `services/followUpService.js` |
+| Opt-out ("no", "stop", bloqueo), opt-in de marketing con fecha y menor de edad | `services/contactPreferences.js` (tabla `contact_preferences`) |
+| Textos legales y de consentimiento (un solo archivo para el abogado) | `config/legalTexts.js` |
 | Ficha del paciente para recepción y el doctor (`DOCTOR_ALERT_PHONE`, opcional): interés, cita, recordatorio y enlace `/panel#chat=<tel>` | `services/patientCard.js`, `services/doctorAlert.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
 | Panel de recepción | `public/panel.html`, `public/app/*.js` (main, inbox, live, views, config, tester), `controllers/panelController.js`, `services/panelDataService.js` |

@@ -20,8 +20,9 @@ export function fakeDb(tables = {}, { uniqueOn = {} } = {}) {
           return { data: state.payload, error: null };
         }
         if (state.op === 'upsert') {
-          const [key] = state.conflict;
-          const existing = data[table].find((r) => r[key] === state.payload[key]);
+          // onConflict puede ser compuesto ("clinic_id,phone").
+          const keys = String(state.conflict[0]).split(',').map((k) => k.trim());
+          const existing = data[table].find((r) => keys.every((k) => r[k] === state.payload[k]));
           if (existing) Object.assign(existing, state.payload); else data[table].push({ ...state.payload });
           return { data: [state.payload], error: null };
         }

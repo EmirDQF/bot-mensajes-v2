@@ -122,29 +122,33 @@ describe('jobs: resumen diario y seguimiento', () => {
     delete process.env.OWNER_ALERT_PHONE;
   });
 
-  it('sends a single follow-up at ~20h to leads without appointment', async () => {
+  // Agente top (Fase 5): la secuencia pasó de ~4 h / ~20 h a 3 h / ~22 h / día 3 (services/followUpService.js).
+  it('sends one follow-up per stage to leads without appointment, never twice and never past the cap', async () => {
     const db = fakeDb({
       messages: [
-        { phone: '51911111111', role: 'user', created_at: hoursAgo(21) }, // candidato
+        { phone: '51911111111', role: 'user', created_at: hoursAgo(21) }, // candidato (etapa de las 3 h)
         { phone: '51922222222', role: 'user', created_at: hoursAgo(21) }, // ya tiene cita
-        { phone: '51933333333', role: 'user', created_at: hoursAgo(10) }, // todavía no
-        { phone: '51944444444', role: 'user', created_at: hoursAgo(22) }, // ya recibió seguimiento
+        { phone: '51933333333', role: 'user', created_at: hoursAgo(2) }, // todavía no
+        { phone: '51944444444', role: 'user', created_at: hoursAgo(22.5) }, // ya recibió 3 seguimientos (tope)
       ],
       appointments: [{ clinic_id: 'denvari', sender_phone: '51922222222', created_at: hoursAgo(20) }],
-      follow_ups: [{ clinic_id: 'denvari', phone: '51944444444' }],
-    }, { uniqueOn: { follow_ups: ['clinic_id', 'phone'] } });
+      follow_ups: ['first', 'final', 'seq1'].map((stage) => ({ clinic_id: 'denvari', phone: '51944444444', stage, sent_at: hoursAgo(30) })),
+    }, { uniqueOn: { follow_ups: ['clinic_id', 'phone', 'stage', 'anchor_at'] } });
     const whatsapp = fakeWhatsapp();
     const handoff = { async isPaused() { return false; } };
     const jobs = createJobs({ getClient: () => db, whatsapp, handoff, now: () => NOW });
 
     const first = await jobs.runFollowUps();
-    assert.deepEqual(first, { candidates: 3, sent: 1, skipped: 2, failed: 0 });
+    assert.equal(first.candidates, 3);
+    assert.equal(first.sent, 1);
+    assert.equal(first.skipped, 2);
+    assert.deepEqual(first.stopped, { 'agendó': 1, tope: 1 });
     assert.equal(whatsapp.sent[0].to, '51911111111');
     assert.equal(whatsapp.sent[0].kind, 'text');
-    assert.ok(whatsapp.sent[0].text.includes('quiero una cita'));
+    assert.match(whatsapp.sent[0].text, /¿Te ayudo a separar tu evaluación/);
 
     const second = await jobs.runFollowUps();
-    assert.equal(second.sent, 0); // nunca un segundo mensaje
+    assert.equal(second.sent, 0); // nunca la misma etapa dos veces
   });
 
   it('knows the clinic working hours', () => {

@@ -8,7 +8,8 @@ import crypto from 'crypto';
 export const UNIQUE_KEYS = {
   webhook_events: [['message_id']],
   whatsapp_media_sends: [['recipient', 'image_key', 'campaign_key']],
-  follow_ups: [['clinic_id', 'phone']],
+  follow_ups: [['clinic_id', 'phone', 'stage', 'anchor_at']],
+  contact_preferences: [['clinic_id', 'phone']],
   conversations: [['conversation_id']],
   leads: [['telefono']],
   chat_sessions: [['id']],

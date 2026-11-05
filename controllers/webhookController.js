@@ -38,6 +38,9 @@ import { sendEvaluationPack, sendImages } from './mediaReplies.js';
 import { sendWithSlotPicker } from '../services/slotButtons.js';
 import { confirmedBookingText, sendAppointmentPass } from './bookingReplies.js';
 import { interestOf, notifyDoctor } from '../services/doctorAlert.js';
+import contactPreferences, { detectMinor, detectOptOut } from '../services/contactPreferences.js';
+import { answersFollowUp } from '../services/followUpService.js';
+import { DATA_DELETION_REPLY, OPT_OUT_CONFIRMATION } from '../config/legalTexts.js';
 
 export { aiFallbackReply, formatSlotList };
 export { sanitizeReferral, dataDeletionFilters };
@@ -116,8 +119,6 @@ const BOOKING_INTENT = /\b(citas?|agendar|agendo|agenda|reservar|reserva|separar
 const CANCEL_INTENT = /^\s*cancelar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\bcancel\w*\b[^.?!]*\bcita\b|\bcita\b[^.?!]*\bcancel\w*\b|\bya no (?:voy a )?(?:ir|asistir|podr[eé] ir)\b/i;
 const RESCHEDULE_INTENT = /^\s*reprogramar(?:\s+mi)?(?:\s+cita)?\s*[.!]*\s*$|\b(?:cambiar|reprogramar|mover|postergar|cambio de)\b[^.?!]*\b(?:cita|hora|horario|d[ií]a)\b/i;
 export const DATA_DELETION = /^\s*(?:por\s+favor\s+)?(?:borra|borrar|elimina|eliminar)\s+(?:todos\s+)?(?:mis|los)\s+datos(?:\s+personales)?\s*(?:por\s+favor)?\s*[.!]*\s*$/i;
-const DATA_DELETION_REPLY = 'Listo ✅ Eliminamos tu conversación y tus datos de contacto de nuestro asistente. '
-  + 'Si tienes una cita registrada, la clínica la conserva solo para atenderte; puedes cancelarla escribiendo "cancelar mi cita".';
 const REMINDER_CONFIRM = /^\s*(?:1|1️⃣|confirmo|confirmar|confirmado|s[ií],?\s*confirmo)\s*[.!]*\s*$/i;
 // "Reagendar" / "Reprogramar": botón del recordatorio (interactivo o de la plantilla) o respuesta escrita.
 const REMINDER_RESCHEDULE = /^\s*(?:2|2️⃣|reprogramar|reagendar)\s*[.!]*\s*$/i;
@@ -335,6 +336,20 @@ function buildBotReply(geminiResult, messageText, recommendation) {
   return { text: safeReply.text, catalog, photos };
 }
 
+// "no", "stop", "no me escriban"…: se guarda como opt-out (con fecha) y no recibe más seguimientos ni promociones.
+// Un pedido explícito, o un "no" que responde a un seguimiento, se confirma y no pasa a la IA. Un "no" suelto
+// en medio de la conversación (p. ej. "¿alguna otra duda?" → "no") se registra y la conversación sigue.
+// Quien dice ser menor de edad queda marcado: nunca recibe seguimiento comercial. true si ya se respondió.
+async function handleOptOut(from, messageText) {
+  if (detectMinor(messageText)) await contactPreferences.markMinor(from);
+  const optOut = detectOptOut(messageText);
+  if (!optOut) return false;
+  await contactPreferences.optOut(from, 'paciente');
+  if (optOut !== 'explicit' && !(await answersFollowUp(from))) return false;
+  await sendReply(from, messageText, OPT_OUT_CONFIRMATION);
+  return true;
+}
+
 // Como una recepcionista: primero el catálogo del tratamiento y la tarjeta del pack (una vez cada uno),
 // después la respuesta con los horarios.
 async function sendVisuals(from, messageText, { today, catalog, showPack }) {
@@ -353,6 +368,7 @@ async function processBatch(from, buffer) {
 
   const handoffReason = detectHandoff(messageText);
   if (handoffReason) return replyHandoff(from, messageText, handoffReason, buffer.context);
+  if (await handleOptOut(from, messageText)) return;
 
   // Cancelar / reprogramar / responder un recordatorio se resuelve sin Gemini.
   const commandReply = await handleAppointmentCommands(from, messageText);

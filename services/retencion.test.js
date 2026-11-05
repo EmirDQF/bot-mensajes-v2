@@ -84,18 +84,19 @@ describe('Fase 3: recordatorio con botones Confirmar / Reagendar', () => {
   });
 });
 
-describe('Fase 3: seguimiento a ~4 h y ~23 h con el anuncio', () => {
-  it('envía uno a las ~4 h y otro a las ~23 h, cada uno una sola vez, con el tratamiento del anuncio', async () => {
+// Agente top (Fase 5): ahora 3 h y ~22 h (y día 3 con opt-in); las filas viejas "first" cuentan para el tope.
+describe('Fase 3: seguimiento a las 3 h y ~22 h con el anuncio', () => {
+  it('envía uno a las 3 h y otro a las ~22 h, cada uno una sola vez, con el tratamiento del anuncio', async () => {
     const db = fakeDb({
       messages: [
-        { phone: '51911111111', role: 'user', created_at: hoursAgo(5) }, // ~4 h
-        { phone: '51922222222', role: 'user', created_at: hoursAgo(21) }, // ~23 h (ya recibió el de 4 h)
+        { phone: '51911111111', role: 'user', created_at: hoursAgo(5) }, // etapa de las 3 h
+        { phone: '51922222222', role: 'user', created_at: hoursAgo(22.5) }, // etapa de las ~22 h (ya recibió uno)
         { phone: '51933333333', role: 'user', created_at: hoursAgo(2) }, // todavía no
       ],
       leads: [{ telefono: '911111111', tags: [], ad_referral: { headline: 'Brackets con cuota inicial S/ 0' } }],
       appointments: [],
       follow_ups: [{ clinic_id: clinic.id, phone: '51922222222', stage: 'first' }],
-    }, { uniqueOn: { follow_ups: ['clinic_id', 'phone', 'stage'] } });
+    }, { uniqueOn: { follow_ups: ['clinic_id', 'phone', 'stage', 'anchor_at'] } });
     const whatsapp = fakeWhatsapp();
     const jobs = createJobs({ getClient: () => db, whatsapp, handoff: noPause, now: () => NOW });
     const result = await jobs.runFollowUps();
@@ -105,7 +106,7 @@ describe('Fase 3: seguimiento a ~4 h y ~23 h con el anuncio', () => {
     assert.match(early.text, /Ortodoncia/);
     assert.ok(whatsapp.sent.some((m) => m.to === '51922222222'));
     assert.deepEqual(db.data.follow_ups.map((f) => [f.phone, f.stage]).sort(), [
-      ['51911111111', 'first'], ['51922222222', 'final'], ['51922222222', 'first'],
+      ['51911111111', 'seq1'], ['51922222222', 'first'], ['51922222222', 'seq2'],
     ]);
     assert.equal((await jobs.runFollowUps()).sent, 0, 'nunca se repite una etapa');
   });

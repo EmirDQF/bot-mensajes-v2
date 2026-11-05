@@ -4,6 +4,8 @@
 // body/category/buttons/example son lo que npm run meta:templates envía a aprobación (idioma "es"; Meta
 // no ofrece es_PE). Los ejemplos salen de la clínica activa (c): cero datos fijos de un cliente.
 
+import { FOLLOW_UP_OPT_OUT_LINE } from './legalTexts.js';
+
 const env = (key, fallback) => process.env[key] || fallback;
 
 export const TEMPLATES = {
@@ -36,6 +38,18 @@ export const TEMPLATES = {
     category: 'UTILITY',
     body: '🩺 Clínica {{1}} · {{2}}. Paciente: {{3}}. Interés: {{4}}. Cita: {{5}}. Recordatorio: {{6}}. Ver conversación: {{7}} (con tu usuario del panel).',
     example: (c) => [c.name, 'Nueva cita confirmada', 'Ana Torres', c.treatments[0]?.name || 'Evaluación', 'jueves, 5 de noviembre a las 4:30 p. m. (DV-0472)', 'programado (48 h y 2 h antes)', 'https://tu-bot.onrender.com/panel#chat=51999999999'],
+  },
+  // Seguimiento del día 3 (fuera de la ventana de 24 h). MARKETING: solo a pacientes con opt-in de marketing
+  // guardado (contact_preferences.marketing_opt_in_at). La línea de salida sale de config/legalTexts.js.
+  followUpDay3: {
+    name: env('WA_TEMPLATE_FOLLOW_UP_DAY3', 'seguimiento_dia3'),
+    language: 'es',
+    // {{1}} clínica · {{2}} tema (tratamiento o "tu evaluación")
+    params: ({ clinicName, topic }) => [clinicName, topic],
+    category: 'MARKETING',
+    body: `Hola 👋 Te escribe {{1}}. ¿Sigues interesado en {{2}}? Si quieres, te proponemos horarios para tu evaluación. ${FOLLOW_UP_OPT_OUT_LINE}`,
+    buttons: ['Quiero una cita', 'NO'],
+    example: (c) => [c.name, c.treatments[0]?.name || 'tu evaluación'],
   },
   reactivation: {
     name: env('WA_TEMPLATE_REACTIVATION', 'reactivacion_paciente'),
