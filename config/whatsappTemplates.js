@@ -27,6 +27,16 @@ export const TEMPLATES = {
     buttons: ['Confirmo', 'Reprogramar'],
     example: (c) => ['Ana', c.name, '10:00 a. m.', c.address],
   },
+  // Ficha de una cita para el doctor (DOCTOR_ALERT_PHONE) cuando no escribió al número en las últimas 24 h.
+  doctorCard: {
+    name: env('WA_TEMPLATE_DOCTOR_CARD', 'ficha_cita_doctor'),
+    language: 'es',
+    // {{1}} clínica · {{2}} evento · {{3}} paciente · {{4}} interés · {{5}} cita · {{6}} recordatorio · {{7}} enlace
+    params: ({ clinicName, event, patient, interest, when, reminder, link }) => [clinicName, event, patient, interest, when, reminder, link],
+    category: 'UTILITY',
+    body: '🩺 Clínica {{1}} · {{2}}. Paciente: {{3}}. Interés: {{4}}. Cita: {{5}}. Recordatorio: {{6}}. Ver conversación: {{7}} (con tu usuario del panel).',
+    example: (c) => [c.name, 'Nueva cita confirmada', 'Ana Torres', c.treatments[0]?.name || 'Evaluación', 'jueves, 5 de noviembre a las 4:30 p. m. (DV-0472)', 'programado (48 h y 2 h antes)', 'https://tu-bot.onrender.com/panel#chat=51999999999'],
+  },
   reactivation: {
     name: env('WA_TEMPLATE_REACTIVATION', 'reactivacion_paciente'),
     language: 'es',

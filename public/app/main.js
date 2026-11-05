@@ -1,7 +1,7 @@
 import api from './api.js';
 import { $, $$, h, clear, toast } from './dom.js';
 import { connectLive } from './live.js';
-import { initInbox, handleLiveEvent, resync, setQuickReplies } from './inbox.js';
+import { initInbox, handleLiveEvent, resync, setQuickReplies, openChat } from './inbox.js';
 import { initViews, loadAgenda, loadMetrics, loadReport } from './views.js';
 
 // Panel de la clínica: inicio de sesión, pestañas según el rol, conexión en vivo y alertas.
@@ -216,7 +216,10 @@ async function start() {
   live?.close();
   live = connectLive({ onEvent: onLiveEvent, onStatus: setLiveStatus, onResync: resync });
   const initial = window.location.hash.slice(1);
+  // Enlace de la ficha que recibe el doctor o recepción: /panel#chat=<teléfono> abre esa conversación.
+  const chat = initial.match(/^chat=(\d{6,15})$/)?.[1];
   showView(VIEWS[initial] && (!VIEWS[initial].owner || session.role === 'owner') ? initial : 'inbox');
+  if (chat) openChat(chat);
   return undefined;
 }
 

@@ -81,8 +81,12 @@ export async function loadMetrics() {
       tile('⚡ Primera respuesta', formatMs(m.avgFirstResponseMs), 'promedio en conversaciones nuevas'),
       tile('💰 Valor potencial', soles(m.potentialValue || 0), 'precio "desde" × citas no canceladas'),
       tile('🎯 Garantía', `${m.guarantee?.confirmed ?? 0}/${m.guarantee?.target ?? 2}`, m.guarantee?.met ? '✅ cumplida (últimos 7 días)' : '⏳ confirmadas en los últimos 7 días', m.guarantee?.met ? 'metric-tile--ok' : ''),
+      tile('🤖 Sin intervención humana', m.botOnlyRate == null ? '—' : `${m.botOnlyRate}%`,
+        m.botOnlyRate == null ? 'falta migrations/20260929_live_inbox.sql' : `${m.botOnly} de ${m.leads} conversaciones las resolvió solo el asistente`),
       tile('Leads', m.leads, 'personas que escribieron'),
-      tile('Citas creadas', m.appointments, 'por el asistente'),
+      tile('Solicitudes de cita', m.appointments, 'creadas por el asistente'),
+      tile('Citas confirmadas', m.confirmed ?? 0, 'por recepción, el paciente o el asistente'),
+      tile('Asistieron', m.attended, 'marcadas "asistió" en la Agenda'),
       tile('Tasa de agendamiento', `${m.bookingRate}%`, 'leads que pidieron cita'),
       tile('No asistieron', m.noShows, `${m.noShowRate}% de las citas cerradas`));
     const max = Math.max(1, ...m.byAd.map((row) => row.count));

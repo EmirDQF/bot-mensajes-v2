@@ -1,4 +1,4 @@
-import activeClinic from '../config/clinic.config.js';
+import activeClinic, { reminderHours } from '../config/clinic.config.js';
 import whatsappService from '../services/whatsappService.js';
 import { formatDateEs, formatTimeEs } from '../services/appointmentService.js';
 import { appointmentPassPng, canHavePass } from '../services/cards/appointmentPass.js';
@@ -14,6 +14,12 @@ const capitalize = (text) => String(text || '').charAt(0).toUpperCase() + String
 // Ruta del panel (con sesión) que genera el pase desde la fila de la cita. No es pública.
 export const passPreviewPath = (appointment) => `/api/panel/appointments/${encodeURIComponent(appointment.id)}/pass.png`;
 
+// " Te recordaremos por aquí 48 h y 2 h antes." según la configuración (o nada si están apagados).
+function reminderPhrase(clinic) {
+  const hours = Object.values(reminderHours(clinic)).filter(Boolean);
+  return hours.length ? ` Te recordaremos por aquí ${hours.map((h) => `${h} h`).join(' y ')} antes.` : '';
+}
+
 // Solo datos guardados en la cita y en la configuración de la clínica.
 export function confirmedBookingText(appointment, clinic = activeClinic) {
   const name = firstName(appointment.patient_name);
@@ -26,7 +32,7 @@ export function confirmedBookingText(appointment, clinic = activeClinic) {
     `📍 ${clinic.address}`,
     `🔖 Código: *${appointment.code}*`,
     '',
-    'Te enviamos tu pase de cita 👆 y te recordaremos por aquí antes de tu cita. Si no puedes asistir, escribe "reprogramar".',
+    `Te enviamos tu pase de cita 👆${reminderPhrase(clinic)} Si no puedes asistir, escribe "reprogramar".`,
   ];
   return lines.join('\n');
 }

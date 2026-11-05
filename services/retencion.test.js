@@ -50,7 +50,7 @@ describe('Fase 3: recordatorio con botones Confirmar / Reagendar', () => {
     assert.equal(result.sent24h, 1);
     const [msg] = whatsapp.sent;
     assert.equal(msg.kind, 'buttons');
-    assert.deepEqual(msg.buttons.map((b) => b.title), ['Confirmar', 'Reagendar']);
+    assert.deepEqual(msg.buttons.map((b) => b.title), ['Confirmo', 'Reprogramar']);
     assert.ok(msg.text.includes('Limpieza') && msg.text.includes(clinic.address));
   });
 

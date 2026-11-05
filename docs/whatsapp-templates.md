@@ -18,6 +18,10 @@ Idioma: **Español (es)**. Copia el cuerpo tal cual: las variables `{{1}}`, `{{2
 
 ## 1. `recordatorio_cita_24h` — Categoría: **Utilidad**
 
+> Es el **primer recordatorio** (por defecto **48 h** antes; se configura en `reminders.firstHours` o en el panel,
+> de 12 a 96 h). El nombre histórico se conserva para no pedir otra aprobación: el texto no dice "mañana".
+> Dentro de la ventana de 24 h el bot envía el mismo texto con botones interactivos `Confirmo` · `Reprogramar`.
+
 Variable de entorno para otro nombre: `WA_TEMPLATE_REMINDER_24H`
 
 **Cuerpo:**
@@ -30,11 +34,14 @@ Hola {{1}} 👋 Te recordamos tu cita en {{2}} para {{3}} el {{4}} a las {{5}}. 
 
 **Ejemplos para la revisión de Meta:** {{1}} Ana · {{2}} Clínica Dental Denvari · {{3}} Limpieza dental · {{4}} martes, 29 de setiembre · {{5}} 10:00 a. m. · {{6}} Calle Las Orquídeas 450, San Isidro
 
-Qué hace el bot con la respuesta: "Confirmo" (o "1") → la cita pasa a `confirmada` y se avisa a recepción; "Reprogramar" (o "2") → ofrece 3 horarios nuevos.
+Qué hace el bot con la respuesta: "Confirmo" (o "1") → la cita pasa a `confirmada`, queda guardado `reminder_reply` y se avisa a recepción (y al doctor si hay `DOCTOR_ALERT_PHONE`); "Reprogramar" (o "2") → ofrece horarios nuevos en botones.
 
 ---
 
 ## 2. `recordatorio_cita_2h` — Categoría: **Utilidad**
+
+> Es el **segundo recordatorio** (por defecto **2 h** antes; `reminders.secondHours`, de 1 a 6 h para que siempre
+> caiga el mismo día de la cita: el texto dice "es hoy").
 
 Variable de entorno para otro nombre: `WA_TEMPLATE_REMINDER_2H`
 
@@ -47,6 +54,24 @@ Hola {{1}}, tu cita en {{2}} es hoy a las {{3}}. 📍 Dirección: {{4}}. Si no p
 **Botones (respuesta rápida):** `Confirmo` · `Reprogramar`
 
 **Ejemplos:** {{1}} Ana · {{2}} Clínica Dental Denvari · {{3}} 10:00 a. m. · {{4}} Calle Las Orquídeas 450, San Isidro
+
+---
+
+## 2b. `ficha_cita_doctor` — Categoría: **Utilidad** (nueva)
+
+Variable de entorno para otro nombre: `WA_TEMPLATE_DOCTOR_CARD`. Solo se usa si definiste `DOCTOR_ALERT_PHONE` y el
+doctor no le escribió al número del bot en las últimas 24 h (dentro de la ventana va como texto).
+
+**Cuerpo:**
+
+```
+🩺 Clínica {{1}} · {{2}}. Paciente: {{3}}. Interés: {{4}}. Cita: {{5}}. Recordatorio: {{6}}. Ver conversación: {{7}} (con tu usuario del panel).
+```
+
+**Ejemplos:** {{1}} Clínica Dental Denvari · {{2}} Nueva cita confirmada · {{3}} Ana Torres · {{4}} Ortodoncia · {{5}} jueves, 5 de noviembre a las 4:30 p. m. (DV-0472) · {{6}} programado (48 h y 2 h antes) · {{7}} https://tu-bot.onrender.com/panel#chat=51999999999
+
+Nunca lleva síntomas ni diagnósticos: solo nombres de tratamientos de la configuración, la cita y el enlace al panel
+(que pide iniciar sesión).
 
 ---
 
@@ -131,7 +156,7 @@ Todas las tareas `/jobs/*` son `POST` con el header `x-cron-secret: <CRON_SECRET
 
 | Job | URL | Frecuencia | Cron (UTC) |
 |---|---|---|---|
-| Recordatorios 24 h / 2 h | `/jobs/reminders` | cada 15 min | `*/15 * * * *` |
+| Recordatorios (48 h y 2 h por defecto) | `/jobs/reminders` | cada 15 min | `*/15 * * * *` |
 | Resumen diario 8:00 a. m. Lima | `/jobs/daily-summary` | diario | `0 13 * * *` |
 | Seguimiento a las 20 h | `/jobs/follow-ups` | cada hora | `0 * * * *` |
 | Reporte semanal (lunes 8:00 a. m. Lima) | `/jobs/weekly-report` | lunes | `0 13 * * 1` |

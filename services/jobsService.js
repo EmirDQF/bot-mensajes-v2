@@ -11,6 +11,7 @@ import messageDedup from './messageDedup.js';
 import { fetchAllRows } from './supabasePaging.js';
 import { isMissingColumn } from './appointmentService.js';
 import { adTreatment } from './adContext.js';
+import { reminderHours } from '../config/clinic.config.js';
 
 // Tareas programadas. Las dispara un cron externo (Render Cron Job) vía POST /jobs/* con CRON_SECRET;
 // no hay temporizadores internos porque Render duerme el servicio.
@@ -23,8 +24,10 @@ const FOLLOW_UP_FIRST_HOURS = Number(process.env.FOLLOW_UP_FIRST_HOURS || 4);
 const FOLLOW_UP_FIRST_UNTIL_HOURS = FOLLOW_UP_FIRST_HOURS + 4;
 const REACTIVATION_DAYS = Number(process.env.REACTIVATION_DAYS || 180);
 const REACTIVATION_WINDOW_DAYS = 7;
-// Botones del recordatorio dentro de la ventana de 24 h (la plantilla trae los suyos: Confirmo / Reprogramar).
-export const REMINDER_BUTTONS = [{ id: 'confirmar', title: 'Confirmar' }, { id: 'reagendar', title: 'Reagendar' }];
+// Botones del recordatorio dentro de la ventana de 24 h: los mismos de la plantilla (Confirmo / Reprogramar).
+export const REMINDER_BUTTONS = [{ id: 'confirmar', title: 'Confirmo' }, { id: 'reagendar', title: 'Reprogramar' }];
+// El recordatorio largo no sale si la cita se pidió hace menos de esto (acaba de recibir la confirmación).
+const FRESH_BOOKING_HOURS = 12;
 
 const digits = (phone) => String(phone || '').replace(/\D/g, '');
 const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || '';
@@ -86,22 +89,31 @@ export function createJobs({
     return 'template';
   }
 
-  // ---------- Recordatorios 24 h y 2 h ----------
+  // ---------- Recordatorios (por defecto 48 h y 2 h antes; clinic.reminders) ----------
+  // El primero ("largo") se marca en reminder_24h_sent_at y el segundo ("corto") en reminder_2h_sent_at: las
+  // columnas conservan su nombre histórico, pero las horas salen de la configuración.
+  function reminderKind(apt, minutesLeft, current, { firstHours, secondHours }) {
+    const shortMinutes = (secondHours || 0) * 60;
+    if (secondHours && minutesLeft > 0 && minutesLeft <= shortMinutes && !apt.reminder_2h_sent_at) return '2h';
+    const fresh = apt.created_at && current - new Date(apt.created_at) < FRESH_BOOKING_HOURS * HOUR_MS;
+    if (firstHours && minutesLeft > shortMinutes && minutesLeft <= firstHours * 60 && !apt.reminder_24h_sent_at && !fresh) return '24h';
+    return null;
+  }
+
   async function runReminders() {
     const current = now();
     const today = localParts(clinic.timezone, current).date;
+    const hours = reminderHours(clinic);
     const rows = await query((await db()).from('appointments').select('*')
       .eq('clinic_id', clinic.id)
       .in('status', ACTIVE_STATUSES)
       .gte('appointment_date', today)
-      .lte('appointment_date', addDays(today, 2)));
+      .lte('appointment_date', addDays(today, Math.ceil((hours.firstHours || 24) / 24) + 1)));
 
-    const result = { checked: rows.length, sent24h: 0, sent2h: 0, failed: 0 };
+    const result = { checked: rows.length, sent24h: 0, sent2h: 0, failed: 0, hours };
     for (const apt of rows) {
       const minutesLeft = (toInstant(apt.appointment_date, apt.appointment_time, clinic.timezone) - current) / 60000;
-      const kind = minutesLeft > 0 && minutesLeft <= 120 && !apt.reminder_2h_sent_at ? '2h'
-        : minutesLeft > 120 && minutesLeft <= 24 * 60 && !apt.reminder_24h_sent_at ? '24h'
-          : null;
+      const kind = reminderKind(apt, minutesLeft, current, hours);
       if (!kind) continue;
 
       const data = {

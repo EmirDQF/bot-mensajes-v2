@@ -58,7 +58,8 @@ node scripts/generate-catalog-media.js # ilustraciones del catálogo de la demo 
 | Modo demo: Supabase en memoria, pacientes inventados, bloqueo en producción | `services/demo/` (`scripts/demo.js`) |
 | Probador del panel (flujo real, WhatsApp falso, hora simulada) | `controllers/testerController.js`, `public/app/tester.js`, `services/testContext.js` |
 | Recomendación de evaluación sin diagnosticar, lead score, notas para el bot | `services/recommendationService.js` (ficha: `PUT /api/panel/conversations/:phone/profile`) |
-| Recordatorios (con botones), briefing 7:30, seguimientos ~4 h / ~23 h, reactivación 6 meses | `services/jobsService.js` + `routes/jobs.js` |
+| Recordatorios configurables (`reminders`, por defecto 48 h y 2 h; botones Confirmo/Reprogramar), briefing 7:30, seguimientos, reactivación 6 meses | `services/jobsService.js` + `routes/jobs.js` |
+| Ficha del paciente para recepción y el doctor (`DOCTOR_ALERT_PHONE`, opcional): interés, cita, recordatorio y enlace `/panel#chat=<tel>` | `services/patientCard.js`, `services/doctorAlert.js` |
 | Reporte semanal y línea de la garantía | `services/reportService.js` (`POST /jobs/weekly-report`, pestaña Reporte) |
 | Panel de recepción | `public/panel.html`, `public/app/*.js` (main, inbox, live, views, config, tester), `controllers/panelController.js`, `services/panelDataService.js` |
 | Etiquetas de fotos `[ENVIAR_FOTO: x]` | `services/mediaTags.js` |
@@ -87,7 +88,7 @@ guarda la solicitud (rechaza horarios fuera de atención) y avisa a recepción �
 2. **No tocar el debounce** `BUFFER_WAIT_MS = 2000` de `controllers/webhookController.js`.
 3. **Cero datos fijos de una clínica** en controladores, servicios, prompts o `public/`: todo sale de
    `config/clinics/<id>.js`. Ningún teléfono en el código ni en `config/clinics/*.js`: se leen de
-   `CLINIC_PHONE`, `RECEPTION_ALERT_PHONE` y `OWNER_ALERT_PHONE`. Sin números de respaldo inventados.
+   `CLINIC_PHONE`, `RECEPTION_ALERT_PHONE`, `OWNER_ALERT_PHONE` y (opcional) `DOCTOR_ALERT_PHONE`. Sin números de respaldo inventados.
 4. **Tests en verde** (`npm run test:unit`, 0 fallos). Toda funcionalidad nueva lleva tests con mocks
    (Supabase falso en `services/testing/fakeSupabase.js`; servicios con fábricas `create*({ getClient, whatsapp, now })`).
 5. Trabajar en ramas con un commit por fase. **No hacer push ni merge a `main`** sin revisión del dueño.

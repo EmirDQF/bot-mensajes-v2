@@ -1,5 +1,6 @@
 import { getSupabase as getDefaultClient } from './supabaseClient.js';
-import activeClinic, { findTreatment, getReceptionPhone, isHoliday } from '../config/clinic.config.js';
+import activeClinic, { findTreatment, getReceptionPhone, isHoliday, reminderHours } from '../config/clinic.config.js';
+import { conversationLink, reminderStatusText } from './patientCard.js';
 import whatsappService from './whatsappService.js';
 import { now as clockNow } from './clock.js';
 import liveEvents from './liveEvents.js';
@@ -12,8 +13,8 @@ export const ACTIVE_STATUSES = ['pendiente', 'confirmada', 'reprogramada'];
 export const STATUSES = [...ACTIVE_STATUSES, 'cancelada', 'asistio', 'no_asistio'];
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const MIN_LEAD_MINUTES = Number(process.env.APPOINTMENT_MIN_LEAD_MINUTES || 60);
-// Columnas de migrations/20260927_after_hours_metrics.sql (opcionales hasta que se ejecute).
-const METRIC_COLUMNS = ['confirmed_at', 'rescheduled_at'];
+// Columnas opcionales (20260927_after_hours_metrics.sql y 20261106_reminder_reply.sql): sin ellas el cambio se guarda igual.
+const METRIC_COLUMNS = ['confirmed_at', 'rescheduled_at', 'reminder_reply', 'reminder_reply_at'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -369,7 +370,7 @@ export function createAppointmentService({
     let { data, error } = await run(patch);
     if (error && METRIC_COLUMNS.some((column) => column in patch && isMissingColumn(error, column))) {
       // Sin la migración de métricas el cambio de estado se guarda igual, sin la marca de tiempo.
-      console.warn('[Appointments] Faltan columnas de métricas; ejecuta migrations/20260927_after_hours_metrics.sql');
+      console.warn('[Appointments] Faltan columnas opcionales; ejecuta migrations/20260927_after_hours_metrics.sql y 20261106_reminder_reply.sql');
       ({ data, error } = await run(Object.fromEntries(Object.entries(patch).filter(([key]) => !METRIC_COLUMNS.includes(key)))));
     }
     if (error) throw error;
@@ -378,8 +379,8 @@ export function createAppointmentService({
   }
 
   // Recepción (panel) o el paciente (respuesta al recordatorio) confirman la cita. Cuenta para la garantía.
-  async function confirm(id) {
-    return updateStatus(id, 'confirmada', { confirmed_at: now().toISOString() });
+  async function confirm(id, changes = {}) {
+    return updateStatus(id, 'confirmada', { confirmed_at: now().toISOString(), ...changes });
   }
 
   async function reschedule(id, { appointmentDate, appointmentTime, durationMin }) {
@@ -419,7 +420,7 @@ export function createAppointmentService({
     return data || null;
   }
 
-  function receptionMessage(appointment, event, summary = null) {
+  function receptionMessage(appointment, event, summary = null, interest = []) {
     const titles = {
       nueva: '🦷 Nueva solicitud de cita',
       reprogramada: '🔁 Cita reprogramada por el paciente',
@@ -438,6 +439,10 @@ export function createAppointmentService({
     ];
     const ad = appointment.ad_referral;
     if (ad && (ad.headline || ad.source_id)) lines.push(`📣 Anuncio: ${ad.headline || ad.source_id}`);
+    // Ficha: interés (solo nombres de tratamientos), estado del recordatorio y enlace a la conversación.
+    if (interest.length) lines.push(`🦷 Interés: ${interest.join(' + ')}`);
+    if (['nueva', 'confirmada'].includes(event)) lines.push(`🔔 Recordatorio: ${reminderStatusText(appointment, reminderHours(clinic))}`);
+    lines.push(`💬 Conversación: ${conversationLink(phone)}`);
     // Resumen de 2 líneas de la conversación (geminiService.conversationSummary), para escribirle con contexto.
     if (summary?.length) lines.push('', '💬 Resumen:', ...summary.slice(0, 2));
     if (appointment.specialist) lines.splice(5, 0, `👩‍⚕️ ${appointment.specialist}`);
@@ -447,14 +452,14 @@ export function createAppointmentService({
   }
 
   // Avisa a recepción por WhatsApp. Nunca lanza: si falla, deja el error en el log.
-  async function notifyReception(appointment, { event = 'nueva', summary = null } = {}) {
+  async function notifyReception(appointment, { event = 'nueva', summary = null, interest = [] } = {}) {
     const to = getReceptionPhone();
     if (!to) {
       console.warn('[Appointments] RECEPTION_ALERT_PHONE no está definida; no se avisó a recepción.');
       return { sent: false, reason: 'missing_phone' };
     }
     try {
-      await whatsapp.sendTextMessage(to, receptionMessage(appointment, event, summary));
+      await whatsapp.sendTextMessage(to, receptionMessage(appointment, event, summary, interest));
       return { sent: true };
     } catch (error) {
       console.error('[Appointments] No se pudo avisar a recepción:', error?.message || error);

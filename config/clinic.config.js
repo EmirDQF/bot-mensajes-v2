@@ -63,7 +63,7 @@ export function validateClinic(clinic) {
     const color = clinic.colors?.[key];
     if (color !== undefined && !/^#[0-9a-f]{6}$/i.test(color)) errors.push(`colors.${key} debe ser un color #RRGGBB`);
   }
-  return [...errors, ...validateEditable(clinic), ...validateCatalog(clinic), ...validateBooking(clinic)];
+  return [...errors, ...validateEditable(clinic), ...validateCatalog(clinic), ...validateBooking(clinic), ...validateReminders(clinic)];
 }
 
 // Modo de agendamiento: "solicitud" (recepción confirma; por defecto) o "confirmacion_directa" (el bot reserva
@@ -87,6 +87,27 @@ function validateBooking(c) {
       }
     });
   }
+  return errors;
+}
+
+// Recordatorios de cita: horas antes del primero (largo) y del segundo (corto). null apaga ese recordatorio.
+export const DEFAULT_REMINDERS = { firstHours: 48, secondHours: 2 };
+export function reminderHours(c = clinic) {
+  const r = c?.reminders || {};
+  return {
+    firstHours: r.firstHours === null ? null : r.firstHours ?? DEFAULT_REMINDERS.firstHours,
+    secondHours: r.secondHours === null ? null : r.secondHours ?? DEFAULT_REMINDERS.secondHours,
+  };
+}
+
+function validateReminders(c) {
+  if (c.reminders === undefined) return [];
+  if (!c.reminders || typeof c.reminders !== 'object') return ['"reminders" debe ser { firstHours, secondHours }'];
+  const errors = [];
+  const { firstHours, secondHours } = reminderHours(c);
+  if (firstHours !== null && !(Number.isInteger(firstHours) && firstHours >= 12 && firstHours <= 96)) errors.push('reminders.firstHours debe ser un entero de 12 a 96 (o null para no enviarlo)');
+  // Hasta 6 h: el recordatorio corto siempre cae el mismo día de la cita ("es hoy a las…").
+  if (secondHours !== null && !(Number.isInteger(secondHours) && secondHours >= 1 && secondHours <= 6)) errors.push('reminders.secondHours debe ser un entero de 1 a 6 (o null para no enviarlo)');
   return errors;
 }
 
@@ -235,10 +256,10 @@ export default clinic;
 export const EDITABLE_FIELDS = [
   'name', 'botName', 'tone', 'emojiLevel', 'workingHours', 'workingHoursText', 'holidays', 'treatments', 'promotions',
   'campaign', 'paymentMethods', 'financingText', 'address', 'mapsUrl', 'reviewUrl', 'faq', 'welcomeCaption',
-  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack', 'bookingMode', 'specialists',
+  'afterHoursNotice', 'recommendationRules', 'quickReplies', 'forbiddenPhrases', 'colors', 'media', 'evaluationPack', 'bookingMode', 'specialists', 'reminders',
 ];
 // Objetos que se combinan por clave (un día del horario, una foto); el resto se reemplaza entero.
-const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media'];
+const MERGED_OBJECTS = ['workingHours', 'campaign', 'colors', 'media', 'reminders'];
 
 export function mergeClinic(base, overrides = {}) {
   const merged = structuredClone(base);
@@ -292,6 +313,8 @@ export function normalizePhone(raw) {
 export function getClinicPhone() { return normalizePhone(process.env.CLINIC_PHONE); }
 export function getReceptionPhone() { return normalizePhone(process.env.RECEPTION_ALERT_PHONE); }
 export function getOwnerPhone() { return normalizePhone(process.env.OWNER_ALERT_PHONE); }
+// Opcional: el doctor recibe la ficha de cada cita nueva. Sin esta variable, la ficha va solo a recepción.
+export function getDoctorPhone() { return normalizePhone(process.env.DOCTOR_ALERT_PHONE); }
 
 export function missingPhoneVars() {
   return PHONE_VARS.filter((name) => !normalizePhone(process.env[name]));

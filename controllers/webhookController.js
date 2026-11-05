@@ -37,6 +37,7 @@ import {
 import { sendEvaluationPack, sendImages } from './mediaReplies.js';
 import { sendWithSlotPicker } from '../services/slotButtons.js';
 import { confirmedBookingText, sendAppointmentPass } from './bookingReplies.js';
+import { interestOf, notifyDoctor } from '../services/doctorAlert.js';
 
 export { aiFallbackReply, formatSlotList };
 export { sanitizeReferral, dataDeletionFilters };
@@ -84,7 +85,10 @@ async function persistAgendaPayload(payload, context = {}) {
     const appointment = bookingModeOf(activeClinic) === 'confirmacion_directa'
       ? await appointmentService.reserveSlot({ ...request, specialist: specialistFor(findTreatment(request.treatment || '')?.key)?.name || null })
       : await appointmentService.saveAppointment(request);
-    await appointmentService.notifyReception(appointment, { summary: context.summary || null });
+    // Ficha para recepción y, si hay DOCTOR_ALERT_PHONE, para el doctor (sin diagnósticos ni texto libre).
+    const interest = interestOf(appointment, context.summary || []);
+    await appointmentService.notifyReception(appointment, { summary: context.summary || null, interest });
+    await notifyDoctor(appointment, { interest });
     return { status: 'saved', appointment };
   } catch (error) {
     if (error instanceof SlotTakenError) {
@@ -126,6 +130,16 @@ const pendingReschedules = createExpiringMap({ ttlMs: RESCHEDULE_TTL_MS });
 // Lo agrega formatSlotList: el mensaje trae horarios para elegir.
 const SLOT_LIST_MARK = 'Horarios disponibles:';
 
+// Guarda "confirmo" / "reprogramar" en la cita (ficha del doctor y métricas). Nunca bloquea la respuesta.
+async function saveReminderReply(appointments, appointment, reply) {
+  try {
+    return await appointments.updateStatus(appointment.id, appointment.status, reply);
+  } catch (error) {
+    console.warn('[Appointments] No se pudo guardar la respuesta al recordatorio:', describeError(error));
+    return null;
+  }
+}
+
 // "cancelar" / "cambiar mi cita": encuentra la próxima cita, ofrece horarios y actualiza el estado.
 // Devuelve el texto a responder, o null para que la conversación siga con Gemini.
 export async function handleAppointmentCommands(from, messageText, { appointments = appointmentService, gemini = geminiService } = {}) {
@@ -161,13 +175,18 @@ export async function handleAppointmentCommands(from, messageText, { appointment
 
     if (reminderAnswer && !wantsCancel && !wantsReschedule) {
       if (!appointment.reminder_24h_sent_at && !appointment.reminder_2h_sent_at) return null;
+      const reply = { reminder_reply: reminderAnswer === 'confirm' ? 'confirmo' : 'reprogramar', reminder_reply_at: new Date().toISOString() };
       if (reminderAnswer === 'confirm') {
-        if (appointment.status !== 'confirmada') {
-          const confirmed = await appointments.confirm(appointment.id);
-          await appointments.notifyReception(confirmed, { event: 'confirmada' });
-        }
+        // "Confirmo" al recordatorio: confirma la asistencia (también si el bot ya había confirmado la cita).
+        const confirmed = appointment.status !== 'confirmada'
+          ? await appointments.confirm(appointment.id, reply)
+          : await saveReminderReply(appointments, appointment, reply);
+        const updated = { ...appointment, ...(confirmed || {}), ...reply, status: 'confirmada' };
+        await appointments.notifyReception(updated, { event: 'confirmada' });
+        await notifyDoctor(updated, { event: 'confirmada', interest: interestOf(updated) });
         return `¡Gracias! Tu cita del ${current} quedó confirmada ✅. Te esperamos en ${activeClinic.address}.`;
       }
+      await saveReminderReply(appointments, appointment, reply);
       wantsReschedule = true;
     }
 

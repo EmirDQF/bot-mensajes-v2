@@ -79,6 +79,23 @@ export function createPanelData({
     return updated;
   }
 
+  // Conversaciones del periodo que resolvió solo el asistente: sin mensajes de recepción y sin pase a humano.
+  // null si la base aún no distingue quién escribió (falta la columna messages.sender).
+  async function countBotOnly(client, leads, since) {
+    if (!leads.size) return 0;
+    try {
+      const human = await fetchAllRows(() => client.from('messages').select('phone')
+        .eq('sender', 'reception').gte('created_at', since).order('created_at', { ascending: true }));
+      const handoffs = await fetchAllRows(() => client.from('handoffs').select('phone')
+        .eq('clinic_id', clinic.id).gte('created_at', since).order('created_at', { ascending: true }));
+      const touched = new Set([...human, ...handoffs].map((row) => digits(row.phone)));
+      return [...leads].filter((phone) => !touched.has(phone)).length;
+    } catch (error) {
+      console.warn('[Métricas] No se pudo medir la intervención humana:', error?.message || error);
+      return null;
+    }
+  }
+
   async function getMetrics(days = 30) {
     const period = Math.min(Math.max(Number(days) || 30, 1), 365);
     const since = new Date(now() - period * 24 * 3600e3).toISOString();
@@ -104,10 +121,14 @@ export function createPanelData({
       reports.buildReport({ from: addDays(today, -(period - 1)), to: today }),
       reports.buildReport({ from: addDays(today, -6), to: today }),
     ]);
+    const botOnly = await countBotOnly(client, leads, since);
     return {
       days: period,
       leads: leads.size,
       appointments: appts.length,
+      confirmed: periodReport.confirmed,
+      botOnly,
+      botOnlyRate: botOnly == null ? null : pct(botOnly, leads.size),
       bookingRate: pct([...bookedPhones].filter((p) => leads.has(p)).length, leads.size),
       attended,
       noShows,

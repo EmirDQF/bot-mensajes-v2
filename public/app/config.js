@@ -123,6 +123,11 @@ function assistantSection(c) {
     '⚠️ Usa la confirmación directa solo si la Agenda de este panel es la ÚNICA agenda de la clínica. '
     + 'Si recepción también agenda en un cuaderno, Excel u otro sistema, el bot podría confirmar un horario que ya está ocupado allí.');
   const syncWarning = () => { bookingWarning.hidden = bookingMode.value !== 'confirmacion_directa'; };
+  // Recordatorios: horas antes de la cita (0 = no enviar ese recordatorio).
+  const reminderInput = (value, max) => h('input', { type: 'number', min: 0, max, step: 1, value: value ?? 0, inputmode: 'numeric' });
+  const firstReminder = reminderInput(c.reminders?.firstHours === null ? 0 : c.reminders?.firstHours ?? 48, 96);
+  const secondReminder = reminderInput(c.reminders?.secondHours === null ? 0 : c.reminders?.secondHours ?? 2, 6);
+  const hoursOrNull = (input) => (Number(input.value) > 0 ? Math.round(Number(input.value)) : null);
   bookingMode.addEventListener('change', syncWarning);
   syncWarning();
   const preview = h('div', { class: 'preview', 'aria-live': 'polite' });
@@ -132,7 +137,7 @@ function assistantSection(c) {
   updatePreview();
   return section({
     id: 'assistant', title: '🤖 Clínica y asistente: nombres, tono y bienvenida', open: true,
-    fields: ['name', 'botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice', 'bookingMode'],
+    fields: ['name', 'botName', 'tone', 'emojiLevel', 'welcomeCaption', 'afterHoursNotice', 'bookingMode', 'reminders'],
     tryMessage: 'hola',
     body: [
       h('div', { class: 'grid-2' }, field('Nombre de la clínica', clinicName), field('Nombre de la asistente', botName)),
@@ -141,12 +146,16 @@ function assistantSection(c) {
       field('Aviso nocturno (clínica cerrada)', night, 'Vacío = texto por defecto.'),
       field('Cómo se agendan las citas', bookingMode, 'En "solicitud" el paciente recibe "solicitud recibida" y recepción confirma.'),
       bookingWarning,
+      h('div', { class: 'grid-2' },
+        field('Primer recordatorio (horas antes)', firstReminder, 'De 12 a 96 h; 0 = no enviarlo. Por defecto 48 h.'),
+        field('Segundo recordatorio (horas antes)', secondReminder, 'De 1 a 6 h; 0 = no enviarlo. Por defecto 2 h.')),
       h('p', { class: 'field' }, h('span', {}, 'Vista previa')), preview,
     ],
     collect: () => ({
       name: clinicName.value.trim(), botName: botName.value.trim(), tone: tone.value, emojiLevel: emojis.value,
       welcomeCaption: welcome.value.trim(), ...(night.value.trim() ? { afterHoursNotice: night.value.trim() } : {}),
       bookingMode: bookingMode.value,
+      reminders: { firstHours: hoursOrNull(firstReminder), secondHours: hoursOrNull(secondReminder) },
     }),
   });
 }
